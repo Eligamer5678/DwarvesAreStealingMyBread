@@ -883,6 +883,102 @@ export default class Draw {
         ctx.restore();
     }
 
+    // Draw a single tile from a tilesheet/spritesheet. Supports rotation (integer 0..3) in 90deg steps.
+    tile(sheet, pos, size = null, tile = null, rotation = 0, invert = null, opacity = 1, smoothing = false) {
+        const ctx = this._assertCtx('tile');
+        if (!sheet || !sheet.sheet || !sheet.slicePx) {
+            console.warn('Draw.tile: invalid sheet provided');
+            return;
+        }
+
+        // resolve tile metadata
+        // Support passing:
+        // - a tile key/name (looked up in sheet.tiles)
+        // - a numeric frame index (interpreted as column on row 0)
+        // - an array [row, col] or object {row, col} to directly specify tile coordinates
+        let meta = null;
+        if (tile) {
+            // direct coordinate object/array
+            if (Array.isArray(tile) || (typeof tile === 'object' && (tile.row !== undefined || tile[0] !== undefined))) {
+                if (Array.isArray(tile)) meta = { row: Number(tile[0]) || 0, col: Number(tile[1]) || 0 };
+                else meta = { row: Number(tile.row) || 0, col: Number(tile.col) || 0 };
+            } else {
+                if (sheet.tiles instanceof Map) meta = sheet.tiles.get(tile);
+                else if (sheet.tiles && sheet.tiles[tile]) meta = sheet.tiles[tile];
+            }
+        }
+
+        const slice = sheet.slicePx;
+        const img = sheet.sheet;
+        const sw = slice;
+        const sh = slice;
+
+        // compute source coords; if meta undefined, treat `tile` as frame index in row 0
+        let sx = 0, sy = 0;
+        if (meta && (meta.col !== undefined || meta.frame !== undefined)) {
+            const col = meta.col ?? meta.frame ?? 0;
+            sx = col * sw;
+            sy = (meta.row !== undefined) ? meta.row * sh : 0;
+        } else if (!isNaN(Number(tile))) {
+            const fi = Math.max(0, Math.floor(Number(tile)));
+            sx = fi * sw;
+            sy = 0;
+        }
+
+        // destination size
+        let dstW, dstH;
+        if (size) {
+            const s = _asVec(size);
+            dstW = s.x; dstH = s.y;
+        } else {
+            dstW = sw; dstH = sh;
+        }
+
+        const pPos = this.pv(pos.clone());
+        const px = pPos.x + this.px(dstW) / 2;
+        const py = pPos.y + this.py(dstH) / 2;
+
+        ctx.save();
+        ctx.translate(px, py);
+        // control image smoothing (anti-aliasing) per-draw
+        try {
+            if (smoothing === false) {
+                ctx.imageSmoothingEnabled = false;
+                if ('imageSmoothingQuality' in ctx) ctx.imageSmoothingQuality = 'low';
+            } else if (smoothing === true) {
+                if ('imageSmoothingEnabled' in ctx) ctx.imageSmoothingEnabled = true;
+                if ('imageSmoothingQuality' in ctx) ctx.imageSmoothingQuality = 'high';
+            }
+        } catch (e) {
+            // ignore if context doesn't support these properties
+        }
+
+        // apply integer rotation steps (0,1,2,3) -> multiples of 90deg
+        try {
+            let rot = Number(rotation) || 0;
+            rot = ((rot % 4) + 4) % 4;
+            if (rot !== 0) ctx.rotate(rot * Math.PI / 2);
+        } catch (e) {
+            // ignore rotation errors
+        }
+
+        if (invert) {
+            const inv = _asVec(invert);
+            const fx = inv.x < 0 ? -1 : 1;
+            const fy = inv.y < 0 ? -1 : 1;
+            ctx.scale(fx, fy);
+        }
+        ctx.globalAlpha *= (opacity !== undefined ? opacity : 1);
+
+        try {
+            ctx.drawImage(img, sx, sy, sw, sh, -this.px(dstW) / 2, -this.py(dstH) / 2, this.px(dstW), this.py(dstH));
+        } catch (e) {
+            console.warn('Draw.tile: drawImage failed', e);
+        }
+
+        ctx.restore();
+    }
+
     // =========================
     // (Optional) SVG helpers if needed later
     // =========================

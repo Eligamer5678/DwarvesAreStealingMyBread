@@ -34,9 +34,17 @@ export default class Mouse {
         window.addEventListener("pointermove", e => this._onMove(e));
         window.addEventListener("pointerdown", e => this._setButton(e.button, 1));
         window.addEventListener("pointerup", e => this._setButton(e.button, 0));
+        // capture wheel events; we may want to override ctrl+wheel for zooming
+        this._lastWheelDelta = 0;
+        this._lastWheelCtrl = false;
+        this._lastWheel = 0; // value exposed to update() consumers
         window.addEventListener("wheel", e => {
+            // if ctrl is held, prevent default browser zoom so our app can handle it
+            try { if (e.ctrlKey) e.preventDefault(); } catch (err) { /* ignore */ }
             this.scrollDelta += e.deltaY;
-        }, { passive: true });
+            this._lastWheelDelta += e.deltaY;
+            this._lastWheelCtrl = !!e.ctrlKey;
+        }, { passive: false });
         window.addEventListener("touchstart", e => {
             const touch = e.changedTouches[0];
             this._tapStart = e.timeStamp;
@@ -110,6 +118,11 @@ export default class Mouse {
         this.prevDelta = delta;
         this._lastScroll = this.scrollDelta;
         this.scrollDelta = 0;
+        // expose last wheel delta and ctrl flag to consumers, then reset
+        this._lastWheel = this._lastWheelDelta;
+        this._lastWheelDelta = 0;
+        this._lastWheelCtrlFlag = this._lastWheelCtrl;
+        this._lastWheelCtrl = false;
         this.delta = this.prevPos.sub(this.pos);
     }
 
@@ -149,6 +162,20 @@ export default class Mouse {
         let delta = this._lastScroll;
         if (mode === "up" && delta >= 0) delta = 0;
         if (mode === "down" && delta <= 0) delta = 0;
+        if (returnBool) return delta !== 0;
+        return delta;
+    }
+
+    /**
+     * Get last wheel delta. If requireCtrl=true, only return value when wheel event had ctrl pressed.
+     * mode: 'up'|'down' filters by direction like scroll().
+     */
+    wheel(mode = null, returnBool = false, requireCtrl = false) {
+        if (!this._allowed()) return returnBool ? false : 0;
+        let delta = this._lastWheel || 0;
+        if (requireCtrl && !this._lastWheelCtrlFlag) delta = 0;
+        if (mode === 'up' && delta >= 0) delta = 0;
+        if (mode === 'down' && delta <= 0) delta = 0;
         if (returnBool) return delta !== 0;
         return delta;
     }

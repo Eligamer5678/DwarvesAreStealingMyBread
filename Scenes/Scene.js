@@ -239,6 +239,53 @@ export default class Scene {
         this.Draw.background('#FFFFFF')
 
     }
+
+    /** 
+     * Creates the game's UI elements 
+     */
+    createUI(){
+        // just a reminder on doing this for my future self or others
+        // try {
+        //     const panelSize = new Vector(300, 130);
+        //     const margin = 20;
+        //     const panelPos = new Vector(1920 - margin - panelSize.x, 1080 - margin - panelSize.y);
+        //     const panel = createHDiv(
+        //         null,
+        //         panelPos,
+        //         panelSize,
+        //         '#00000033',
+        //         {
+        //             borderRadius: '8px',
+        //             border: '1px solid #FFFFFF44',
+        //             backdropFilter: 'blur(4px)',
+        //             display: 'flex',
+        //             flexDirection: 'column',
+        //             justifyContent: 'space-around',
+        //             alignItems: 'center',
+        //             color: '#fff',
+        //             padding: '8px',
+        //             fontFamily: 'sans-serif'
+        //         },
+        //         'UI' // attach to UI layer container
+        //     );
+
+        //     const createBtn = createHButton(null, new Vector(10, 60), new Vector(130, 40), '#333', { color: '#fff', borderRadius: '6px', fontSize: 14, border: '1px solid #777' }, panel);
+        //     createBtn.textContent = 'Create';
+        //     createBtn.addEventListener('click', () => {
+        //         console.log('[Title] Create button clicked');
+        //     });
+
+        //     const joinBtn = createHButton(null, new Vector(170, 60), new Vector(130, 40), '#333', { color: '#fff', borderRadius: '6px', fontSize: 14, border: '1px solid #777' }, panel);
+        //     joinBtn.textContent = 'Join';
+        //     joinBtn.addEventListener('click', () => {
+        //         console.log('[Title] Join button clicked');
+        //     });
+
+        //     this.uiPanel = { panel, createBtn, joinBtn };
+        // } catch (e) {
+        //     console.warn('createUI failed:', e);
+        // }
+    }
     
     /** 
      * Used to run ticks.

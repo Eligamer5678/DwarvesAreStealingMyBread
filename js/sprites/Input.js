@@ -36,7 +36,7 @@ export default class Input {
         
         this.dir = new Vector(0, 0);
         this._prev = new Vector(0, 0);
-        this.changed = new Signal(); // emits the new Vector when it changes
+        this.onChange = new Signal(); // emits the new Vector when it changes
 
         // Key mappings (arrays of key strings compatible with Keys.held/pressed)
         this.map = {
@@ -56,12 +56,10 @@ export default class Input {
         this.external = null;
 
         // Platformer-specific signals
-        if (this.type === 'platformer') {
-            // jumpKeys may be provided in options, else default to ['w','ArrowUp',' ']
-            this.jumpKeys = this.options.jumpKeys || ['w', 'W', 'ArrowUp', ' '];
-            this.jump = new Signal(); // emits when jump is pressed (pressed, not held)
-            // Expose a convenience axis.x property via this.dir.x
-        }
+        this.onJump = new Signal(); // emits when jump is pressed (pressed, not held)
+        this.onFall = new Signal();
+        this.jumpKeys = this.options.jumpKeys || ['w', 'W', 'ArrowUp', ' '];
+        this.fallKeys = this.options.fallKeys || ['s','S','ArrowDown']
     }
 
     // Read the Keys instance and compute direction. Call this each frame (or when input changes).
@@ -92,20 +90,24 @@ export default class Input {
         // only emit on change
         if (!this.dir.equals(v)) {
             this.dir = v;
-            this.changed.emit(this.dir);
+            this.onChange.emit(this.dir);
         }
 
         this._prev = this.dir.clone();
 
         // Platformer: detect jump press events (use Keys.pressed)
-        if (this.type === 'platformer' && this.jump) {
-            for (const k of this.jumpKeys) {
-                if (this.keys.pressed(k)) {
-                    try { this.jump.emit(k); } catch (e) { console.error('jump.signal error', e); }
-                    break;
-                }
+        for (const k of this.jumpKeys) {
+            if (this.keys.pressed(k)) {
+                this.onJump.emit(k)
             }
         }
+        
+        for (const f of this.fallKeys) {
+            if (this.keys.pressed(f)) {
+                this.onFall.emit(f)
+            }
+        }
+        
         return this.dir;
     }
 
@@ -128,17 +130,9 @@ export default class Input {
         this.update();
     }
 
-    // convenience to register change listeners
-    onChange(nameOrCallback, cb) {
-        this.changed.connect(nameOrCallback, cb);
-    }
 
-    // convenience to register jump listeners (platformer)
-    onJump(nameOrCallback, cb) {
-        if (this.jump) this.jump.connect(nameOrCallback, cb);
-    }
 
     clear() {
-        this.changed.clear();
+        this.onChange.clear();
     }
 }

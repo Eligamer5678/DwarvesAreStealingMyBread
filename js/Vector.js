@@ -58,6 +58,23 @@ export default class Vector {
     roundS(){
         this.x = Math.round(this.x)
         this.y = Math.round(this.y)
+        return this;
+    }
+    mod(value){
+        return new Vector(this.x % value,this.y % value)
+    }
+    modS(value){
+        this.x = this.x % value
+        this.y = this.y % value
+        return this;
+    }
+    floor(){
+        return new Vector(Math.floor(this.x),Math.floor(this.y))
+    }
+    floorS(){
+        this.x = Math.floor(this.x)
+        this.y = Math.floor(this.y)
+        return this;
     }
     max(scalar){
         return new Vector(Math.max(this.x,scalar),Math.max(this.y,scalar))
@@ -65,6 +82,7 @@ export default class Vector {
     maxS(scalar){
         this.x = Math.max(this.x,scalar)
         this.y = Math.max(this.y,scalar)
+        return this;
     }
     min(scalar){
         return new Vector(Math.min(this.x,scalar),Math.min(this.y,scalar))
@@ -72,12 +90,14 @@ export default class Vector {
     minS(scalar){
         this.x = Math.min(this.x,scalar)
         this.y = Math.min(this.y,scalar)
+        return this;
     }
     rotateS(angle) {
         const cos = Math.cos(angle);
         const sin = Math.sin(angle);
         this.x = this.x * cos - this.y * sin;
         this.y = this.x * sin + this.y * cos;
+        return this;
     }
     addS(v,type='') { 
         if (type === '') { this.x += v.x; this.y += v.y; }
@@ -127,4 +147,55 @@ export default class Vector {
     static sub(v1, v2) { return new Vector(v1.x - v2.x, v1.y - v2.y); }
     static zero() { return new Vector(0, 0); }
     static one() { return new Vector(1, 1); }
+
+    /**
+     * Evaluate a simple expression against each component and return a new Vector.
+     * Expression can use `this` to refer to the component value and the
+     * helper functions: round(), floor(), max(a,b), min(a,b).
+     * Allowed operators: + - * / % and parentheses.
+     * Example: v.math('this*round(121/2)')
+     */
+    math(expr) {
+        const evalComp = (comp) => {
+            if (typeof expr !== 'string') throw new Error('math: expr must be a string');
+            // basic sanitization: remove allowed identifiers and ensure no other letters remain
+            const stripped = expr.replace(/\bthis\b/g, '')
+                                  .replace(/\bround\b/g, '')
+                                  .replace(/\bfloor\b/g, '')
+                                  .replace(/\bmax\b/g, '')
+                                  .replace(/\bmin\b/g, '')
+                                  .replace(/\bsign\b/g, '')
+                                  .replace(/\babs\b/g, '')
+                                  .replace(/\bceil\b/g, '')
+                                  .replace(/\bclamp\b/g, '');
+            // build a RegExp safely (avoid unescaped '/' in literal). Allow digits, operators, parentheses, dot, comma and whitespace.
+            const invalidCharRe = new RegExp(`[^0-9+\\-*/%().,\\s]`);
+            if (invalidCharRe.test(stripped)) {
+                throw new Error('math: expression contains disallowed characters');
+            }
+
+            // replace `this` with the variable name used in the sandbox
+            const code = expr.replace(/\bthis\b/g, 'thisVal');
+
+            // build a small sandboxed function with only allowed helpers
+            const clampFunc = (v, a, b) => Math.max(a, Math.min(b, v));
+            const fn = new Function('thisVal', 'round', 'floor', 'max', 'min', 'sign', 'abs', 'ceil', 'clamp', `return (${code});`);
+            // call with Math helpers and clamp
+            return Number(fn(comp, Math.round, Math.floor, Math.max, Math.min, Math.sign, Math.abs, Math.ceil, clampFunc));
+        };
+
+        const nx = evalComp(this.x);
+        const ny = evalComp(this.y);
+        return new Vector(nx, ny);
+    }
+
+    /**
+     * In-place variant of math(expr). Modifies this vector and returns it.
+     */
+    mathS(expr) {
+        const res = this.math(expr);
+        this.x = res.x;
+        this.y = res.y;
+        return this;
+    }
 }
