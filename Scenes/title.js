@@ -11,6 +11,7 @@ import { TestSprite } from '../js/sprites/sprites.js';
 import SpriteSheet from '../js/Spritesheet.js';
 import TileSheet from '../js/Tilesheet.js';
 import TileMap from '../js/TileMap.js';
+import PackageManager from '../js/PackageManager.js';
 
 export class TitleScene extends Scene {
     constructor(...args) {
@@ -279,8 +280,14 @@ export class TitleScene extends Scene {
         }
         sheet.addAnimation('land', 8, 7);
 
-        this.testSprite = new TestSprite(this.keys,this.Draw,new Vector(100,100),new Vector(100,100),sheet)
+        this.testSprite = new TestSprite(this.keys,this.UIDraw,new Vector(100,100),new Vector(200,200),sheet)
         this.loadTilemap()
+
+        // create package manager for import/export (needs tilemap)
+        this.drawSheet = 'house';
+        this.packageManager = null; // initialized after tilemap
+        // UI click debounce flag (prevents multiple triggers per press)
+        this._uiHandled = false;
 
         // Level editor
         this.levelOffset = new Vector(50,0)
@@ -301,12 +308,12 @@ export class TitleScene extends Scene {
         }
         // tileTypes will be filled after tilesheet is available
         this.tileTypes = []
-    // zoom state
-    this.zoom = 1.0
-    this.zoomStep = 0.1
-    this.minZoom = 0.25
-    this.maxZoom = 3.0
-    this.zoomOrigin = null
+        // zoom state
+        this.zoom = 1.0
+        this.zoomStep = 0.1
+        this.minZoom = 0.25
+        this.maxZoom = 3.0
+        this.zoomOrigin = null
         
     }
 
@@ -326,21 +333,19 @@ export class TitleScene extends Scene {
 
         this._tilemap.setTile(0,5,'house','wall',2)
 
-        // Build 4x4 box (x:0..3, y:0..3)
-        for (let y = 0; y < 4; y++) {
-            for (let x = 0; x < 4; x++) {
-                let key = 'floor';
-                if (y === 0) {
-                    key = 'roof';
-                } else if (y === 3) {
-                    key = 'floor';
-                } else if (x === 0 || x === 3) {
-                    key = 'wall';
-                } else {
-                    key = 'floor';
+        // populate tileTypes from all registered sheets (sheetId,row,col entries)
+        this.tileTypes = [];
+        for (const [id, sheetObj] of this._tilemap.tileSheets.entries()) {
+            try {
+                const img = sheetObj.sheet;
+                const cols = Math.max(1, Math.floor(img.width / sheetObj.slicePx));
+                const rows = Math.max(1, Math.floor(img.height / sheetObj.slicePx));
+                for (let r = 0; r < rows; r++) {
+                    for (let c = 0; c < cols; c++) {
+                        this.tileTypes.push({ sheetId: id, row: r, col: c });
+                    }
                 }
-                this._tilemap.setTile(x, y, 'house', key, 0);
-            }
+            } catch (e) { /* ignore */ }
         }
     }
 
@@ -433,6 +438,405 @@ export class TitleScene extends Scene {
         }
     }
 
+    // Export currently registered tilesheets including image data (dataURLs)
+    // Create a tar archive Blob from entries: [{name, uint8Array}]
+    async createTarBlob(entries){
+        // helper to create header
+        function writeString(buf, offset, str, length){
+            for (let i=0;i<length;i++) buf[offset+i]=0;
+            const bytes = new TextEncoder().encode(str);
+            buf.set(bytes.subarray(0, Math.min(bytes.length, length)), offset);
+        }
+
+        const parts = [];
+        for (const ent of entries){
+            const name = ent.name;
+            const data = ent.data instanceof Uint8Array ? ent.data : (ent.data instanceof ArrayBuffer ? new Uint8Array(ent.data) : new Uint8Array(ent.data));
+            const size = data.length;
+
+            const header = new Uint8Array(512);
+            writeString(header, 0, name, 100);
+            writeString(header, 100, '0000777', 8);
+            writeString(header, 108, '0000000', 8);
+            writeString(header, 116, '0000000', 8);
+            // size field as octal
+            const sizeOct = size.toString(8).padStart(11,'0') + '\0';
+            writeString(header, 124, sizeOct, 12);
+            const mtimeOct = Math.floor(Date.now()/1000).toString(8).padStart(11,'0') + '\0';
+            writeString(header, 136, mtimeOct, 12);
+            // checksum: fill with spaces for now
+            for (let i=148;i<156;i++) header[i]=32;
+            header[156]=48; // typeflag '0'
+            writeString(header, 257, 'ustar\0', 6);
+            writeString(header, 263, '00', 2);
+            // compute checksum
+            let sum = 0;
+            for (let i=0;i<512;i++) sum += header[i];
+            const chks = sum.toString(8).padStart(6,'0') + '\0 ';
+            writeString(header, 148, chks, 8);
+
+            parts.push(header);
+            parts.push(data);
+            // pad to 512
+            const pad = (512 - (size % 512)) % 512;
+            if (pad>0) parts.push(new Uint8Array(pad));
+        }
+        // two 512-byte zero blocks
+        parts.push(new Uint8Array(512));
+        parts.push(new Uint8Array(512));
+
+        return new Blob(parts, { type: 'application/x-tar' });
+    }
+
+    // Export currently registered tilesheets as a tar archive including JSON and image files
+    async exportTileSheetsAsTarFile(filename = 'tilesheets.tar'){
+        try {
+            const sheets = [];
+            const entries = [];
+            for (const [id, ts] of this._tilemap.tileSheets.entries()) {
+                // gather tiles map
+                let tilesObj = {};
+                try {
+                    if (ts.tiles instanceof Map) {
+                        for (const [k, v] of ts.tiles.entries()) tilesObj[k] = v;
+                    } else if (ts.tiles) {
+                        tilesObj = ts.tiles;
+                    }
+                } catch (e) { tilesObj = {}; }
+
+                // convert image to blob if possible
+                try {
+                    const img = ts.sheet;
+                    if (img && img.width && img.height) {
+                        // draw to canvas and get PNG blob
+                        const c = document.createElement('canvas');
+                        c.width = img.width;
+                        c.height = img.height;
+                        const ctx = c.getContext('2d');
+                        ctx.drawImage(img, 0, 0);
+                        const blob = await new Promise((res) => c.toBlob(res, 'image/png'));
+                        const arrayBuf = await blob.arrayBuffer();
+                        entries.push({ name: `images/${id}.png`, data: new Uint8Array(arrayBuf) });
+                        sheets.push({ id, slicePx: ts.slicePx, tiles: tilesObj, imageFile: `images/${id}.png` });
+                    } else if (img && img.src) {
+                        // fallback: include src as text file
+                        entries.push({ name: `images/${id}.txt`, data: new TextEncoder().encode(img.src) });
+                        sheets.push({ id, slicePx: ts.slicePx, tiles: tilesObj, imageFile: `images/${id}.txt` });
+                    }
+                } catch (e) {
+                    console.warn('Could not include image for', id, e);
+                    sheets.push({ id, slicePx: ts.slicePx, tiles: tilesObj, imageFile: null });
+                }
+            }
+
+            const payload = { sheets };
+            const json = JSON.stringify(payload, null, 2);
+            entries.push({ name: 'tilesheets.json', data: new TextEncoder().encode(json) });
+
+            // include current map/editor state as map.json
+            try {
+                const mapPayload = {
+                    map: (this._tilemap && typeof this._tilemap.toJSON === 'function') ? this._tilemap.toJSON() : null,
+                    levelOffset: (this.levelOffset && typeof this.levelOffset.encode === 'function') ? this.levelOffset.encode ? this.levelOffset.encode() : Vector.encode(this.levelOffset) : Vector.encode(this.levelOffset),
+                    tileSize: this.tileSize,
+                    drawType: this.drawType,
+                    drawRot: this.drawRot,
+                    drawInvert: this.drawInvert,
+                    zoom: this.zoom
+                };
+                const mapJson = JSON.stringify(mapPayload, null, 2);
+                entries.push({ name: 'map.json', data: new TextEncoder().encode(mapJson) });
+            } catch (e) { /* ignore map export errors */ }
+
+            const tarBlob = await this.createTarBlob(entries);
+            const url = URL.createObjectURL(tarBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+            console.log('Tilesheets exported to tar file:', filename);
+        } catch (e) {
+            console.warn('Export tilesheets tar failed:', e);
+        }
+    }
+
+    // Prompt user to pick a JSON file and import tilesheets
+    loadTileSheetsFromFile(){
+        return new Promise((resolve) => {
+            try {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.json,application/json';
+                input.style.display = 'none';
+                input.onchange = async (e) => {
+                    const file = e.target.files && e.target.files[0];
+                    if (!file) { resolve(false); return; }
+                    const reader = new FileReader();
+                    reader.onload = async (ev) => {
+                        try {
+                            const payload = JSON.parse(ev.target.result);
+                            const ok = await this.loadTileSheetsFromPayload(payload);
+                            resolve(ok);
+                        } catch (err) {
+                            console.warn('Failed to parse tilesheet file:', err);
+                            resolve(false);
+                        }
+                    };
+                    reader.onerror = (err) => { console.warn('File read error', err); resolve(false); };
+                    reader.readAsText(file);
+                };
+                document.body.appendChild(input);
+                input.click();
+                setTimeout(() => { try { input.remove(); } catch (e){} }, 3000);
+            } catch (e) { console.warn('Load file failed:', e); resolve(false); }
+        });
+    }
+
+    // Prompt user to pick image files (PNG/JPG) or a JSON payload and import accordingly
+    promptImportFiles(){
+        return new Promise((resolve) => {
+            try {
+                const input = document.createElement('input');
+                input.type = 'file';
+                // allow JSON, images, and tar archives
+                input.accept = '.json,application/json,image/*,.tar,application/x-tar,application/tar';
+                input.multiple = true;
+                input.style.display = 'none';
+                input.onchange = async (e) => {
+                    const files = Array.from(e.target.files || []);
+                    if (!files.length) { resolve(false); return; }
+
+                    // Separate images vs json vs tar
+                    const imageFiles = files.filter(f => f.type && f.type.startsWith('image'));
+                    const jsonFiles = files.filter(f => f.type && (f.type === 'application/json' || f.name.toLowerCase().endsWith('.json')));
+                    const tarFiles = files.filter(f => f.name.toLowerCase().endsWith('.tar') || f.type === 'application/x-tar');
+
+                    let anyOk = false;
+
+                    // Handle image files: create tilesheets
+                    for (const f of imageFiles) {
+                        try {
+                            const dataUrl = await new Promise((res, rej) => {
+                                const r = new FileReader();
+                                r.onload = () => res(r.result);
+                                r.onerror = () => rej(new Error('readFailed'));
+                                r.readAsDataURL(f);
+                            });
+                            const img = new Image();
+                            const p = new Promise((res, rej) => { img.onload = () => res(true); img.onerror = () => res(false); });
+                            img.src = dataUrl;
+                            await p;
+                            // ask for slice size (try to infer default from filename or use 16)
+                            let defaultSlice = 16;
+                            try {
+                                // try to infer: if name contains numbers like 32,64
+                                const m = f.name.match(/(\d{2,3})/);
+                                if (m) defaultSlice = parseInt(m[1], 10);
+                            } catch (e) {}
+                            const sliceStr = window.prompt(`Enter tile slice size (px) for ${f.name}:`, String(defaultSlice));
+                            const slicePx = Math.max(1, Number(sliceStr) || defaultSlice);
+                            const id = f.name.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9_-]/g, '_');
+                            const ts = new TileSheet(img, slicePx);
+                            // auto-add tile entries by grid positions as numeric keys
+                            try {
+                                const cols = Math.max(1, Math.floor(img.width / slicePx));
+                                const rows = Math.max(1, Math.floor(img.height / slicePx));
+                                for (let r = 0; r < rows; r++) {
+                                    for (let c = 0; c < cols; c++) {
+                                        // name them by r_c for convenience
+                                        ts.addTile(`${r}_${c}`, r, c);
+                                    }
+                                }
+                            } catch (e) { /* ignore */ }
+                            this._tilemap.registerTileSheet(id, ts);
+                            anyOk = true;
+                        } catch (e) {
+                            console.warn('Failed to import image file as tilesheet', f.name, e);
+                        }
+                    }
+
+                    // Handle JSON files: attempt to parse and apply payloads
+                    for (const f of jsonFiles) {
+                        try {
+                            const text = await new Promise((res, rej) => {
+                                const r = new FileReader();
+                                r.onload = () => res(r.result);
+                                r.onerror = () => rej(new Error('readFailed'));
+                                r.readAsText(f);
+                            });
+                            const payload = JSON.parse(text);
+                            const ok = await this.loadTileSheetsFromPayload(payload);
+                            anyOk = anyOk || ok;
+                        } catch (e) {
+                            console.warn('Failed to import JSON tilesheet file', f.name, e);
+                        }
+                    }
+
+                    // Handle tar files: parse tar and extract tilesheets.json + images
+                    for (const f of tarFiles) {
+                        try {
+                            const arrayBuf = await new Promise((res, rej) => {
+                                const r = new FileReader();
+                                r.onload = () => res(r.result);
+                                r.onerror = () => rej(new Error('readFailed'));
+                                r.readAsArrayBuffer(f);
+                            });
+                            const parsed = await this.loadTileSheetsFromTarBuffer(arrayBuf);
+                            if (parsed && parsed.sheetsPayload) {
+                                const ok = await this.loadTileSheetsFromPayload(parsed.sheetsPayload);
+                                anyOk = anyOk || ok;
+                                // if there is a map payload, apply it after sheets are registered
+                                if (parsed.mapPayload) {
+                                    const mapOk = this.loadMapFromPayload(parsed.mapPayload);
+                                    anyOk = anyOk || mapOk;
+                                }
+                            }
+                        } catch (e) {
+                            console.warn('Failed to import tar tilesheet file', f.name, e);
+                        }
+                    }
+
+                    // refresh palette entries now that new sheets may be registered
+                    this.tileTypes = [];
+                    for (const [id, ts] of this._tilemap.tileSheets.entries()) {
+                        try {
+                            const img = ts.sheet;
+                            const cols = Math.max(1, Math.floor(img.width / ts.slicePx));
+                            const rows = Math.max(1, Math.floor(img.height / ts.slicePx));
+                            for (let r = 0; r < rows; r++) {
+                                for (let c = 0; c < cols; c++) {
+                                    this.tileTypes.push({ sheetId: id, row: r, col: c });
+                                }
+                            }
+                        } catch (e) { /* ignore */ }
+                    }
+
+                    try { if (input && input.parentNode) document.body.removeChild(input); } catch (e) { /* ignore if already removed */ }
+                    resolve(anyOk);
+                };
+                document.body.appendChild(input);
+                input.click();
+                setTimeout(() => { try { input.remove(); } catch (e){} }, 3000);
+            } catch (e) { console.warn('Import files failed:', e); resolve(false); }
+        });
+    }
+
+    // Parse a tar archive ArrayBuffer and return payload object similar to exported tilesheets.json
+    async loadTileSheetsFromTarBuffer(arrayBuffer){
+        try {
+            const u = new Uint8Array(arrayBuffer);
+            const entries = {};
+            let offset = 0;
+            while (offset + 512 <= u.length) {
+                // read header
+                const nameBytes = u.subarray(offset, offset+100);
+                const name = new TextDecoder().decode(nameBytes).replace(/\0.*$/,'');
+                if (!name) break;
+                const sizeBytes = u.subarray(offset+124, offset+136);
+                const sizeStr = new TextDecoder().decode(sizeBytes).replace(/\0.*$/,'').trim();
+                const size = sizeStr ? parseInt(sizeStr, 8) : 0;
+                offset += 512;
+                const data = u.subarray(offset, offset + size);
+                entries[name] = data.slice();
+                const skip = (512 - (size % 512)) % 512;
+                offset += size + skip;
+            }
+
+            // find tilesheets.json (allow for path prefixes)
+            const keys = Object.keys(entries);
+            const tsKey = keys.find(k => k.toLowerCase().endsWith('tilesheets.json'));
+            if (!tsKey) {
+                console.warn('Tar archive missing tilesheets.json');
+                return null;
+            }
+            const jsonText = new TextDecoder().decode(entries[tsKey]);
+            const payload = JSON.parse(jsonText);
+            // convert image entries to object URLs and set imageFile -> imageData
+            for (const s of payload.sheets) {
+                if (s.imageFile) {
+                    const imgKey = keys.find(k => k.toLowerCase().endsWith(s.imageFile.toLowerCase()));
+                    if (imgKey && entries[imgKey]) {
+                        const arr = entries[imgKey];
+                        const blob = new Blob([arr], { type: 'image/png' });
+                        const url = URL.createObjectURL(blob);
+                        s.imageData = url;
+                    }
+                }
+            }
+
+            // also look for map.json (allow path prefixes)
+            const mapKey = keys.find(k => k.toLowerCase().endsWith('map.json'));
+            let mapPayload = null;
+            if (mapKey && entries[mapKey]) {
+                try {
+                    const mapText = new TextDecoder().decode(entries[mapKey]);
+                    mapPayload = JSON.parse(mapText);
+                } catch (e) { console.warn('Failed to parse map.json from tar', e); }
+            }
+
+            return { sheetsPayload: payload, mapPayload };
+        } catch (e) {
+            console.warn('Failed to parse tar buffer', e);
+            return null;
+        }
+    }
+
+    // Apply payload containing tilesheets: { sheets: [{id, slicePx, tiles, imageData}] }
+    async loadTileSheetsFromPayload(payload){
+        try {
+            if (!payload || !Array.isArray(payload.sheets)) return false;
+            for (const s of payload.sheets) {
+                try {
+                    const img = new Image();
+                    // ensure we wait for load
+                    const p = new Promise((res, rej) => { img.onload = () => res(true); img.onerror = () => res(false); });
+                    img.src = s.imageData || s.url || '';
+                    await p;
+                    const ts = new TileSheet(img, s.slicePx || 16);
+                    // restore tiles
+                    if (s.tiles) {
+                        if (Array.isArray(s.tiles)) {
+                            for (const [k, v] of s.tiles) ts.addTile(k, v.row, v.col);
+                        } else {
+                            for (const k of Object.keys(s.tiles)) {
+                                const v = s.tiles[k];
+                                if (v && typeof v.row !== 'undefined') ts.addTile(k, v.row, v.col);
+                            }
+                        }
+                    }
+                    // register under given id (or generate if missing)
+                    const id = s.id || ('sheet_' + Math.random().toString(36).slice(2,9));
+                    this._tilemap.registerTileSheet(id, ts);
+                } catch (e) {
+                    console.warn('Failed to apply tilesheet', s && s.id, e);
+                }
+            }
+            // refresh palette types so UI includes newly loaded sheets
+            this.tileTypes = [];
+            // populate tileTypes now from all registered sheets
+            for (const [id, ts] of this._tilemap.tileSheets.entries()) {
+                try {
+                    const img = ts.sheet;
+                    const cols = Math.max(1, Math.floor(img.width / ts.slicePx));
+                    const rows = Math.max(1, Math.floor(img.height / ts.slicePx));
+                    for (let r = 0; r < rows; r++) {
+                        for (let c = 0; c < cols; c++) {
+                            this.tileTypes.push({ sheetId: id, row: r, col: c });
+                        }
+                    }
+                } catch (e) { /* ignore */ }
+            }
+            console.log('Tilesheets loaded from payload');
+            return true;
+        } catch (e) {
+            console.warn('Applying tilesheet payload failed:', e);
+            return false;
+        }
+    }
+
     // Prompt user to pick a JSON file and import it as a map
     loadMapFromFile(){
         return new Promise((resolve) => {
@@ -500,14 +904,16 @@ export class TitleScene extends Scene {
                     // ensure tileTypes is populated from the tilesheet (do once)
                     if (this.tileTypes.length === 0) {
                         try {
-                            const ts = this._tilemap.getTileSheet('house');
-                            const img = ts && ts.sheet;
-                            if (ts && img && img.width && ts.slicePx) {
-                                const cols = Math.max(1, Math.floor(img.width / ts.slicePx));
-                                const rows = Math.max(1, Math.floor(img.height / ts.slicePx));
-                                for (let r = 0; r < rows; r++) {
-                                    for (let c = 0; c < cols; c++) {
-                                        this.tileTypes.push([r, c]);
+                            // populate from all registered sheets
+                            for (const [id, ts] of this._tilemap.tileSheets.entries()) {
+                                const img = ts && ts.sheet;
+                                if (ts && img && img.width && ts.slicePx) {
+                                    const cols = Math.max(1, Math.floor(img.width / ts.slicePx));
+                                    const rows = Math.max(1, Math.floor(img.height / ts.slicePx));
+                                    for (let r = 0; r < rows; r++) {
+                                        for (let c = 0; c < cols; c++) {
+                                            this.tileTypes.push({ sheetId: id, row: r, col: c });
+                                        }
                                     }
                                 }
                             }
@@ -533,7 +939,7 @@ export class TitleScene extends Scene {
                         const btnH = 28;
                         const btnYStart = menuY + 8 + gridH + m.spacing;
 
-                        if (this.mouse.pressed('left')) {
+                        if (this.mouse.pressed('left') && !this._uiHandled) {
                             // if click within grid
                             if (mp.y >= menuY + 8 && mp.y <= menuY + 8 + gridH) {
                                 const relX = mp.x - (menuX + 8);
@@ -542,18 +948,37 @@ export class TitleScene extends Scene {
                                 const row = Math.floor(relY / (m.itemSize + m.spacing));
                                 const idx = row * cols + col;
                                 if (idx >= 0 && idx < this.tileTypes.length) {
-                                    this.drawType = this.tileTypes[idx];
+                                    const t = this.tileTypes[idx];
+                                    // store tile key and current sheet for placement
+                                    this.drawType = [t.row, t.col];
+                                    this.drawSheet = t.sheetId;
+                                    this._uiHandled = true;
                                 }
                             } else if (mp.x >= btnX && mp.x <= btnX + btnW) {
-                                // check for Save button
-                                if (mp.y >= btnYStart && mp.y <= btnYStart + btnH) {
-                                    // export to a file (download JSON)
-                                    this.saveMapToFile('map-default.json');
-                                }
-                                // check for Load button (stacked below Save)
-                                if (mp.y >= btnYStart + btnH + m.spacing && mp.y <= btnYStart + btnH * 2 + m.spacing) {
-                                    // open file picker and import
-                                    this.loadMapFromFile();
+                                // two buttons: Export Tilesheets, Import Tilesheets
+                                const y0 = btnYStart;
+                                const y1 = y0 + (btnH + m.spacing);
+                                        if (mp.y >= y0 && mp.y <= y0 + btnH) {
+                                            // Export tilesheets
+                                            try { if (this.mouse && typeof this.mouse._setButton === 'function') this.mouse._setButton(0,0); } catch (e) {}
+                                            if (!this.packageManager) this.packageManager = new PackageManager(this._tilemap, this);
+                                            // build map payload from current scene state
+                                            const mapPayload = {
+                                                map: (this._tilemap && typeof this._tilemap.toJSON === 'function') ? this._tilemap.toJSON() : null,
+                                                levelOffset: Vector.encode(this.levelOffset),
+                                                tileSize: this.tileSize,
+                                                drawType: this.drawType,
+                                                drawRot: this.drawRot,
+                                                drawInvert: this.drawInvert,
+                                                zoom: this.zoom
+                                            };
+                                            this.packageManager.exportAsTarFile('tilesheets.tar', mapPayload);
+                                    this._uiHandled = true;
+                                } else if (mp.y >= y1 && mp.y <= y1 + btnH) {
+                                    // Import tilesheets or image files (open file picker)
+                                    try { if (this.mouse && typeof this.mouse._setButton === 'function') this.mouse._setButton(0,0); } catch (e) {}
+                                    this.promptImportFiles();
+                                    this._uiHandled = true;
                                 }
                             }
                         }
@@ -563,7 +988,8 @@ export class TitleScene extends Scene {
         }
         // Placement (only if not interacting with UI)
         if (!pointerOverUI && this.mouse.held('left')){
-            this._tilemap.setTile(this.cursor.x,this.cursor.y,'house',this.drawType,this.drawRot,this.drawInvert)
+            const sheetId = this.drawSheet || 'house';
+            this._tilemap.setTile(this.cursor.x,this.cursor.y,sheetId,this.drawType,this.drawRot,this.drawInvert)
         }
         if(this.mouse.held('right')){
             this._tilemap.removeTile(this.cursor.x,this.cursor.y)
@@ -578,7 +1004,7 @@ export class TitleScene extends Scene {
         }
         // Rotation
         this.rotDelay -= tickDelta
-        if(this.rotDelay<0){
+        if(this.rotDelay<0 && !this.keys.held('Control')){
             if(this.mouse.scroll('up')){
                 this.drawRot = (this.drawRot+1)%4
                 this.rotDelay = this.rotSetDelay
@@ -672,6 +1098,8 @@ export class TitleScene extends Scene {
                     const info = this._tilemap.getTileRenderInfo(this.cursor.x, this.cursor.y);
                     if (info) {
                         this.drawType = info.tileKey;
+                        // set drawSheet to the sheet where tile came from
+                        this.drawSheet = info.tilesheetId || info.tilesheet || this.drawSheet;
                         this.drawRot = info.rotation ?? 0;
                         // if tiles include invert flag, use it; otherwise keep current
                         this.drawInvert = info.invert ?? this.drawInvert;
@@ -685,6 +1113,10 @@ export class TitleScene extends Scene {
                 this.startOffset = null;
                 this.mouse.releaseGrab();
             }
+        } catch (e) { /* ignore */ }
+        // Reset UI handled flag when left button released so next click works
+        try {
+            if (this.mouse.released('left')) this._uiHandled = false;
         } catch (e) { /* ignore */ }
     }
 
@@ -722,19 +1154,20 @@ export class TitleScene extends Scene {
             } catch (e) { /* ignore transform errors */ }
         }
 
-        this.testSprite.draw()
-
+        
         this.drawTilemap()
-
+        
         // draw preview of the tile under the cursor (on world layer) when not over palette
         if(this.mouse.pos.x < 1920 - this.uiMenu.menuWidth){
-            this.Draw.tile(this._tilemap.getTileSheet('house'), (new Vector(this.cursor.x * this.tileSize, this.cursor.y * this.tileSize)).addS(this.levelOffset), new Vector(this.tileSize, this.tileSize), this.drawType, this.drawRot, new Vector(this.drawInvert,1), 1);
+            const previewSheet = this._tilemap.getTileSheet(this.drawSheet || 'house');
+            this.Draw.tile(previewSheet, (new Vector(this.cursor.x * this.tileSize, this.cursor.y * this.tileSize)).addS(this.levelOffset), new Vector(this.tileSize, this.tileSize), this.drawType, this.drawRot, new Vector(this.drawInvert,1), 1);
             this.Draw.rect(this.cursor.mult(this.tileSize).add(this.levelOffset), new Vector(this.tileSize, this.tileSize), '#FFFFFF44')
         }
-
+        
         // UI drawing: overlays layer is cleared and used for UI elements
         this.UIDraw.useCtx('overlays')
         this.UIDraw.clear()
+        this.testSprite.draw()
         // Draw a right-side tile palette using UIDraw
         try {
             const uiCtx = this.UIDraw.getCtx('UI');
@@ -749,7 +1182,7 @@ export class TitleScene extends Scene {
                 // background panel
                 this.UIDraw.rect(new Vector(menuX, menuY), new Vector(m.menuWidth, menuH), '#FFFFFF22');
 
-                // draw each tile option in a grid
+                // draw each tile option in a grid (supports multiple sheets)
                 const cols = Math.max(1, Math.floor((m.menuWidth - 16 + m.spacing) / (m.itemSize + m.spacing)));
                 for (let i = 0; i < this.tileTypes.length; i++) {
                     const ty = this.tileTypes[i];
@@ -759,14 +1192,17 @@ export class TitleScene extends Scene {
                     const yPos = menuY + 8 + row * (m.itemSize + m.spacing);
                     // item background
                     this.UIDraw.rect(new Vector(xPos, yPos), new Vector(m.itemSize, m.itemSize), '#FFFFFF11');
-                    // highlight selection with stroke (compare arrays by string)
-                    if (this.drawType && Array.isArray(this.drawType) && Array.isArray(ty) && this.drawType[0] === ty[0] && this.drawType[1] === ty[1]) {
+                    // highlight selection
+                    if (this.drawType && Array.isArray(this.drawType) && ty && this.drawSheet && ty.sheetId === this.drawSheet && this.drawType[0] === ty.row && this.drawType[1] === ty.col) {
                         this.UIDraw.rect(new Vector(xPos, yPos), new Vector(m.itemSize, m.itemSize), '#00000000', false, true, 3, '#FFFFFF88');
                     }
                     // draw tile icon centered inside item
                     const centerX = xPos + m.itemSize / 2;
                     const centerY = yPos + m.itemSize / 2;
-                    this.UIDraw.tile(this._tilemap.getTileSheet('house'), new Vector(centerX-24, centerY-24), new Vector(m.itemSize, m.itemSize), ty, this.drawRot, new Vector(this.drawInvert,1), 1, false);
+                    try {
+                        const sheetObj = this._tilemap.getTileSheet(ty.sheetId);
+                        this.UIDraw.tile(sheetObj, new Vector(centerX-24, centerY-24), new Vector(m.itemSize, m.itemSize), [ty.row, ty.col], this.drawRot, new Vector(this.drawInvert,1), 1, false);
+                    } catch (e) { /* ignore drawing errors for individual tiles */ }
                 }
                 // draw Save / Load buttons below the grid
                 try {
@@ -776,12 +1212,13 @@ export class TitleScene extends Scene {
                     const btnW = m.menuWidth - 16;
                     const btnH = 28;
                     const btnYStart = menuY + 8 + gridH + m.spacing;
-                        // Save to file button
+                        // Export Tilesheets
                         this.UIDraw.rect(new Vector(btnX, btnYStart), new Vector(btnW, btnH), '#FFFFFF11');
-                        this.UIDraw.text('Save File', new Vector(btnX + btnW / 2, btnYStart + btnH / 2 + 6), '#FFFFFFFF', 0, 18, { align: 'center' });
-                        // Load from file button (stacked)
+                        this.UIDraw.text('Export Tilesheets', new Vector(btnX + btnW / 2, btnYStart + btnH / 2 + 6), '#FFFFFFFF', 0, 14, { align: 'center' });
+                        // Import Tilesheets
                         this.UIDraw.rect(new Vector(btnX, btnYStart + btnH + m.spacing), new Vector(btnW, btnH), '#FFFFFF11');
-                        this.UIDraw.text('Load File', new Vector(btnX + btnW / 2, btnYStart + btnH + m.spacing + btnH / 2 + 6), '#FFFFFFFF', 0, 18, { align: 'center' });
+                        this.UIDraw.text('Import Tilesheets', new Vector(btnX + btnW / 2, btnYStart + btnH + m.spacing + btnH / 2 + 6), '#FFFFFFFF', 0, 14, { align: 'center' });
+                        // (old Save/Load buttons removed — Export/Import replace them)
                 } catch (e) { /* ignore button draw errors */ }
             }
         } catch (e) {
