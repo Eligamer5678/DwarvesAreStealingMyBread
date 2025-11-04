@@ -1,6 +1,3 @@
-// Hey! These UI elements are out of date. They will work if needed, but the HTML versions will work better.
-// You will be losing out on custom CSS & mobile support using these.
-
 import Vector from '../Vector.js';
 import Signal from '../Signal.js';
 import Geometry from '../Geometry.js';
