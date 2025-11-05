@@ -280,7 +280,6 @@ export class TitleScene extends Scene {
         }
         sheet.addAnimation('land', 8, 7);
 
-        this.testSprite = new TestSprite(this.keys,this.UIDraw,new Vector(100,100),new Vector(200,200),sheet)
         this.loadTilemap()
 
         // create package manager for import/export (needs tilemap)
@@ -289,10 +288,20 @@ export class TitleScene extends Scene {
         // UI click debounce flag (prevents multiple triggers per press)
         this._uiHandled = false;
 
-        // Level editor
+            // Level editor
         this.levelOffset = new Vector(50,0)
         this.tileSize = 120
         this.cursor = new Vector(0,0)
+        // smooth panning velocity (used for wheel and drag smoothing)
+        this.panVelocity = new Vector(0,0);
+        this.panDamping = 32; // higher -> faster stop
+        this.panImpulse = 10; // multiplier when applying wheel/shift impulses
+        // create test sprite (after tilemap, tileSize and levelOffset are initialized)
+        this.testSprite = new TestSprite(this.keys, this.Draw, new Vector(128,128), new Vector(256,256), sheet)
+        // assign tile-related references externally so TestSprite keeps the scene's live references
+        this.testSprite.tilemap = this._tilemap;
+        this.testSprite.tileSize = this.tileSize;
+        this.testSprite.levelOffset = this.levelOffset;
         this.startOffset = null
         this.drawType = 'floor'
         this.drawRot = 0
@@ -319,12 +328,24 @@ export class TitleScene extends Scene {
         this.selectionColor = '#FF0000FF';
         // edit mode (false = normal, true = editing a selected tile)
         this.editmode = false;
-        this.editMenuWidth = 300;
-    // quick color picker for edit panel (array of Color instances)
-    this.editPaletteColors = ['#000000FF','#FFFFFFFF','#FF0000FF','#00FF00FF','#0000FFFF','#FFFF00FF','#FF00FFFF','#808080FF','#C08040FF'].map(c=>Color.convertColor(c));
-    this.editColor = Color.convertColor('#FFFFFFFF');
-    // eyedropper / color input state
-    this.eyedropActive = false;
+            this.editMenuWidth = 300;
+        // quick color picker for edit panel (array of Color instances)
+        this.editPaletteColors = ['#000000FF','#FFFFFFFF','#FF0000FF','#00FF00FF','#0000FFFF','#FFFF00FF','#FF00FFFF','#808080FF','#C08040FF'].map(c=>Color.convertColor(c));
+        this.editColor = Color.convertColor('#FFFFFFFF');
+        // eyedropper / color input state
+        this.eyedropActive = false;
+        // Camera follow state (lock when arrow keys pressed, unlock on mouse movement)
+        this.camera = {
+            locked: false,
+            // damping rate (larger -> faster following)
+            smooth: 2,
+            // fraction of viewport width to bias ahead of movement direction
+            bias: 0.25,
+            // track last mouse pos to detect movement for unlock
+            lastMousePos: (this.mouse && this.mouse.pos) ? this.mouse.pos.clone() : new Vector(0,0),
+            // movement (px) threshold to consider mouse moved
+            unlockDistance: 4
+        };
         
     }
 
@@ -343,6 +364,12 @@ export class TitleScene extends Scene {
         ts.addTile('roof', 0, 2);
 
         this._tilemap.setTile(0,5,'house','wall',2)
+        this._tilemap.setTile(0,6,'house','wall',2)
+        this._tilemap.setTile(0,7,'house','wall',2)
+        this._tilemap.setTile(0,8,'house','wall',2)
+        this._tilemap.setTile(1,8,'house','floor',0)
+        this._tilemap.setTile(2,8,'house','floor',0)
+        this._tilemap.setTile(3,8,'house','floor',0)
 
         // populate tileTypes from all registered sheets (sheetId,row,col entries)
         this.tileTypes = [];
@@ -427,14 +454,37 @@ export class TitleScene extends Scene {
             cv.height = slice;
             const ctx = cv.getContext('2d');
             try {
-                // use Color helper to produce rgb bytes
-                const col = Color.convertColor(this.editColor || '#FFFFFFFF').toRgb();
-                const r = Math.round(col.a || 0);
-                const g = Math.round(col.b || 0);
-                const b = Math.round(col.c || 0);
-                const a = Math.round((col.d || 1) * 255);
-                ctx.fillStyle = `rgba(${r},${g},${b},${a/255})`;
-                ctx.fillRect(0,0,slice,slice);
+                // If we're currently editing a tile, copy that tile's pixels into the new tile
+                if (this.editTileCanvas && this.editTileCanvas.width && this.editTileCanvas.height) {
+                    try {
+                        // draw/edit canvas into the new canvas, scaling if necessary
+                        if (this.editTileCanvas.width === slice && this.editTileCanvas.height === slice) {
+                            ctx.clearRect(0,0,slice,slice);
+                            ctx.drawImage(this.editTileCanvas, 0, 0);
+                        } else {
+                            ctx.clearRect(0,0,slice,slice);
+                            ctx.drawImage(this.editTileCanvas, 0, 0, this.editTileCanvas.width, this.editTileCanvas.height, 0, 0, slice, slice);
+                        }
+                    } catch (e) {
+                        // fallback to fill with selected color if drawImage fails
+                        const col = Color.convertColor(this.editColor || '#FFFFFFFF').toRgb();
+                        const r = Math.round(col.a || 0);
+                        const g = Math.round(col.b || 0);
+                        const b = Math.round(col.c || 0);
+                        const a = Math.round((col.d || 1) * 255);
+                        ctx.fillStyle = `rgba(${r},${g},${b},${a/255})`;
+                        ctx.fillRect(0,0,slice,slice);
+                    }
+                } else {
+                    // use Color helper to produce rgb bytes
+                    const col = Color.convertColor(this.editColor || '#FFFFFFFF').toRgb();
+                    const r = Math.round(col.a || 0);
+                    const g = Math.round(col.b || 0);
+                    const b = Math.round(col.c || 0);
+                    const a = Math.round((col.d || 1) * 255);
+                    ctx.fillStyle = `rgba(${r},${g},${b},${a/255})`;
+                    ctx.fillRect(0,0,slice,slice);
+                }
             } catch (e) { /* ignore */ }
 
             const ts = new TileSheet(cv, slice);
@@ -1061,15 +1111,7 @@ export class TitleScene extends Scene {
         this.twoPlayer = true;
     }
 
-    
-
-    /**
-     * Scene-specific tick handler. Called from base Scene.tick().
-     */
-    sceneTick(tickDelta){
-        this.testSprite.update(tickDelta);
-        // Placement
-        // UI interaction: compute UI bounds and whether pointer is over menu (grid-based)
+    updateRightBounds(tickDelta){
         let pointerOverUI = false;
         if(this.mouse.pos.x > 1920-48*5){
             try {
@@ -1171,612 +1213,569 @@ export class TitleScene extends Scene {
 
         // If edit mode is open, treat the left-side edit menu area as UI so clicks there
         // don't paint the map. This ensures the left panel blocks placement while open.
-        try {
-            if (this.editmode) {
-                const leftW = this.editMenuWidth || 300;
-                if (this.mouse.pos.x <= leftW) pointerOverUI = true;
-            }
-        } catch (e) { /* ignore */ }
-
-        // Handle clicks inside the edit panel for close/create buttons
-        try {
-            if (this.editmode && this.mouse.pressed('left') && this.mouse.pos) {
-                const mp = this.mouse.pos;
-                const leftW = this.editMenuWidth || 300;
-                const panelX = 8;
-                const panelY = 8;
-                const panelW = leftW;
-                const panelH = (this.UIDraw.getCtx('UI') ? (this.UIDraw.getCtx('UI').canvas.height / this.UIDraw.Scale.y) : 800) - 16;
-                // color swatches layout (small palette near top of panel)
-                const swatchSize = 20;
-                const swatchSpacing = 8;
-                const swatchCols = 10;
-                const swStartX = panelX + 12;
-                // shift swatches down to avoid overlapping the edit canvas
-                const swStartY = panelY + 36 + 300;
-                // handle clicks on color swatches
-                // color input and eyedropper buttons
-                const colorDisplayX = panelX + 12;
-                // move action buttons down to avoid overlapping the edit canvas
-                const colorDisplayY = panelY + 36 + 350;
-                const colorDisplayW = 28;
-                const colorDisplayH = 28;
-                const chooseX = colorDisplayX + colorDisplayW + 8;
-                const chooseY = colorDisplayY;
-                const chooseW = 100;
-                const chooseH = 28;
-                const dropX = chooseX + chooseW + 8;
-                const dropY = chooseY;
-                const dropW = 90;
-                const dropH = 28;
-                // Choose Color button: opens native color picker
-                if (mp.x >= chooseX && mp.x <= chooseX + chooseW && mp.y >= chooseY && mp.y <= chooseY + chooseH) {
-                    try { if (this.mouse && typeof this.mouse._setButton === 'function') this.mouse._setButton(0,0); } catch (e) {}
-                    // create a temporary input[type=color]
-                    try {
-                        const inp = document.createElement('input');
-                        inp.type = 'color';
-                        // use current editColor hex (drop alpha)
-                        try { inp.value = (this.editColor && typeof this.editColor.toHex === 'function') ? this.editColor.toHex().slice(0,7) : '#ffffff'; } catch (e) { inp.value = '#ffffff'; }
-                        inp.style.position = 'fixed'; inp.style.left = '-100px'; inp.style.top = '-100px';
-                        inp.addEventListener('input', (ev) => {
-                            try {
-                                const v = ev.target.value; // #rrggbb
-                                let c = Color.fromHex(v);
-                                // preserve previous alpha
-                                if (this.editColor && typeof this.editColor.d !== 'undefined') c.d = this.editColor.d;
-                                this.editColor = c;
-                            } catch (e) { /* ignore */ }
-                        });
-                        inp.addEventListener('change', ()=>{ try { inp.remove(); } catch(e){} });
-                        document.body.appendChild(inp);
-                        inp.click();
-                    } catch (e) { console.warn('Color input failed', e); }
-                    this.rotDelay = this.rotSetDelay; this._uiHandled = true;
-                }
-                // Eyedropper toggle
-                if (mp.x >= dropX && mp.x <= dropX + dropW && mp.y >= dropY && mp.y <= dropY + dropH) {
-                    try { if (this.mouse && typeof this.mouse._setButton === 'function') this.mouse._setButton(0,0); } catch (e) {}
-                    this.eyedropActive = !this.eyedropActive;
-                    this.rotDelay = this.rotSetDelay; this._uiHandled = true;
-                }
-
-                if (this.mouse.pressed('left') && Array.isArray(this.editPaletteColors)) {
-                    for (let si = 0; si < this.editPaletteColors.length; si++) {
-                        const scol = si % swatchCols;
-                        const srow = Math.floor(si / swatchCols);
-                        const sx = swStartX + scol * (swatchSize + swatchSpacing);
-                        const sy = swStartY + srow * (swatchSize + swatchSpacing);
-                        if (mp.x >= sx && mp.x <= sx + swatchSize && mp.y >= sy && mp.y <= sy + swatchSize) {
-                            // select this color (store Color instance)
-                            this.editColor = this.editPaletteColors[si];
-                            try { if (this.mouse && typeof this.mouse._setButton === 'function') this.mouse._setButton(0,0); } catch (e) {}
-                            this.rotDelay = this.rotSetDelay;
-                            this._uiHandled = true;
-                            break;
-                        }
-                    }
-                }
-                // close button region
-                const bx = panelX + panelW - 28;
-                const by = panelY + 8;
-                const bw = 20;
-                const bh = 20;
-                if (mp.x >= bx && mp.x <= bx + bw && mp.y >= by && mp.y <= by + bh) {
-                    try { if (this.mouse && typeof this.mouse._setButton === 'function') this.mouse._setButton(0,0); } catch (e) {}
-                    this.exitEditMode();
-                    this._uiHandled = true;
-                }
-                // create new tile button
-                const btnX = panelX + 12;
-                const btnY = panelY + panelH - 56;
-                const btnW = panelW - 24;
-                const btnH = 36;
-                if (mp.x >= btnX && mp.x <= btnX + btnW && mp.y >= btnY && mp.y <= btnY + btnH) {
-                    try { if (this.mouse && typeof this.mouse._setButton === 'function') this.mouse._setButton(0,0); } catch (e) {}
-                    if(this.rotDelay<-1){
-                        this.createNewTile();
-                        this.rotDelay = 1
-                    }
-                    this._uiHandled = true;
-                }
-                // if eyedropper was active and we clicked inside the edit canvas area, handle sampling here
-                if (this.eyedropActive) {
-                    // we will sample inside the pixel-edit block below (on press inside canvas)
-                    // but clear UI handled so sampling can occur
-                    this._uiHandled = false;
-                }
-            }
-        } catch (e) { /* ignore */ }
-        // Handle Shift+click selection: when Shift is held and left is pressed, select placed tile under cursor
-        try {
-            if (!pointerOverUI && this.mouse.pressed('left') && this.keys.held('Shift')) {
-                const info = this._tilemap.getTileRenderInfo(this.cursor.x, this.cursor.y);
-                if (info) {
-                    this.selectedTile = { x: this.cursor.x, y: this.cursor.y, info };
-                } else {
-                    // clear selection if clicking empty tile
-                    this.selectedTile = null;
-                }
-                // don't paint when selecting
-                this._uiHandled = true;
-            }
-        } catch (e) { /* ignore selection errors */ }
-
-        // Eyedropper: if active and clicked on the world (not UI), sample pixel from placed tile under cursor
-        try {
-            if (this.eyedropActive && !pointerOverUI && (this.mouse.pressed('left') || this.mouse.held('left'))) {
-                const info = this._tilemap.getTileRenderInfo(this.cursor.x, this.cursor.y);
-                if (info && info.sheet) {
-                    try {
-                        const ts = info.sheet; // TileSheet
-                        const slice = ts.slicePx || 16;
-                        // determine row/col of the tile
-                        let row = 0, col = 0;
-                        const tk = info.tileKey;
-                        if (Array.isArray(tk)) { row = tk[0]; col = tk[1]; }
-                        else if (typeof tk === 'string' && typeof ts.getTile === 'function') {
-                            const meta = ts.getTile(tk);
-                            if (meta) { row = meta.row; col = meta.col; }
-                        }
-
-                        // compute world-space mouse -> pixel within tile
-                        const drawCtx = this.Draw.ctx;
-                        let origin = new Vector(0,0);
-                        if (drawCtx) {
-                            const uiW = drawCtx.canvas.width / this.Draw.Scale.x;
-                            const uiH = drawCtx.canvas.height / this.Draw.Scale.y;
-                            const center = new Vector(uiW/2, uiH/2);
-                            origin = this.zoomOrigin ? this.zoomOrigin : center;
-                        }
-                        const worldPos = this.mouse.pos.sub(origin).div(this.zoom).add(origin);
-                        const local = worldPos.sub(this.levelOffset);
-                        const withinTileX = local.x - (this.cursor.x * this.tileSize);
-                        const withinTileY = local.y - (this.cursor.y * this.tileSize);
-
-                        const px = Math.floor((withinTileX / this.tileSize) * slice);
-                        const py = Math.floor((withinTileY / this.tileSize) * slice);
-                        if (px < 0 || py < 0 || px >= slice || py >= slice) {
-                            // clicked outside precise tile pixels, ignore
-                        } else {
-                            // prepare a temp canvas for the tile pixels
-                            let source = ts.sheet;
-                            const tmp = document.createElement('canvas');
-                            tmp.width = slice; tmp.height = slice;
-                            const tctx = tmp.getContext('2d');
-                            try {
-                                tctx.clearRect(0,0,slice,slice);
-                                tctx.drawImage(source, col * slice, row * slice, slice, slice, 0, 0, slice, slice);
-                                const d = tctx.getImageData(px, py, 1, 1).data;
-                                const picked = new Color(d[0], d[1], d[2], (d[3] || 255) / 255, 'rgb');
-                                this.editColor = picked;
-                                this.eyedropActive = false;
-                                try { if (this.mouse && typeof this.mouse._setButton === 'function') this.mouse._setButton(0,0); } catch (e) {}
-                                this.rotDelay = this.rotSetDelay;
-                                this._uiHandled = true;
-                            } catch (e) {
-                                console.warn('Eyedrop world sample failed', e);
-                            }
-                        }
-                    } catch (e) { /* ignore eyedrop sampling errors */ }
-                }
-            }
-        } catch (e) { /* ignore */ }
-
-        // If editing a selected tile, allow painting directly in the world view (pixel-level)
-        try {
-            if (this.editmode && this.selectedTile && typeof this.selectedTile.x === 'number' && !pointerOverUI && (this.mouse.pressed('left') || this.mouse.held('left') || this.mouse.pressed('right') || this.mouse.held('right'))) {
-                const sel = this.selectedTile;
-                const info = sel.info;
-                if (info && info.sheet) {
-                    try {
-                        const ts = info.sheet;
-                        const slice = ts.slicePx || 16;
-                        // determine row/col in tilesheet
-                        let row = 0, col = 0;
-                        const tk = info.tileKey;
-                        if (Array.isArray(tk)) { row = tk[0]; col = tk[1]; }
-                        else if (typeof tk === 'string' && typeof ts.getTile === 'function') {
-                            const meta = ts.getTile(tk);
-                            if (meta) { row = meta.row; col = meta.col; }
-                        }
-
-                        // compute pixel coords inside the tile based on world mouse position
-                        const drawCtx = this.Draw.ctx;
-                        let origin = new Vector(0,0);
-                        if (drawCtx) {
-                            const uiW = drawCtx.canvas.width / this.Draw.Scale.x;
-                            const uiH = drawCtx.canvas.height / this.Draw.Scale.y;
-                            const center = new Vector(uiW/2, uiH/2);
-                            origin = this.zoomOrigin ? this.zoomOrigin : center;
-                        }
-                        const worldPos = this.mouse.pos.sub(origin).div(this.zoom).add(origin);
-                        const local = worldPos.sub(this.levelOffset);
-                        const withinTileX = local.x - (sel.x * this.tileSize);
-                        const withinTileY = local.y - (sel.y * this.tileSize);
-                        const px = Math.floor((withinTileX / this.tileSize) * slice);
-                        const py = Math.floor((withinTileY / this.tileSize) * slice);
-
-                        if (px >= 0 && py >= 0 && px < slice && py < slice) {
-                            // ensure master tilesheet is a canvas we can write to
-                            if (!(ts.sheet instanceof HTMLCanvasElement)) {
-                                const orig = ts.sheet;
-                                const cv = document.createElement('canvas');
-                                cv.width = orig.width || (col + 1) * slice;
-                                cv.height = orig.height || (row + 1) * slice;
-                                const ctx = cv.getContext('2d');
-                                try { ctx.drawImage(orig, 0, 0); } catch (e) {}
-                                ts.sheet = cv;
-                            }
-                            const ctx = ts.sheet.getContext('2d');
-                            const im = ctx.getImageData(col * slice, row * slice, slice, slice);
-                            const idx = (py * slice + px) * 4;
-                            if (this.mouse.held('right') || this.mouse.pressed('right')) {
-                                im.data[idx+0] = 0; im.data[idx+1] = 0; im.data[idx+2] = 0; im.data[idx+3] = 0;
-                            } else {
-                                try {
-                                    const colc = Color.convertColor(this.editColor || '#FFFFFFFF').toRgb();
-                                    im.data[idx+0] = Math.round(colc.a || 0);
-                                    im.data[idx+1] = Math.round(colc.b || 0);
-                                    im.data[idx+2] = Math.round(colc.c || 0);
-                                    im.data[idx+3] = Math.round((colc.d || 1) * 255);
-                                } catch (e) {
-                                    const rgba = this._hexToRGBA(this.editColor || '#FFFFFFFF');
-                                    im.data[idx+0] = rgba[0]; im.data[idx+1] = rgba[1]; im.data[idx+2] = rgba[2]; im.data[idx+3] = rgba[3];
-                                }
-                            }
-                            ctx.putImageData(im, col * slice, row * slice);
-                            // update the edit canvas view if present
-                            try {
-                                if (this.editTileCanvas) {
-                                    const edctx = this.editTileCanvas.getContext('2d');
-                                    edctx.clearRect(0,0,this.editTileCanvas.width,this.editTileCanvas.height);
-                                    edctx.drawImage(ts.sheet, col * slice, row * slice, slice, slice, 0, 0, slice, slice);
-                                }
-                            } catch (e) {}
-                            this._uiHandled = true;
-                            this.rotDelay = this.rotSetDelay;
-                        }
-                    } catch (e) { /* ignore painting errors */ }
-                }
-            } else if (!pointerOverUI && this.mouse.held('left') && !this.keys.held('Shift')){
-                const sheetId = this.drawSheet || 'house';
-                this._tilemap.setTile(this.cursor.x,this.cursor.y,sheetId,this.drawType,this.drawRot,this.drawInvert)
-            }
-        } catch (e) { /* ignore placement errors */ }
-        // Toggle edit mode: press 'e' when a tile is selected to open/close the editor menu
-        try {
-            if (this.keys.pressed('e') && this.selectedTile) {
-                if (!this.editmode) {
-                    this.editmode = true;
-                    try { this.prepareEditTile(); } catch (e) { console.warn('prepareEditTile failed', e); }
-                } else {
-                    try { this.exitEditMode(); } catch (e) { /* ignore */ }
-                }
-            }
-            // close edit mode with Escape
-            if (this.keys.pressed('Escape') && this.editmode) {
-                try { this.exitEditMode(); } catch (e) { /* ignore */ }
-            }
-        } catch (e) { /* ignore */ }
-        if(this.mouse.held('right')&& !this.editmode){
-            this._tilemap.removeTile(this.cursor.x,this.cursor.y)
+        if (this.editmode) {
+            const leftW = this.editMenuWidth || 300;
+            if (this.mouse.pos.x <= leftW) pointerOverUI = true;
         }
-        if(this.keys.held('i') && this.rotDelay < -1){
+        return pointerOverUI;
+    }
+    handleKeys(){
+        // Toggle edit mode with e
+        let toggleEdit = ()=>{
+            if (!(this.keys.pressed('e') && this.selectedTile)) return; 
+            if (!this.selectedTile.info) { this.createNewTile(); return; } 
+            if (!this.editmode) {this.editmode = true; this.prepareEditTile(); return;} 
+            this.exitEditMode();
+        }
+        toggleEdit()
+
+        // close edit mode with Escape
+        if (this.keys.pressed('Escape') && this.editmode) this.exitEditMode();
+        
+        // rotation/invert controls
+        if(this.rotDelay > -0.1) return;
+        if(this.keys.held('f')){
             this.drawInvert *= -1
             this.rotDelay = this.rotSetDelay
         }
+        if(this.keys.held('r')){
+            this.drawRot = (this.drawRot+1)%4
+            this.rotDelay = this.rotSetDelay
+        }
+    }
+    zoomWorld(tickDelta){
+        // Zoom controls: '-' to zoom out, '=' to zoom in (single press)
+        const prevZoom = this.zoom;
+        const drawCtx = this.Draw.ctx;
+        const uiW = drawCtx ? drawCtx.canvas.width / this.Draw.Scale.x : 0;
+        const uiH = drawCtx ? drawCtx.canvas.height / this.Draw.Scale.y : 0;
+        const center = new Vector(uiW / 2, uiH / 2);
+        const prevOrigin = this.zoomOrigin ? this.zoomOrigin : center;
+
+        // helper to compute world point under screen position S using previous transform
+        // invert: S = prevZoom * W + (1 - prevZoom) * prevOrigin
+        // => W = (S + (prevZoom - 1) * prevOrigin) / prevZoom
+        const worldUnderScreen = (S) => {
+            return S.add(prevOrigin.mult(prevZoom - 1)).div(prevZoom);
+        };
+
+        // helper to compute new levelOffset so world W maps to screen S under newZoom and newOrigin
+        // derive: newLevelOffset = (S + (newZoom - 1)*newOrigin)/newZoom - W + oldLevelOffset
+        const computeLevelFor = (W, S, newZoom, newOrigin) => {
+            return S.add(newOrigin.mult(newZoom - 1)).div(newZoom).sub(W).add(this.levelOffset);
+        };
+
+        // Keyboard zoom (- / =)
+        if (this.keys.pressed('-') || this.keys.pressed('=')) {
+            const step = this.keys.pressed('=') ? this.zoomStep : -this.zoomStep;
+            const newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoom + step));
+            const S = this.mouse.pos.clone();
+            const W = worldUnderScreen(S);
+            const newOrigin = S; // zoom toward mouse
+            this.zoom = newZoom;
+            this.levelOffset = computeLevelFor(W, S, this.zoom, newOrigin);
+            this.zoomOrigin = newOrigin;
+        }
+
+        // ctrl+wheel zoom
+        const wheelDelta = this.mouse.wheel(null, false, true);
+        if (wheelDelta !== 0) {
+            const factor = Math.exp(-wheelDelta * 0.001);
+            const newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoom * factor));
+            const S = this.mouse.pos.clone();
+            const W = worldUnderScreen(S);
+            const newOrigin = S;
+            this.zoom = newZoom;
+            this.levelOffset = computeLevelFor(W, S, this.zoom, newOrigin);
+            this.zoomOrigin = newOrigin;
+        }
+
+    }
+    panWorld(tickDelta){
+        // Shift+scroll should pan the world (like middle-drag). Use horizontal (wheelX) and vertical wheel.
+        if (!this.mouse.held('left')&& !this.keys.held('Control')) {
+            const dx = this.mouse.wheelX(null, false, false) || 0;
+            const dy = this.mouse.wheel(null, false, false) || 0;
+            if (dx !== 0 || dy !== 0) {
+                const pan = new Vector(-dx, -dy).div(this.zoom || 1);
+                // apply as velocity impulse for smooth panning
+                this.panVelocity = this.panVelocity.add(pan.mult(this.panImpulse || 20));
+                // reset rotDelay so accidental tiny scrolls don't trigger rotation elsewhere
+                this.rotDelay = this.rotSetDelay;
+            }
+        }
+
+        if(this.startOffset !== null){
+            // mouse.getGrabDelta is in screen space; convert to world-space by dividing by zoom
+            const desiredOffset = this.startOffset.add(this.mouse.getGrabDelta().div(this.zoom));
+            const desiredDelta = desiredOffset.sub(this.levelOffset);
+            // set velocity toward desired offset so panning is smooth and follows the pointer
+            this.panVelocity = this.panVelocity.add(desiredDelta.mult(10));
+        }
+
+
+        if (!this.panVelocity) return;
+        // apply velocity (units: pixels per second), scaled by tickDelta
+        this.levelOffset = this.levelOffset.add(this.panVelocity.mult(tickDelta));
+        // exponential damping
+        const damp = Math.exp(-(this.panDamping || 8) * tickDelta);
+        this.panVelocity = this.panVelocity.mult(damp);
+        // tiny cutoff
+        if (Math.abs(this.panVelocity.x) < 0.01 && Math.abs(this.panVelocity.y) < 0.01) {
+            this.panVelocity = new Vector(0,0);
+        }
+        
+    }
+    getCursor(pos){
+        // If a custom screen position is provided, use it; otherwise use the mouse position.
+        const screenPos = pos ? pos.clone() : this.mouse.pos.clone();
+        const ctx = this.Draw.ctx;
+        const uiW = ctx.canvas.width / this.Draw.Scale.x;
+        const uiH = ctx.canvas.height / this.Draw.Scale.y;
+        const center = new Vector(uiW / 2, uiH / 2);
+        const origin = this.zoomOrigin ? this.zoomOrigin : center;
+        // convert screen pos to world pos by undoing the translate/scale/translate applied in draw()
+        const worldPos = screenPos.sub(origin).div(this.zoom).add(origin);
+        // cursor index = floor((worldPos - levelOffset) / tileSize)
+        const cursor = worldPos.sub(this.levelOffset).div(this.tileSize).floorS();
+        // if caller asked for default (no pos) update this.cursor as before
+        if (!pos) this.cursor = cursor;
+        return cursor;
+    }
+
+    eyedropper(draw){
+            const ctx = draw && draw.ctx;
+            if (!ctx || !ctx.canvas) return null;
+
+            // fix draw.scale
+            const scaleX = (draw && draw.Scale && typeof draw.Scale.x === 'number') ? draw.Scale.x : 1;
+            const scaleY = (draw && draw.Scale && typeof draw.Scale.y === 'number') ? draw.Scale.y : scaleX;
+
+            const cx = Math.floor(this.mouse.pos.x * scaleX);
+            const cy = Math.floor(this.mouse.pos.y * scaleY);
+
+            // clamp to canvas bounds
+            const cw = ctx.canvas.width;
+            const ch = ctx.canvas.height;
+            if (cx < 0 || cy < 0 || cx >= cw || cy >= ch) return null;
+
+            // getImageData returns an ImageData object with .data array
+            let imgData;
+            try {
+                imgData = ctx.getImageData(cx, cy, 1, 1);
+            } catch (e) {
+                console.warn('Eyedropper getImageData failed:', e);
+                return null;
+            }
+            const d = imgData && imgData.data;
+            if (!d || d.length < 4) return null;
+
+            const choice = new Color(d[0], d[1], d[2], d[3], 'rgb').toHex();
+            return choice;
+
+    }
+    
+    /**
+     * Scene-specific tick handler. Called from base Scene.tick().
+     */
+    handleEdit(tickDelta, pointerOverUI){
+        if(pointerOverUI) return;
+        if(!this.editmode) return;
+        // Eyedropper tool
+        if(this.keys.held('Control')){
+            this.editColor = this.eyedropper(this.Draw)
+            return;
+        }
+       
+        // Ensure data exists & we're drawing.
+        if(!this.selectedTile) return;
+        if(!this.mouse.held('left') && !this.mouse.held('right')) return;
+        
+        // Ensire sheet info exists
+        const sel = this.selectedTile;
+        const info = sel.info;
+        if (!info) return;
+        if (!info.sheet) return;
+        const drawCtx = this.Draw.ctx;
+        if(!drawCtx) return;
+            
+        const ts = info.sheet;
+        const slice = ts.slicePx || 16;
+
+        // Determine row/col in tilesheet
+        let row = 0, col = 0;
+        const tk = info.tileKey;
+        if (Array.isArray(tk)) { row = tk[0]; col = tk[1]; }
+        else if (typeof tk === 'string' && typeof ts.getTile === 'function') {
+            const meta = ts.getTile(tk);
+            if (meta) { row = meta.row; col = meta.col; }
+        }
+
+        // Compute pixel coords
+        let origin = new Vector(0,0);
+        const uiW = drawCtx.canvas.width / this.Draw.Scale.x;
+        const uiH = drawCtx.canvas.height / this.Draw.Scale.y;
+        const center = new Vector(uiW/2, uiH/2);
+        origin = this.zoomOrigin ? this.zoomOrigin : center;
+        
+        const worldPos = this.mouse.pos.sub(origin).div(this.zoom).add(origin);
+        const local = worldPos.sub(this.levelOffset);
+        const withinTileX = local.x - (sel.x * this.tileSize);
+        const withinTileY = local.y - (sel.y * this.tileSize);
+        const px = Math.floor((withinTileX / this.tileSize) * slice);
+        const py = Math.floor((withinTileY / this.tileSize) * slice);
+
+        if (px >= 0 && py >= 0 && px < slice && py < slice) {
+            // ensure master tilesheet is a canvas we can write to
+            if (!(ts.sheet instanceof HTMLCanvasElement)) {
+                const orig = ts.sheet;
+                const cv = document.createElement('canvas');
+                cv.width = orig.width || (col + 1) * slice;
+                cv.height = orig.height || (row + 1) * slice;
+                const ctx = cv.getContext('2d');
+                try { ctx.drawImage(orig, 0, 0); } catch (e) {}
+                ts.sheet = cv;
+            }
+            const ctx = ts.sheet.getContext('2d');
+            const im = ctx.getImageData(col * slice, row * slice, slice, slice);
+            const idx = (py * slice + px) * 4;
+            if (this.mouse.held('right')) {
+                im.data[idx+0] = 0; im.data[idx+1] = 0; im.data[idx+2] = 0; im.data[idx+3] = 0;
+            } else {
+                const colc = Color.convertColor(this.editColor || '#FFFFFFFF').toRgb();
+                im.data[idx+0] = Math.round(colc.a || 0);
+                im.data[idx+1] = Math.round(colc.b || 0);
+                im.data[idx+2] = Math.round(colc.c || 0);
+                im.data[idx+3] = Math.round((colc.d || 1) * 255);
+            }
+            ctx.putImageData(im, col * slice, row * slice);
+            // update the edit canvas view if present
+            try {
+                if (this.editTileCanvas) {
+                    const edctx = this.editTileCanvas.getContext('2d');
+                    edctx.clearRect(0,0,this.editTileCanvas.width,this.editTileCanvas.height);
+                    edctx.drawImage(ts.sheet, col * slice, row * slice, slice, slice, 0, 0, slice, slice);
+                }
+            } catch (e) {}
+        }
+
+    }
+    handleLeft(tickDelta,pointerOverUI){
+        this.handleEdit(tickDelta,pointerOverUI)
+
+        if(this.mouse.held('right') && !this.editmode){
+            this._tilemap.removeTile(this.cursor.x,this.cursor.y)
+        }
+
+        if(!this.mouse.held('left')) return;
+        if(pointerOverUI) return;
+        
+
+
+        // Select tiles
+        if (this.keys.held('Shift')) {
+            const info = this._tilemap.getTileRenderInfo(this.cursor.x, this.cursor.y);
+            if (info)  this.selectedTile = { x: this.cursor.x, y: this.cursor.y, info };
+            else  this.selectedTile = { x: this.cursor.x, y: this.cursor.y, info: null};
+            return;
+        }
+
+        // Copy tiles
+        if (this.keys.held('Control')){
+            const info = this._tilemap.getTileRenderInfo(this.cursor.x, this.cursor.y);
+            if (info) {
+                this.drawType = info.tileKey;
+                this.drawSheet = info.tilesheetId || info.tilesheet || this.drawSheet;
+                this.drawRot = info.rotation ?? 0;
+                this.drawInvert = info.invert ?? this.drawInvert;
+                return;
+            }
+        }
+        
+        // Paint tiles
+        const sheetId = this.drawSheet || 'house';
+        this._tilemap.setTile(this.cursor.x,this.cursor.y,sheetId,this.drawType,this.drawRot,this.drawInvert)
+    }
+    sceneTick(tickDelta){
+        this.zoomWorld(tickDelta)
+        this.panWorld(tickDelta)
+        this.getCursor()
+        if(this.keys.held('c')){
+            this.testSprite.pos.x = this.cursor.x*this.tileSize - this.testSprite.size.x/2.7 
+            this.testSprite.pos.y = this.cursor.y*this.tileSize-this.testSprite.size.y/1.9
+            this.testSprite.vlos.mult(0)
+        }
+
+        this.testSprite.update(tickDelta);
+        // Camera lock/follow: when arrow keys are pressed, lock camera onto the cat (testSprite)
+        // uses smooth damp and a horizontal bias so the direction you're moving in has more visual space
+        try {
+            if (!this.camera) this.camera = { locked: false, smooth: 8, bias: 0.25, lastMousePos: this.mouse ? this.mouse.pos.clone() : new Vector(0,0), unlockDistance: 4 };
+            const left = this.keys.held('ArrowLeft') || this.keys.held('Left');
+            const right = this.keys.held('ArrowRight') || this.keys.held('Right');
+            const up = this.keys.held('ArrowUp') || this.keys.held('Up');
+            const down = this.keys.held('ArrowDown') || this.keys.held('Down');
+            const arrowPressed = left || right || up || down;
+            // engage lock when any arrow pressed
+            if (arrowPressed) this.camera.locked = true;
+
+            // detect mouse movement to unlock camera
+            if (this.camera.locked && this.mouse && this.mouse.pos) {
+                const md = this.mouse.pos.sub(this.camera.lastMousePos || this.mouse.pos);
+                if (Math.abs(md.x) > (this.camera.unlockDistance || 4) || Math.abs(md.y) > (this.camera.unlockDistance || 4)) {
+                    this.camera.locked = false;
+                }
+                // update last mouse pos
+                this.camera.lastMousePos = this.mouse.pos.clone();
+            } else if (this.mouse && this.mouse.pos) {
+                this.camera.lastMousePos = this.mouse.pos.clone();
+            }
+
+            // if locked, compute desired levelOffset so the testSprite appears offset from center
+            if (this.camera.locked && this.testSprite && this.testSprite.pos) {
+                const drawCtx = this.UIDraw.ctx;
+                if (drawCtx && drawCtx.canvas) {
+                    const uiW = drawCtx.canvas.width / this.UIDraw.Scale.x;
+                    const uiH = drawCtx.canvas.height / this.UIDraw.Scale.y;
+                    const center = new Vector(uiW / 2, uiH / 2);
+                    const origin = this.zoomOrigin ? this.zoomOrigin : center;
+
+                    // horizontal bias: position player slightly opposite movement so there's more view ahead
+                    // Use sprite horizontal velocity to scale the bias. Faster movement -> more look-ahead.
+                    let vx = 0;
+                    let vy = 0;
+                    if (this.testSprite && this.testSprite.vlos) {
+                        vx = this.testSprite.vlos.x;
+                        vy = this.testSprite.vlos.y;
+                    }
+                    // normalize by expected max speed (use sprite.speed if available or 100)
+                    const maxSpeed = 300;
+                    const norm = Math.max(-1, Math.min(1, vx / maxSpeed));
+                    const biasPixels = (this.camera.bias || 0.25) * uiW * norm * 30;
+
+                    const normY = Math.max(-1, Math.min(1, vy / maxSpeed));
+                    const biasPixelsY = (this.camera.bias || 0.25) * uiH * normY * 30-150;
+                    // when moving right (positive vx), Sx < center so player appears left-of-center => look-ahead to right
+                    // compute Sx so the sprite's CENTER is offset by biasPixels from screen center
+                    // sprite.pos is top-left, so subtract half the sprite width to convert center -> top-left
+                    const Sx = center.x - biasPixels - (this.testSprite.size.x / 2);
+                    const Sy = center.y - biasPixelsY - (this.testSprite.size.y); // keep vertical centered for now
+                    const Sdes = new Vector(Sx, Sy);
+
+                    // desiredLevelOffset such that (testSprite.pos + levelOffset) maps to screen Sdes
+                    // formula: S = zoom * W + (1 - zoom) * origin  =>  W = (S + (zoom - 1) * origin) / zoom
+                    // we want W = testSprite.pos + levelOffset  => levelOffset = W - testSprite.pos
+                    const W = Sdes.add(origin.mult(this.zoom - 1)).div(this.zoom);
+                    const desiredLevel = W.sub(this.testSprite.pos);
+
+                    // smooth damp toward desiredLevel
+                    const smooth = this.camera.smooth || 8;
+                    const t = 1 - Math.exp(-smooth * tickDelta);
+                    this.levelOffset = this.levelOffset.add(desiredLevel.sub(this.levelOffset).mult(t));
+                }
+            }
+        } catch (e) { /* ignore camera update errors */ }
+  
+        
+        // Order: UI interaction, pan/zoom, copy & select, paint
+
+        // UI interaction: compute UI bounds and whether pointer is over menu (grid-based)
+        let pointerOverUI = this.updateRightBounds(tickDelta);
+        this.handleLeft(tickDelta,pointerOverUI)
+        
+
+        // Handle clicks inside the edit panel for close/create buttons
+        if (this.editmode && this.mouse.pressed('left') && this.mouse.pos) {
+            const mp = this.mouse.pos;
+            const leftW = this.editMenuWidth || 300;
+            const panelX = 8;
+            const panelY = 8;
+            const panelW = leftW;
+            const panelH = (this.UIDraw.getCtx('UI') ? (this.UIDraw.getCtx('UI').canvas.height / this.UIDraw.Scale.y) : 800) - 16;
+            // color swatches layout (small palette near top of panel)
+            const swatchSize = 20;
+            const swatchSpacing = 8;
+            const swatchCols = 10;
+            const swStartX = panelX + 12;
+            // shift swatches down to avoid overlapping the edit canvas
+            const swStartY = panelY + 36 + 300;
+            // handle clicks on color swatches
+            // color input and eyedropper buttons
+            const colorDisplayX = panelX + 12;
+            // move action buttons down to avoid overlapping the edit canvas
+            const colorDisplayY = panelY + 36 + 350;
+            const colorDisplayW = 28;
+            const colorDisplayH = 28;
+            const chooseX = colorDisplayX + colorDisplayW + 8;
+            const chooseY = colorDisplayY;
+            const chooseW = 100;
+            const chooseH = 28;
+            const dropX = chooseX + chooseW + 8;
+            const dropY = chooseY;
+            const dropW = 90;
+            const dropH = 28;
+            // Choose Color button: opens native color picker
+            if (mp.x >= chooseX && mp.x <= chooseX + chooseW && mp.y >= chooseY && mp.y <= chooseY + chooseH) {
+                try { if (this.mouse && typeof this.mouse._setButton === 'function') this.mouse._setButton(0,0); } catch (e) {}
+                // create a temporary input[type=color]
+                try {
+                    const inp = document.createElement('input');
+                    inp.type = 'color';
+                    // use current editColor hex (drop alpha)
+                    try { inp.value = (this.editColor && typeof this.editColor.toHex === 'function') ? this.editColor.toHex().slice(0,7) : '#ffffff'; } catch (e) { inp.value = '#ffffff'; }
+                    inp.style.position = 'fixed'; inp.style.left = '-100px'; inp.style.top = '-100px';
+                    inp.addEventListener('input', (ev) => {
+                        try {
+                            const v = ev.target.value; // #rrggbb
+                            let c = Color.fromHex(v);
+                            // preserve previous alpha
+                            if (this.editColor && typeof this.editColor.d !== 'undefined') c.d = this.editColor.d;
+                            this.editColor = c;
+                        } catch (e) { /* ignore */ }
+                    });
+                    inp.addEventListener('change', ()=>{ try { inp.remove(); } catch(e){} });
+                    document.body.appendChild(inp);
+                    inp.click();
+                } catch (e) { console.warn('Color input failed', e); }
+                this.rotDelay = this.rotSetDelay; this._uiHandled = true;
+            }
+            // Eyedropper toggle
+            if (mp.x >= dropX && mp.x <= dropX + dropW && mp.y >= dropY && mp.y <= dropY + dropH) {
+                try { if (this.mouse && typeof this.mouse._setButton === 'function') this.mouse._setButton(0,0); } catch (e) {}
+                this.eyedropActive = !this.eyedropActive;
+                this.rotDelay = this.rotSetDelay; this._uiHandled = true;
+            }
+
+            if (this.mouse.pressed('left') && Array.isArray(this.editPaletteColors)) {
+                for (let si = 0; si < this.editPaletteColors.length; si++) {
+                    const scol = si % swatchCols;
+                    const srow = Math.floor(si / swatchCols);
+                    const sx = swStartX + scol * (swatchSize + swatchSpacing);
+                    const sy = swStartY + srow * (swatchSize + swatchSpacing);
+                    if (mp.x >= sx && mp.x <= sx + swatchSize && mp.y >= sy && mp.y <= sy + swatchSize) {
+                        // select this color (store Color instance)
+                        this.editColor = this.editPaletteColors[si];
+                        try { if (this.mouse && typeof this.mouse._setButton === 'function') this.mouse._setButton(0,0); } catch (e) {}
+                        this.rotDelay = this.rotSetDelay;
+                        this._uiHandled = true;
+                        break;
+                    }
+                }
+            }
+            // close button region
+            const bx = panelX + panelW - 28;
+            const by = panelY + 8;
+            const bw = 20;
+            const bh = 20;
+            if (mp.x >= bx && mp.x <= bx + bw && mp.y >= by && mp.y <= by + bh) {
+                try { if (this.mouse && typeof this.mouse._setButton === 'function') this.mouse._setButton(0,0); } catch (e) {}
+                this.exitEditMode();
+                this._uiHandled = true;
+            }
+            // create new tile button
+            const btnX = panelX + 12;
+            const btnY = panelY + panelH - 56;
+            const btnW = panelW - 24;
+            const btnH = 36;
+            if (mp.x >= btnX && mp.x <= btnX + btnW && mp.y >= btnY && mp.y <= btnY + btnH) {
+                try { if (this.mouse && typeof this.mouse._setButton === 'function') this.mouse._setButton(0,0); } catch (e) {}
+                if(this.rotDelay<-1){
+                    this.createNewTile();
+                    this.rotDelay = 1
+                }
+                this._uiHandled = true;
+            }
+            // if eyedropper was active and we clicked inside the edit canvas area, handle sampling here
+            if (this.eyedropActive) {
+                // we will sample inside the pixel-edit block below (on press inside canvas)
+                // but clear UI handled so sampling can occur
+                this._uiHandled = false;
+            }
+        }
+
+        
+        // Rotation delay update (keyboard rotation still allowed via 'r' / 'f')
+        this.rotDelay -= tickDelta
+        this.handleKeys()
+
         if(this.mouse.pressed('middle')){
             this.mouse.grab(this.mouse.pos)
             this.startOffset = this.levelOffset.clone()
         }
-        // Rotation
-        this.rotDelay -= tickDelta
-        if(this.rotDelay<0 && !this.keys.held('Control')){
-            if(this.mouse.scroll('up')){
-                this.drawRot = (this.drawRot+1)%4
-                this.rotDelay = this.rotSetDelay
-            }
-            if(this.mouse.scroll('down')){
-                this.drawRot = (this.drawRot-1)%4
-                this.rotDelay = this.rotSetDelay
-            }
-        }
-        if(this.startOffset !== null){
-            // mouse.getGrabDelta is in screen space; convert to world-space by dividing by zoom
-            this.levelOffset = this.startOffset.add(this.mouse.getGrabDelta().div(this.zoom))
-        }
-
-        // Zoom controls: '-' to zoom out, '=' to zoom in (single press)
-        try {
-            const prevZoom = this.zoom;
-            const drawCtx = this.Draw.ctx;
-            const uiW = drawCtx ? drawCtx.canvas.width / this.Draw.Scale.x : 0;
-            const uiH = drawCtx ? drawCtx.canvas.height / this.Draw.Scale.y : 0;
-            const center = new Vector(uiW / 2, uiH / 2);
-            const prevOrigin = this.zoomOrigin ? this.zoomOrigin : center;
-
-            // helper to compute world point under screen position S using previous transform
-            // invert: S = prevZoom * W + (1 - prevZoom) * prevOrigin
-            // => W = (S + (prevZoom - 1) * prevOrigin) / prevZoom
-            const worldUnderScreen = (S) => {
-                return S.add(prevOrigin.mult(prevZoom - 1)).div(prevZoom);
-            };
-
-            // helper to compute new levelOffset so world W maps to screen S under newZoom and newOrigin
-            // derive: newLevelOffset = (S + (newZoom - 1)*newOrigin)/newZoom - W + oldLevelOffset
-            const computeLevelFor = (W, S, newZoom, newOrigin) => {
-                return S.add(newOrigin.mult(newZoom - 1)).div(newZoom).sub(W).add(this.levelOffset);
-            };
-
-            // Keyboard zoom (- / =)
-            if (this.keys.pressed('-') || this.keys.pressed('=')) {
-                const step = this.keys.pressed('=') ? this.zoomStep : -this.zoomStep;
-                const newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoom + step));
-                const S = this.mouse.pos.clone();
-                const W = worldUnderScreen(S);
-                const newOrigin = S; // zoom toward mouse
-                this.zoom = newZoom;
-                this.levelOffset = computeLevelFor(W, S, this.zoom, newOrigin);
-                this.zoomOrigin = newOrigin;
-            }
-
-            // ctrl+wheel zoom
-            const wheelDelta = this.mouse.wheel(null, false, true);
-            if (wheelDelta !== 0) {
-                const factor = Math.exp(-wheelDelta * 0.001);
-                const newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoom * factor));
-                const S = this.mouse.pos.clone();
-                const W = worldUnderScreen(S);
-                const newOrigin = S;
-                this.zoom = newZoom;
-                this.levelOffset = computeLevelFor(W, S, this.zoom, newOrigin);
-                this.zoomOrigin = newOrigin;
-            }
-        } catch (e) { /* ignore zoom errors */ }
-
-        // compute cursor tile indices using configured tileSize and current zoom
-        try {
-            const ctx = this.Draw.ctx;
-            if (ctx) {
-                const uiW = ctx.canvas.width / this.Draw.Scale.x;
-                const uiH = ctx.canvas.height / this.Draw.Scale.y;
-                const center = new Vector(uiW / 2, uiH / 2);
-                const origin = this.zoomOrigin ? this.zoomOrigin : center;
-                // convert screen mouse pos to world pos by undoing the translate/scale/translate applied in draw()
-                const worldPos = this.mouse.pos.sub(origin).div(this.zoom).add(origin);
-                // cursor index = floor((worldPos - levelOffset) / tileSize)
-                this.cursor = worldPos.sub(this.levelOffset).div(this.tileSize).floorS();
-            } else {
-                // fallback: previous behavior
-                this.cursor = this.mouse.pos.sub(this.levelOffset).div(this.tileSize).floorS();
-            }
-        } catch (e) {
-            this.cursor = this.mouse.pos.sub(this.levelOffset).div(this.tileSize).floorS();
-        }
 
         // Edit-mode pixel editing: when editmode active, handle clicks inside the left edit panel
-        try {
-            if (this.editmode && this.editTileCanvas) {
-                const mp = this.mouse.pos;
-                const panelX = 8;
-                const panelY = 8;
-                const padX = 12;
-                const padY = 48;
-                const slice = this.editTileCanvas.width;
-                const zoom = this.editTileZoom || 8;
-                const imgX = panelX + padX;
-                const imgY = panelY + padY;
-                const imgW = slice * zoom;
-                const imgH = slice * zoom;
+        if (this.editmode && this.editTileCanvas) {
+            const mp = this.mouse.pos;
+            const panelX = 8;
+            const panelY = 8;
+            const padX = 12;
+            const padY = 48;
+            const slice = this.editTileCanvas.width;
+            const zoom = this.editTileZoom || 8;
+            const imgX = panelX + padX;
+            const imgY = panelY + padY;
+            const imgW = slice * zoom;
+            const imgH = slice * zoom;
 
-                const inside = (mp.x >= imgX && mp.x <= imgX + imgW && mp.y >= imgY && mp.y <= imgY + imgH);
-                        if (inside && (this.mouse.pressed('left') || this.mouse.held('left') || this.mouse.pressed('right') || this.mouse.held('right'))) {
-                    // compute pixel coords in edit canvas
-                    const rx = Math.floor((mp.x - imgX) / zoom);
-                    const ry = Math.floor((mp.y - imgY) / zoom);
-                    if (rx >= 0 && rx < slice && ry >= 0 && ry < slice) {
-                        // allow eyedropper sampling to take precedence over painting
-                        let skipApply = false;
-                        if (this.eyedropActive && (this.mouse.pressed('left') || this.mouse.held('left'))) {
-                            try {
-                                const ctxSample = this.editTileCanvas.getContext('2d');
-                                const pixel = ctxSample.getImageData(rx, ry, 1, 1).data;
-                                const picked = new Color(pixel[0], pixel[1], pixel[2], (pixel[3] || 255) / 255, 'rgb');
-                                this.editColor = picked;
-                                this.eyedropActive = false;
-                                try { if (this.mouse && typeof this.mouse._setButton === 'function') this.mouse._setButton(0,0); } catch (e) {}
-                                this.rotDelay = this.rotSetDelay;
-                                this._uiHandled = true;
-                                skipApply = true;
-                            } catch (e) { console.warn('Eyedrop sample failed', e); }
-                        }
-                        const ctx = this.editTileCanvas.getContext('2d');
-                        const im = ctx.getImageData(0,0,slice,slice);
-                        const idx = (ry * slice + rx) * 4;
-                                if (this.mouse.held('right') || this.mouse.pressed('right')) {
-                                    // erase -> set alpha 0
-                                    im.data[idx+0] = 0;
-                                    im.data[idx+1] = 0;
-                                    im.data[idx+2] = 0;
-                                    im.data[idx+3] = 0;
-                                } else {
-                                    // use Color helper to get rgb bytes
-                                    try {
-                                        const col = Color.convertColor(this.editColor || '#FFFFFFFF').toRgb();
-                                        im.data[idx+0] = Math.round(col.a || 0);
-                                        im.data[idx+1] = Math.round(col.b || 0);
-                                        im.data[idx+2] = Math.round(col.c || 0);
-                                        im.data[idx+3] = Math.round((col.d || 1) * 255);
-                                    } catch (e) {
-                                        const rgba = this._hexToRGBA(this.editColor || '#FFFFFFFF');
-                                        im.data[idx+0] = rgba[0];
-                                        im.data[idx+1] = rgba[1];
-                                        im.data[idx+2] = rgba[2];
-                                        im.data[idx+3] = rgba[3];
-                                    }
-                                }
-                        if (!skipApply) {
-                            ctx.putImageData(im,0,0);
-                            // immediately apply to tilesheet so world view updates
-                            try { this.applyEditTileToTilesheet(); } catch (e) { console.warn('applyEditTileToTilesheet failed', e); }
-                        }
-                    }
-                }
-            }
-        } catch (e) { /* ignore edit errors */ }
-
-        // If middle was just released, and the grab delta is effectively zero, copy tile under mouse
-        try {
-            if (this.mouse.released('middle')) {
-                // grabPos still set until we call releaseGrab(), so getGrabDelta() is valid
-                const grabDelta = this.mouse.getGrabDelta();
-                const tol = 1; // pixels tolerance
-                if (Math.abs(grabDelta.x) <= tol && Math.abs(grabDelta.y) <= tol) {
-                    // If we're editing, use middle-click as an eyedropper (sample color)
-                    if (this.editmode) {
+            const inside = (mp.x >= imgX && mp.x <= imgX + imgW && mp.y >= imgY && mp.y <= imgY + imgH);
+                    if (inside && (this.mouse.pressed('left') || this.mouse.held('left') || this.mouse.pressed('right') || this.mouse.held('right'))) {
+                // compute pixel coords in edit canvas
+                const rx = Math.floor((mp.x - imgX) / zoom);
+                const ry = Math.floor((mp.y - imgY) / zoom);
+                if (rx >= 0 && rx < slice && ry >= 0 && ry < slice) {
+                    // allow eyedropper sampling to take precedence over painting
+                    let skipApply = false;
+                    if (this.eyedropActive && (this.mouse.pressed('left') || this.mouse.held('left'))) {
                         try {
-                            const mp = this.mouse.pos;
-                            // first try sampling from the edit canvas if mouse is over it
-                            if (this.editTileCanvas) {
-                                const panelX = 8, panelY = 8, padX = 12, padY = 48;
-                                const slice = this.editTileCanvas.width;
-                                const zoom = this.editTileZoom || 8;
-                                const imgX = panelX + padX;
-                                const imgY = panelY + padY;
-                                const imgW = slice * zoom;
-                                const imgH = slice * zoom;
-                                if (mp.x >= imgX && mp.x <= imgX + imgW && mp.y >= imgY && mp.y <= imgY + imgH) {
-                                    const rx = Math.floor((mp.x - imgX) / zoom);
-                                    const ry = Math.floor((mp.y - imgY) / zoom);
-                                    if (rx >= 0 && rx < slice && ry >= 0 && ry < slice) {
-                                        try {
-                                            const sctx = this.editTileCanvas.getContext('2d');
-                                            const d = sctx.getImageData(rx, ry, 1, 1).data;
-                                            this.editColor = new Color(d[0], d[1], d[2], (d[3]||255)/255, 'rgb');
-                                            this.eyedropActive = false;
-                                            this.rotDelay = this.rotSetDelay;
-                                            this._uiHandled = true;
-                                        } catch (e) { /* ignore sampling errors */ }
-                                    }
-                                } else {
-                                    // not over edit canvas: sample from world tile under cursor
-                                    const info = this._tilemap.getTileRenderInfo(this.cursor.x, this.cursor.y);
-                                    if (info && info.sheet) {
-                                        try {
-                                            const ts = info.sheet;
-                                            const slice2 = ts.slicePx || 16;
-                                            let row = 0, col = 0;
-                                            const tk = info.tileKey;
-                                            if (Array.isArray(tk)) { row = tk[0]; col = tk[1]; }
-                                            else if (typeof tk === 'string' && typeof ts.getTile === 'function') {
-                                                const meta = ts.getTile(tk);
-                                                if (meta) { row = meta.row; col = meta.col; }
-                                            }
-                                            // compute pixel coords inside tile
-                                            const drawCtx = this.Draw.ctx;
-                                            let origin = new Vector(0,0);
-                                            if (drawCtx) {
-                                                const uiW = drawCtx.canvas.width / this.Draw.Scale.x;
-                                                const uiH = drawCtx.canvas.height / this.Draw.Scale.y;
-                                                const center = new Vector(uiW/2, uiH/2);
-                                                origin = this.zoomOrigin ? this.zoomOrigin : center;
-                                            }
-                                            const worldPos = this.mouse.pos.sub(origin).div(this.zoom).add(origin);
-                                            const local = worldPos.sub(this.levelOffset);
-                                            const withinTileX = local.x - (this.cursor.x * this.tileSize);
-                                            const withinTileY = local.y - (this.cursor.y * this.tileSize);
-                                            const px = Math.floor((withinTileX / this.tileSize) * slice2);
-                                            const py = Math.floor((withinTileY / this.tileSize) * slice2);
-                                            if (px >= 0 && py >= 0 && px < slice2 && py < slice2) {
-                                                const tmp = document.createElement('canvas');
-                                                tmp.width = slice2; tmp.height = slice2;
-                                                const tctx = tmp.getContext('2d');
-                                                try {
-                                                    tctx.clearRect(0,0,slice2,slice2);
-                                                    tctx.drawImage(ts.sheet, col * slice2, row * slice2, slice2, slice2, 0, 0, slice2, slice2);
-                                                    const d = tctx.getImageData(px, py, 1, 1).data;
-                                                    this.editColor = new Color(d[0], d[1], d[2], (d[3]||255)/255, 'rgb');
-                                                    this.eyedropActive = false;
-                                                    this.rotDelay = this.rotSetDelay;
-                                                    this._uiHandled = true;
-                                                } catch (e) { /* ignore */ }
-                                            }
-                                        } catch (e) { /* ignore */ }
-                                    }
-                                }
+                            const ctxSample = this.editTileCanvas.getContext('2d');
+                            const pixel = ctxSample.getImageData(rx, ry, 1, 1).data;
+                            const picked = new Color(pixel[0], pixel[1], pixel[2], (pixel[3] || 255) / 255, 'rgb');
+                            this.editColor = picked;
+                            this.eyedropActive = false;
+                            try { if (this.mouse && typeof this.mouse._setButton === 'function') this.mouse._setButton(0,0); } catch (e) {}
+                            this.rotDelay = this.rotSetDelay;
+                            this._uiHandled = true;
+                            skipApply = true;
+                        } catch (e) { console.warn('Eyedrop sample failed', e); }
+                    }
+                    const ctx = this.editTileCanvas.getContext('2d');
+                    const im = ctx.getImageData(0,0,slice,slice);
+                    const idx = (ry * slice + rx) * 4;
+                            if (this.mouse.held('right') || this.mouse.pressed('right')) {
+                                // erase -> set alpha 0
+                                im.data[idx+0] = 0;
+                                im.data[idx+1] = 0;
+                                im.data[idx+2] = 0;
+                                im.data[idx+3] = 0;
                             } else {
-                                // no edit canvas: sample from world tile under cursor (same as above)
-                                const info = this._tilemap.getTileRenderInfo(this.cursor.x, this.cursor.y);
-                                if (info && info.sheet) {
-                                    try {
-                                        const ts = info.sheet;
-                                        const slice2 = ts.slicePx || 16;
-                                        let row = 0, col = 0;
-                                        const tk = info.tileKey;
-                                        if (Array.isArray(tk)) { row = tk[0]; col = tk[1]; }
-                                        else if (typeof tk === 'string' && typeof ts.getTile === 'function') {
-                                            const meta = ts.getTile(tk);
-                                            if (meta) { row = meta.row; col = meta.col; }
-                                        }
-                                        const drawCtx = this.Draw.ctx;
-                                        let origin = new Vector(0,0);
-                                        if (drawCtx) {
-                                            const uiW = drawCtx.canvas.width / this.Draw.Scale.x;
-                                            const uiH = drawCtx.canvas.height / this.Draw.Scale.y;
-                                            const center = new Vector(uiW/2, uiH/2);
-                                            origin = this.zoomOrigin ? this.zoomOrigin : center;
-                                        }
-                                        const worldPos = this.mouse.pos.sub(origin).div(this.zoom).add(origin);
-                                        const local = worldPos.sub(this.levelOffset);
-                                        const withinTileX = local.x - (this.cursor.x * this.tileSize);
-                                        const withinTileY = local.y - (this.cursor.y * this.tileSize);
-                                        const px = Math.floor((withinTileX / this.tileSize) * slice2);
-                                        const py = Math.floor((withinTileY / this.tileSize) * slice2);
-                                        if (px >= 0 && py >= 0 && px < slice2 && py < slice2) {
-                                            const tmp = document.createElement('canvas');
-                                            tmp.width = slice2; tmp.height = slice2;
-                                            const tctx = tmp.getContext('2d');
-                                            try {
-                                                tctx.clearRect(0,0,slice2,slice2);
-                                                tctx.drawImage(ts.sheet, col * slice2, row * slice2, slice2, slice2, 0, 0, slice2, slice2);
-                                                const d = tctx.getImageData(px, py, 1, 1).data;
-                                                this.editColor = new Color(d[0], d[1], d[2], (d[3]||255)/255, 'rgb');
-                                                this.eyedropActive = false;
-                                                this.rotDelay = this.rotSetDelay;
-                                                this._uiHandled = true;
-                                            } catch (e) { /* ignore */ }
-                                        }
-                                    } catch (e) { /* ignore */ }
+                                // use Color helper to get rgb bytes
+                                try {
+                                    const col = Color.convertColor(this.editColor || '#FFFFFFFF').toRgb();
+                                    im.data[idx+0] = Math.round(col.a || 0);
+                                    im.data[idx+1] = Math.round(col.b || 0);
+                                    im.data[idx+2] = Math.round(col.c || 0);
+                                    im.data[idx+3] = Math.round((col.d || 1) * 255);
+                                } catch (e) {
+                                    const rgba = this._hexToRGBA(this.editColor || '#FFFFFFFF');
+                                    im.data[idx+0] = rgba[0];
+                                    im.data[idx+1] = rgba[1];
+                                    im.data[idx+2] = rgba[2];
+                                    im.data[idx+3] = rgba[3];
                                 }
                             }
-                        } catch (e) { /* ignore eyedrop sampling errors */ }
-                    } else {
-                        // copy tile at cursor
-                        const info = this._tilemap.getTileRenderInfo(this.cursor.x, this.cursor.y);
-                        if (info) {
-                            this.drawType = info.tileKey;
-                            // set drawSheet to the sheet where tile came from
-                            this.drawSheet = info.tilesheetId || info.tilesheet || this.drawSheet;
-                            this.drawRot = info.rotation ?? 0;
-                            // if tiles include invert flag, use it; otherwise keep current
-                            this.drawInvert = info.invert ?? this.drawInvert;
-                        }
+                    if (!skipApply) {
+                        ctx.putImageData(im,0,0);
+                        // immediately apply to tilesheet so world view updates
+                        try { this.applyEditTileToTilesheet(); } catch (e) { console.warn('applyEditTileToTilesheet failed', e); }
                     }
                 }
-                // always clear grab state on release
-                this.startOffset = null;
-                this.mouse.releaseGrab();
-            } else if (!this.mouse.held('middle')) {
-                // fallback: if not held (and not a just-released event), clear state
-                this.startOffset = null;
-                this.mouse.releaseGrab();
             }
-        } catch (e) { /* ignore */ }
+        }
+
+        
+
         // Reset UI handled flag when left button released so next click works
-        try {
-            if (this.mouse.released('left')) this._uiHandled = false;
-        } catch (e) { /* ignore */ }
+        if (this.mouse.released('left')) this._uiHandled = false;
     }
 
     drawTilemap(){
@@ -1798,23 +1797,22 @@ export class TitleScene extends Scene {
     draw() {
         if(!this.isReady) return;
         this.Draw.background('#000000ff')
+        this.UIDraw.clear()
         // Apply zoom transform around screen center for world drawing
         const drawCtx = this.Draw.ctx;
-        if (drawCtx) {
-            try {
-                const uiW = drawCtx.canvas.width / this.Draw.Scale.x;
-                const uiH = drawCtx.canvas.height / this.Draw.Scale.y;
-                const center = new Vector(uiW / 2, uiH / 2);
-                const origin = this.zoomOrigin ? this.zoomOrigin : center;
-                // translate to origin, scale, translate back (grouped so popMatrix restores)
-                this.Draw.translate(origin);
-                this.Draw.scale(this.zoom);
-                this.Draw.translate(new Vector(-origin.x, -origin.y));
-            } catch (e) { /* ignore transform errors */ }
-        }
+        const uiW = drawCtx.canvas.width / this.Draw.Scale.x;
+        const uiH = drawCtx.canvas.height / this.Draw.Scale.y;
+        const center = new Vector(uiW / 2, uiH / 2);
+        const origin = this.zoomOrigin ? this.zoomOrigin : center;
+        // translate to origin, scale, translate back (grouped so popMatrix restores)
+        this.Draw.translate(origin);
+        this.Draw.scale(this.zoom);
+        this.Draw.translate(new Vector(-origin.x, -origin.y));
+ 
 
         
         this.drawTilemap()
+        this.testSprite.draw(this.levelOffset)
         
         // draw preview of the tile under the cursor (on world layer) when not over palette
         if(this.mouse.pos.x < 1920 - this.uiMenu.menuWidth){
@@ -1826,7 +1824,6 @@ export class TitleScene extends Scene {
                 this.Draw.rect(this.cursor.mult(this.tileSize).add(this.levelOffset), new Vector(this.tileSize, this.tileSize), '#FFFFFF44')
             }
                 this.Draw.rect(this.cursor.mult(this.tileSize).add(this.levelOffset), new Vector(this.tileSize, this.tileSize), '#907f7f44',false,true,2,'#ffffff88')
-            
         }
 
         // draw selection rectangle for any selected placed tile
@@ -1838,7 +1835,12 @@ export class TitleScene extends Scene {
             }
         } catch (e) { /* ignore selection draw errors */ }
 
-        // draw a mini pixel cursor on the world view when editing a selected tile
+        // (mini pixel cursor removed from world-layer draw; drawn later into UIDraw overlays so it isn't affected by zoom)
+        
+        // UI drawing: overlays layer is cleared and used for UI elements
+        this.UIDraw.useCtx('overlays')
+        this.UIDraw.clear()
+        // draw mini pixel cursor in screen space (UIDraw overlays) so it isn't affected by world zoom
         try {
             if (this.editmode && this.selectedTile) {
                 const info = this.selectedTile.info;
@@ -1846,15 +1848,13 @@ export class TitleScene extends Scene {
                     const ts = info.sheet;
                     const slice = ts.slicePx || 16;
 
-                    // compute world-space mouse -> pixel within the selected tile
+                    // compute world pixel coordinates for the selected pixel (same as before)
                     const drawCtx = this.Draw.ctx;
-                    let origin = new Vector(0,0);
-                    if (drawCtx) {
-                        const uiW = drawCtx.canvas.width / this.Draw.Scale.x;
-                        const uiH = drawCtx.canvas.height / this.Draw.Scale.y;
-                        const center = new Vector(uiW/2, uiH/2);
-                        origin = this.zoomOrigin ? this.zoomOrigin : center;
-                    }
+                    const uiW = drawCtx.canvas.width / this.Draw.Scale.x;
+                    const uiH = drawCtx.canvas.height / this.Draw.Scale.y;
+                    const center = new Vector(uiW/2, uiH/2);
+                    const origin = this.zoomOrigin ? this.zoomOrigin : center;
+
                     const worldPos = this.mouse.pos.sub(origin).div(this.zoom).add(origin);
                     const local = worldPos.sub(this.levelOffset);
                     const withinTileX = local.x - (this.selectedTile.x * this.tileSize);
@@ -1867,17 +1867,18 @@ export class TitleScene extends Scene {
                         const pixelWorldSize = this.tileSize / slice;
                         const pxWorld = this.selectedTile.x * this.tileSize + px * pixelWorldSize;
                         const pyWorld = this.selectedTile.y * this.tileSize + py * pixelWorldSize;
-                        // draw a highlighted rectangle for the single pixel (stroke with a bright color)
-                        this.Draw.rect(new Vector(pxWorld, pyWorld).addS(this.levelOffset), new Vector(pixelWorldSize, pixelWorldSize), '#00000000', false, true, 0.5, '#ffcc00ff');
+                        // convert world position to screen-space using the same transform used for world drawing
+                        const screenPos = new Vector(
+                            pxWorld * this.zoom + origin.x * (1 - this.zoom),
+                            pyWorld * this.zoom + origin.y * (1 - this.zoom)
+                        );
+                        const screenSize = pixelWorldSize * this.zoom;
+                        // draw a highlighted rectangle for the single pixel in overlay space
+                        this.UIDraw.rect(screenPos.addS(this.levelOffset.mult(this.zoom)), new Vector(screenSize, screenSize), '#00000000', false, true, 0.5, '#ffcc00ff');
                     }
                 }
             }
         } catch (e) { /* ignore cursor draw errors */ }
-        
-        // UI drawing: overlays layer is cleared and used for UI elements
-        this.UIDraw.useCtx('overlays')
-        this.UIDraw.clear()
-        this.testSprite.draw()
         // Draw left-side edit menu when edit mode is active (blank panel for now)
         try {
             if (this.editmode) {

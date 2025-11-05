@@ -38,11 +38,14 @@ export default class Mouse {
         this._lastWheelDelta = 0;
         this._lastWheelCtrl = false;
         this._lastWheel = 0; // value exposed to update() consumers
+    this._lastWheelDeltaX = 0; // horizontal wheel (touchpad two-finger) accumulator
+    this._lastWheelX = 0;
         window.addEventListener("wheel", e => {
             // if ctrl is held, prevent default browser zoom so our app can handle it
             try { if (e.ctrlKey) e.preventDefault(); } catch (err) { /* ignore */ }
             this.scrollDelta += e.deltaY;
             this._lastWheelDelta += e.deltaY;
+            this._lastWheelDeltaX += e.deltaX;
             this._lastWheelCtrl = !!e.ctrlKey;
         }, { passive: false });
         window.addEventListener("touchstart", e => {
@@ -123,6 +126,9 @@ export default class Mouse {
         this._lastWheelDelta = 0;
         this._lastWheelCtrlFlag = this._lastWheelCtrl;
         this._lastWheelCtrl = false;
+    // expose horizontal wheel delta as well
+    this._lastWheelX = this._lastWheelDeltaX;
+    this._lastWheelDeltaX = 0;
         this.delta = this.prevPos.sub(this.pos);
     }
 
@@ -173,6 +179,20 @@ export default class Mouse {
     wheel(mode = null, returnBool = false, requireCtrl = false) {
         if (!this._allowed()) return returnBool ? false : 0;
         let delta = this._lastWheel || 0;
+        if (requireCtrl && !this._lastWheelCtrlFlag) delta = 0;
+        if (mode === 'up' && delta >= 0) delta = 0;
+        if (mode === 'down' && delta <= 0) delta = 0;
+        if (returnBool) return delta !== 0;
+        return delta;
+    }
+
+    /**
+     * Horizontal wheel (deltaX) accessor. Mirrors `wheel()` but returns horizontal delta.
+     * If requireCtrl=true, only returns value when wheel event had ctrl pressed.
+     */
+    wheelX(mode = null, returnBool = false, requireCtrl = false) {
+        if (!this._allowed()) return returnBool ? false : 0;
+        let delta = this._lastWheelX || 0;
         if (requireCtrl && !this._lastWheelCtrlFlag) delta = 0;
         if (mode === 'up' && delta >= 0) delta = 0;
         if (mode === 'down' && delta <= 0) delta = 0;
