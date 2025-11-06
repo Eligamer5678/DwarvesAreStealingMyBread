@@ -57,7 +57,10 @@ export class TestSprite {
 
     update(delta){
         // Basic input
-        
+        if(this.keys.held('0')){
+            this.pos = new Vector(0,0)
+            this.vlos = new Vector(0,0)
+        }
         const dir = this.input.update();
         this.vlos.addS(dir.mult(delta).multS(this.speed));
         if(Math.sign(dir.x)){

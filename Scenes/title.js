@@ -1459,10 +1459,13 @@ export class TitleScene extends Scene {
                 }
             } catch (e) {}
         }
+        return true;
 
     }
     handleLeft(tickDelta,pointerOverUI){
-        this.handleEdit(tickDelta,pointerOverUI)
+        if(this.handleEdit(tickDelta,pointerOverUI)){
+            return;
+        }
 
         if(this.mouse.held('right') && !this.editmode){
             this._tilemap.removeTile(this.cursor.x,this.cursor.y)
@@ -1505,6 +1508,7 @@ export class TitleScene extends Scene {
             this.testSprite.pos.x = this.cursor.x*this.tileSize - this.testSprite.size.x/2.7 
             this.testSprite.pos.y = this.cursor.y*this.tileSize-this.testSprite.size.y/1.9
             this.testSprite.vlos.mult(0)
+            this.camera.locked = false;
         }
 
         this.testSprite.update(tickDelta);

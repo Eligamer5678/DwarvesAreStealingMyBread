@@ -99,7 +99,7 @@ export default class Geometry {
     }
 
     // Sprite & Tile collision 
-    static spriteToTile(pos, vlos, size, tilePos, tileSize) {
+    static spriteToTile(pos, vlos, size, tilePos, tileSize, buffer=2) {
         const collided = { top: false, bottom: false, left: false, right: false };
 
         const newPos = pos.clone();
@@ -110,8 +110,8 @@ export default class Geometry {
         // Right side
         if (newPos.x + newVlos.x + size.x >= tilePos.x &&
             newPos.x <= tilePos.x &&
-            newPos.y + size.y - 2 > tilePos.y &&
-            newPos.y + 2 < tilePos.y + tileSize.y
+            newPos.y + size.y - buffer > tilePos.y &&
+            newPos.y + buffer < tilePos.y + tileSize.y
         ) {
             newPos.x = tilePos.x - size.x;
             newVlos.x *= 0.0001;
@@ -122,8 +122,8 @@ export default class Geometry {
         // Left side
         if (newPos.x + newVlos.x <= tilePos.x + tileSize.x &&
             newPos.x + size.x >= tilePos.x + tileSize.x &&
-            newPos.y + size.y - 2 > tilePos.y &&
-            newPos.y + 2 < tilePos.y + tileSize.y
+            newPos.y + size.y - buffer > tilePos.y &&
+            newPos.y + buffer < tilePos.y + tileSize.y
         ) {
             newPos.x = tilePos.x + tileSize.x;
             newVlos.x *= 0.0001;
@@ -134,8 +134,8 @@ export default class Geometry {
         // Bottom (floor)
         if (newPos.y + newVlos.y + size.y >= tilePos.y &&
             newPos.y <= tilePos.y &&
-            newPos.x + size.x - 2 > tilePos.x &&
-            newPos.x + 2 < tilePos.x + tileSize.x
+            newPos.x + size.x - buffer > tilePos.x &&
+            newPos.x + buffer < tilePos.x + tileSize.x
         ) {
             newPos.y = tilePos.y - size.y;
             newVlos.y *= -0.2;
@@ -146,8 +146,8 @@ export default class Geometry {
         // Top (ceiling)
         if (newPos.y + newVlos.y <= tilePos.y + tileSize.y &&
             newPos.y + size.y >= tilePos.y + tileSize.y &&
-            newPos.x + size.x - 2 > tilePos.x &&
-            newPos.x + 2 < tilePos.x + tileSize.x
+            newPos.x + size.x - buffer > tilePos.x &&
+            newPos.x + buffer < tilePos.x + tileSize.x
         ) {
             newPos.y = tilePos.y + tileSize.y;
             newVlos.y *= -0.2;
