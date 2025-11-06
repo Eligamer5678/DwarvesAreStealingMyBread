@@ -99,15 +99,67 @@ export default class PackageManager {
             } catch (e) { /* ignore */ }
 
             const tarBlob = await this.createTarBlob(entries);
-            const url = URL.createObjectURL(tarBlob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            URL.revokeObjectURL(url);
-            return true;
+
+            // Try File System Access API first so user can choose filename and overwrite if desired.
+            try {
+                if (window.showSaveFilePicker) {
+                    const opts = {
+                        suggestedName: filename,
+                        types: [
+                            {
+                                description: 'TAR Archive',
+                                accept: { 'application/x-tar': ['.tar'] }
+                            }
+                        ]
+                    };
+                    let handle;
+                    try {
+                        handle = await window.showSaveFilePicker(opts);
+                    } catch (pickerErr) {
+                        // If the user cancelled the picker, abort the export (don't fall back)
+                        if (pickerErr && (pickerErr.name === 'AbortError' || pickerErr.name === 'NotAllowedError')) {
+                            console.log('Save cancelled by user. Export aborted.');
+                            return false;
+                        }
+                        // otherwise rethrow to be caught by outer catch
+                        throw pickerErr;
+                    }
+                    const writable = await handle.createWritable();
+                    await writable.write(tarBlob);
+                    await writable.close();
+                    console.log('Tilesheets saved to file:', handle.name);
+                    return true;
+                }
+            } catch (fsErr) {
+                console.warn('File System Access API save failed, falling back to download:', fsErr);
+            }
+
+            // Fallback: prompt user for a filename so they can change name before download
+            try {
+                // Prompt for filename; if the user cancels (null), abort instead of downloading
+                let userFileName = filename;
+                if (typeof window.prompt === 'function') {
+                    const res = window.prompt('Enter filename to save', filename);
+                    if (res === null) {
+                        console.log('User cancelled filename prompt. Export aborted.');
+                        return false;
+                    }
+                    userFileName = (res && res.trim()) ? res.trim() : filename;
+                }
+                const url = URL.createObjectURL(tarBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = userFileName;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+                console.log('Tilesheets exported to tar file (download):', userFileName);
+                return true;
+            } catch (dlErr) {
+                console.warn('Fallback download failed:', dlErr);
+                return false;
+            }
         } catch (e) {
             console.warn('Export tilesheets tar failed:', e);
             return false;

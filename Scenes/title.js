@@ -12,6 +12,8 @@ import SpriteSheet from '../js/Spritesheet.js';
 import TileSheet from '../js/Tilesheet.js';
 import TileMap from '../js/TileMap.js';
 import PackageManager from '../js/PackageManager.js';
+import Palette from '../js/UI/Palette.js';
+import UIButton from '../js/UI/Button.js';
 
 export class TitleScene extends Scene {
     constructor(...args) {
@@ -317,6 +319,16 @@ export class TitleScene extends Scene {
         }
         // tileTypes will be filled after tilesheet is available
         this.tileTypes = []
+        // temporary tile positions for tools (array of {x,y} or Vector)
+        this.tempTiles = [];
+        // Tool state: null | 'line' | 'box' | 'circle'
+        this.toolMode = null;
+        this.toolActive = false;
+        this.toolStart = null; // {x,y}
+        // Undo stack: array of batches, each batch is [{x,y,prev,next}, ...]
+        this.undoStack = [];
+        this.maxUndo = 200;
+        this._suppressUndo = false;
         // zoom state
         this.zoom = 1.0
         this.zoomStep = 0.1
@@ -346,6 +358,7 @@ export class TitleScene extends Scene {
             // movement (px) threshold to consider mouse moved
             unlockDistance: 4
         };
+        this.undoTimer = 0
         
     }
 
@@ -722,6 +735,7 @@ export class TitleScene extends Scene {
 
     // Export currently registered tilesheets as a tar archive including JSON and image files
     async exportTileSheetsAsTarFile(filename = 'tilesheets.tar'){
+        console.log('exporting')
         try {
             const sheets = [];
             const entries = [];
@@ -781,15 +795,69 @@ export class TitleScene extends Scene {
             } catch (e) { /* ignore map export errors */ }
 
             const tarBlob = await this.createTarBlob(entries);
-            const url = URL.createObjectURL(tarBlob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            URL.revokeObjectURL(url);
-            console.log('Tilesheets exported to tar file:', filename);
+
+            // Try to use the File System Access API so user can pick a filename and overwrite existing files.
+            // Fallback to a regular download (with a prompt for filename) when unavailable.
+            try {
+                if (window.showSaveFilePicker) {
+                    const opts = {
+                        suggestedName: filename,
+                        types: [
+                            {
+                                description: 'TAR Archive',
+                                accept: { 'application/x-tar': ['.tar'] }
+                            }
+                        ]
+                    };
+                    let handle;
+                    try {
+                        handle = await window.showSaveFilePicker(opts);
+                    } catch (pickerErr) {
+                        // If the user cancelled the picker, abort the export (don't fall back)
+                        if (pickerErr && (pickerErr.name === 'AbortError' || pickerErr.name === 'NotAllowedError')) {
+                            console.log('Save cancelled by user. Export aborted.');
+                            return;
+                        }
+                        // otherwise rethrow to outer catch
+                        throw pickerErr;
+                    }
+                    // createWritable will overwrite the file if it already exists
+                    const writable = await handle.createWritable();
+                    // write the Blob directly
+                    await writable.write(tarBlob);
+                    await writable.close();
+                    console.log('Tilesheets saved to file:', handle.name);
+                    return;
+                }
+            } catch (fsErr) {
+                // If File System Access fails for any reason, continue to fallback
+                console.warn('File System Access API save failed, falling back to download:', fsErr);
+            }
+
+            // Fallback: prompt user for a filename (so they can change it) then download via anchor
+            try {
+                // Prompt for filename; if the user cancels (null), abort instead of downloading
+                let userFileName = filename;
+                if (typeof window.prompt === 'function') {
+                    const res = window.prompt('Enter filename to save', filename);
+                    if (res === null) {
+                        console.log('User cancelled filename prompt. Export aborted.');
+                        return;
+                    }
+                    userFileName = (res && res.trim()) ? res.trim() : filename;
+                }
+                const url = URL.createObjectURL(tarBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = userFileName;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+                console.log('Tilesheets exported to tar file (download):', userFileName);
+            } catch (dlErr) {
+                console.warn('Fallback download failed:', dlErr);
+            }
         } catch (e) {
             console.warn('Export tilesheets tar failed:', e);
         }
@@ -1179,32 +1247,6 @@ export class TitleScene extends Scene {
                                     this.drawSheet = t.sheetId;
                                     this._uiHandled = true;
                                 }
-                            } else if (mp.x >= btnX && mp.x <= btnX + btnW) {
-                                // two buttons: Export Tilesheets, Import Tilesheets
-                                const y0 = btnYStart;
-                                const y1 = y0 + (btnH + m.spacing);
-                                        if (mp.y >= y0 && mp.y <= y0 + btnH) {
-                                            // Export tilesheets
-                                            try { if (this.mouse && typeof this.mouse._setButton === 'function') this.mouse._setButton(0,0); } catch (e) {}
-                                            if (!this.packageManager) this.packageManager = new PackageManager(this._tilemap, this);
-                                            // build map payload from current scene state
-                                            const mapPayload = {
-                                                map: (this._tilemap && typeof this._tilemap.toJSON === 'function') ? this._tilemap.toJSON() : null,
-                                                levelOffset: Vector.encode(this.levelOffset),
-                                                tileSize: this.tileSize,
-                                                drawType: this.drawType,
-                                                drawRot: this.drawRot,
-                                                drawInvert: this.drawInvert,
-                                                zoom: this.zoom
-                                            };
-                                            this.packageManager.exportAsTarFile('tilesheets.tar', mapPayload);
-                                    this._uiHandled = true;
-                                } else if (mp.y >= y1 && mp.y <= y1 + btnH) {
-                                    // Import tilesheets or image files (open file picker)
-                                    try { if (this.mouse && typeof this.mouse._setButton === 'function') this.mouse._setButton(0,0); } catch (e) {}
-                                    this.promptImportFiles();
-                                    this._uiHandled = true;
-                                }
                             }
                         }
                     }
@@ -1230,6 +1272,41 @@ export class TitleScene extends Scene {
         }
         toggleEdit()
 
+        // Undo shortcut: Ctrl+Z (support holding Control and pressing z)
+        try {
+            if (this.keys) {
+                if ((this.keys.held('Control') || this.keys.held('ControlLeft') || this.keys.held('ControlRight')) && this.keys.held('z') && this.undoTimer<0) {
+                    try { this.undo(); } catch (e) { console.warn('undo failed', e); }
+                    this.undoTimer = 0.2
+                }
+            }
+        } catch (e) {}
+
+        // Tool activation keys: l=line, b=box, o=circle
+        try {
+            if (this.keys.pressed('l')) {
+                // start line tool: require selectedTile or use cursor
+                const start = this.selectedTile && typeof this.selectedTile.x === 'number' ? { x: this.selectedTile.x, y: this.selectedTile.y } : this.cursor;
+                if (start) {
+                    this.toolMode = 'line'; this.toolActive = true; this.toolStart = { x: Math.floor(start.x), y: Math.floor(start.y) };
+                    this.tempTiles = [];
+                }
+            }
+            if (this.keys.pressed('b')) {
+                const start = this.selectedTile && typeof this.selectedTile.x === 'number' ? { x: this.selectedTile.x, y: this.selectedTile.y } : this.cursor;
+                if (start) {
+                    this.toolMode = 'box'; this.toolActive = true; this.toolStart = { x: Math.floor(start.x), y: Math.floor(start.y) };
+                    this.tempTiles = [];
+                }
+            }
+            if (this.keys.pressed('o')) {
+                const start = this.selectedTile && typeof this.selectedTile.x === 'number' ? { x: this.selectedTile.x, y: this.selectedTile.y } : this.cursor;
+                if (start) {
+                    this.toolMode = 'circle'; this.toolActive = true; this.toolStart = { x: Math.floor(start.x), y: Math.floor(start.y) };
+                    this.tempTiles = [];
+                }
+            }
+        } catch (e) {}
         // close edit mode with Escape
         if (this.keys.pressed('Escape') && this.editmode) this.exitEditMode();
         
@@ -1293,6 +1370,7 @@ export class TitleScene extends Scene {
 
     }
     panWorld(tickDelta){
+        if(this.mouse.pos.x>1700) return;
         // Shift+scroll should pan the world (like middle-drag). Use horizontal (wheelX) and vertical wheel.
         if (!this.mouse.held('left')&& !this.keys.held('Control')) {
             const dx = this.mouse.wheelX(null, false, false) || 0;
@@ -1468,7 +1546,21 @@ export class TitleScene extends Scene {
         }
 
         if(this.mouse.held('right') && !this.editmode){
-            this._tilemap.removeTile(this.cursor.x,this.cursor.y)
+            // right-click: if a tool is active, cancel it; otherwise remove tile
+            if (this.toolActive) {
+                this.toolActive = false; this.toolMode = null; this.toolStart = null; this.clearTempTiles();
+            } else {
+                // record previous tile so we can undo deletion
+                try {
+                    const prev = this._tilemap.getTile(this.cursor.x, this.cursor.y) || null;
+                    if (prev) {
+                        this._tilemap.removeTile(this.cursor.x, this.cursor.y);
+                        this._pushUndo([{ x: this.cursor.x, y: this.cursor.y, prev: prev, next: null }]);
+                    }
+                } catch (e) {
+                    try { this._tilemap.removeTile(this.cursor.x,this.cursor.y) } catch (ex) {}
+                }
+            }
         }
 
         if(!this.mouse.held('left')) return;
@@ -1497,13 +1589,29 @@ export class TitleScene extends Scene {
         }
         
         // Paint tiles
+        // If a tool is active and user clicked left, apply tool at click
+        if (this.toolActive && this.mouse.pressed('left')) {
+            // apply tempTiles (they are already previewed) to tilemap
+            const applied = this.applyTempTiles();
+            this.toolActive = false; this.toolMode = null; this.toolStart = null;
+            this._uiHandled = true;
+            return;
+        }
+
         const sheetId = this.drawSheet || 'house';
-        this._tilemap.setTile(this.cursor.x,this.cursor.y,sheetId,this.drawType,this.drawRot,this.drawInvert)
+        // push undo for single-tile placement
+        try {
+            const prev = this._tilemap.getTile(this.cursor.x, this.cursor.y) || null;
+            const next = { tilesheetId: sheetId, tileKey: this.drawType, rotation: this.drawRot, invert: this.drawInvert };
+            this._tilemap.setTile(this.cursor.x,this.cursor.y,sheetId,this.drawType,this.drawRot,this.drawInvert);
+            this._pushUndo([{ x: this.cursor.x, y: this.cursor.y, prev: prev, next: next }]);
+        } catch (e) { console.warn('set tile failed', e); }
     }
     sceneTick(tickDelta){
         this.zoomWorld(tickDelta)
         this.panWorld(tickDelta)
         this.getCursor()
+        this.undoTimer-=tickDelta;
         if(this.keys.held('c')){
             this.testSprite.pos.x = this.cursor.x*this.tileSize - this.testSprite.size.x/2.7 
             this.testSprite.pos.y = this.cursor.y*this.tileSize-this.testSprite.size.y/1.9
@@ -1704,6 +1812,36 @@ export class TitleScene extends Scene {
         this.rotDelay -= tickDelta
         this.handleKeys()
 
+        // If a tool is active, update preview based on current cursor
+        try {
+            if (this.toolActive && this.toolStart) {
+                const sx = this.toolStart.x;
+                const sy = this.toolStart.y;
+                const ex = Math.floor(this.cursor.x);
+                const ey = Math.floor(this.cursor.y);
+                let preview = [];
+                if (this.toolMode === 'line') preview = this._bresenhamLine(sx, sy, ex, ey);
+                else if (this.toolMode === 'box') {
+                    // if Alt held, fill the box
+                    if (this.keys && this.keys.held && this.keys.held('Alt')) {
+                        preview = this._rectFill(sx, sy, ex, ey);
+                    } else {
+                        preview = this._rectOutline(sx, sy, ex, ey);
+                    }
+                } else if (this.toolMode === 'circle') {
+                    const dx = ex - sx; const dy = ey - sy;
+                    const r = Math.max(0, Math.round(Math.sqrt(dx*dx + dy*dy)));
+                    // if Alt held, fill the circle
+                    if (this.keys && this.keys.held && this.keys.held('Alt')) {
+                        preview = this._circleFill(sx, sy, r);
+                    } else {
+                        preview = this._circleOutline(sx, sy, r);
+                    }
+                }
+                this.tempTiles = preview;
+            }
+        } catch (e) {}
+
         if(this.mouse.pressed('middle')){
             this.mouse.grab(this.mouse.pos)
             this.startOffset = this.levelOffset.clone()
@@ -1797,10 +1935,197 @@ export class TitleScene extends Scene {
         });
     }    
 
+    // Temp tiles helpers -------------------------------------------------
+    // Normalize input into {x,y} or null
+    _normalizePos(posOrX, maybeY) {
+        if (typeof posOrX === 'number' && typeof maybeY === 'number') return { x: Math.floor(posOrX), y: Math.floor(maybeY) };
+        const p = posOrX;
+        if (!p) return null;
+        if (Array.isArray(p) && p.length >= 2) return { x: Math.floor(p[0]), y: Math.floor(p[1]) };
+        if (typeof p.x === 'number' && typeof p.y === 'number') return { x: Math.floor(p.x), y: Math.floor(p.y) };
+        return null;
+    }
+
+    addTempTile(posOrX, maybeY) {
+        try {
+            const p = this._normalizePos(posOrX, maybeY);
+            if (!p) return false;
+            // avoid duplicate
+            for (let i = 0; i < this.tempTiles.length; i++) {
+                const e = this.tempTiles[i];
+                const np = (e && typeof e.x === 'number') ? e : (Array.isArray(e) ? { x: e[0], y: e[1] } : null);
+                if (np && np.x === p.x && np.y === p.y) return false;
+            }
+            this.tempTiles.push({ x: p.x, y: p.y });
+            return true;
+        } catch (e) { console.warn('addTempTile failed', e); return false; }
+    }
+
+    // Undo helpers
+    _pushUndo(batch) {
+        if (this._suppressUndo) return;
+        if (!Array.isArray(batch) || batch.length === 0) return;
+        this.undoStack.push(batch);
+        if (this.undoStack.length > this.maxUndo) this.undoStack.shift();
+    }
+
+    undo() {
+        if (!this.undoStack || this.undoStack.length === 0) return false;
+        const batch = this.undoStack.pop();
+        if (!Array.isArray(batch)) return false;
+        try {
+            this._suppressUndo = true;
+            // apply in reverse order
+            for (let i = batch.length - 1; i >= 0; i--) {
+                const op = batch[i];
+                try {
+                    if (!op || typeof op.x !== 'number' || typeof op.y !== 'number') continue;
+                    if (!op.prev) {
+                        // previous was empty -> remove
+                        this._tilemap.removeTile(op.x, op.y);
+                    } else {
+                        const p = op.prev;
+                        this._tilemap.setTile(op.x, op.y, p.tilesheetId, p.tileKey, p.rotation ?? 0, p.invert ?? 1);
+                    }
+                } catch (e) { console.warn('undo op failed', e); }
+            }
+        } finally { this._suppressUndo = false; }
+        return true;
+    }
+
+    removeTempTile(posOrX, maybeY) {
+        try {
+            const p = this._normalizePos(posOrX, maybeY);
+            if (!p) return false;
+            let removed = false;
+            this.tempTiles = this.tempTiles.filter((e) => {
+                const np = (e && typeof e.x === 'number') ? e : (Array.isArray(e) ? { x: e[0], y: e[1] } : null);
+                if (np && np.x === p.x && np.y === p.y) {
+                    removed = true;
+                    return false;
+                }
+                return true;
+            });
+            return removed;
+        } catch (e) { console.warn('removeTempTile failed', e); return false; }
+    }
+
+    clearTempTiles(){
+        try { this.tempTiles = []; return true; } catch (e) { console.warn('clearTempTiles failed', e); return false; }
+    }
+
+    // Apply temp tiles to the tilemap using current draw settings and then clear them
+    applyTempTiles(){
+        try {
+            if (!this._tilemap || !Array.isArray(this.tempTiles) || this.tempTiles.length === 0) return 0;
+            let applied = 0;
+            const batch = [];
+            for (let i = 0; i < this.tempTiles.length; i++) {
+                const e = this.tempTiles[i];
+                const p = (e && typeof e.x === 'number') ? e : (Array.isArray(e) ? { x: e[0], y: e[1] } : null);
+                if (!p) continue;
+                try {
+                    const sheetId = this.drawSheet || 'house';
+                    const prev = this._tilemap.getTile(p.x, p.y) || null;
+                    const next = { tilesheetId: sheetId, tileKey: this.drawType, rotation: this.drawRot, invert: this.drawInvert };
+                    this._tilemap.setTile(p.x, p.y, sheetId, this.drawType, this.drawRot, this.drawInvert);
+                    batch.push({ x: p.x, y: p.y, prev: prev, next: next });
+                    applied++;
+                } catch (ex) { console.warn('applyTempTiles setTile failed for', p, ex); }
+            }
+            if (batch.length > 0) this._pushUndo(batch);
+            this.tempTiles = [];
+            return applied;
+        } catch (e) { console.warn('applyTempTiles failed', e); return 0; }
+    }
+
+    // Tool geometry helpers ----------------------------------------------
+    _bresenhamLine(x0, y0, x1, y1) {
+        const pts = [];
+        let dx = Math.abs(x1 - x0);
+        let sx = x0 < x1 ? 1 : -1;
+        let dy = -Math.abs(y1 - y0);
+        let sy = y0 < y1 ? 1 : -1;
+        let err = dx + dy;
+        while (true) {
+            pts.push({ x: x0, y: y0 });
+            if (x0 === x1 && y0 === y1) break;
+            let e2 = 2 * err;
+            if (e2 >= dy) { err += dy; x0 += sx; }
+            if (e2 <= dx) { err += dx; y0 += sy; }
+        }
+        return pts;
+    }
+
+    _rectOutline(x0, y0, x1, y1) {
+        const pts = [];
+        const minx = Math.min(x0, x1); const maxx = Math.max(x0, x1);
+        const miny = Math.min(y0, y1); const maxy = Math.max(y0, y1);
+        for (let x = minx; x <= maxx; x++) { pts.push({ x: x, y: miny }); if (maxy !== miny) pts.push({ x: x, y: maxy }); }
+        for (let y = miny + 1; y <= maxy - 1; y++) { pts.push({ x: minx, y: y }); if (maxx !== minx) pts.push({ x: maxx, y: y }); }
+        // dedupe
+        const seen = new Set(); const out = [];
+        for (const p of pts) {
+            const k = p.x + ',' + p.y; if (!seen.has(k)) { seen.add(k); out.push(p); }
+        }
+        return out;
+    }
+
+    _circleOutline(cx, cy, r) {
+        const pts = [];
+        if (r <= 0) return [{ x: cx, y: cy }];
+        // approximate outline by sampling dx and computing dy
+        const seen = new Set();
+        for (let dx = -r; dx <= r; dx++) {
+            const dyf = Math.sqrt(Math.max(0, r * r - dx * dx));
+            const dy = Math.round(dyf);
+            const candidates = [ { x: cx + dx, y: cy + dy }, { x: cx + dx, y: cy - dy } ];
+            for (const c of candidates) {
+                const k = c.x + ',' + c.y; if (!seen.has(k)) { seen.add(k); pts.push(c); }
+            }
+        }
+        // also sample by dy to reduce gaps
+        for (let dy = -r; dy <= r; dy++) {
+            const dxf = Math.sqrt(Math.max(0, r * r - dy * dy));
+            const dx = Math.round(dxf);
+            const candidates = [ { x: cx + dx, y: cy + dy }, { x: cx - dx, y: cy + dy } ];
+            for (const c of candidates) {
+                const k = c.x + ',' + c.y; if (!seen.has(k)) { seen.add(k); pts.push(c); }
+            }
+        }
+        return pts;
+    }
+
+    _rectFill(x0, y0, x1, y1) {
+        const pts = [];
+        const minx = Math.min(x0, x1); const maxx = Math.max(x0, x1);
+        const miny = Math.min(y0, y1); const maxy = Math.max(y0, y1);
+        for (let x = minx; x <= maxx; x++) {
+            for (let y = miny; y <= maxy; y++) pts.push({ x: x, y: y });
+        }
+        return pts;
+    }
+
+    _circleFill(cx, cy, r) {
+        const pts = [];
+        if (r < 0) return pts;
+        for (let dy = -r; dy <= r; dy++) {
+            const dx = Math.floor(Math.sqrt(Math.max(0, r * r - dy * dy)));
+            for (let x = cx - dx; x <= cx + dx; x++) pts.push({ x: x, y: cy + dy });
+        }
+        // dedupe
+        const seen = new Set(); const out = [];
+        for (const p of pts) {
+            const k = p.x + ',' + p.y; if (!seen.has(k)) { seen.add(k); out.push(p); }
+        }
+        return out;
+    }
+
     /** 
      * Draws the game. Use the Draw class to draw elements. 
      * */
     draw() {
+        console.log('updated')
         if(!this.isReady) return;
         this.Draw.background('#000000ff')
         this.UIDraw.clear()
@@ -1831,6 +2156,28 @@ export class TitleScene extends Scene {
             }
                 this.Draw.rect(this.cursor.mult(this.tileSize).add(this.levelOffset), new Vector(this.tileSize, this.tileSize), '#907f7f44',false,true,2,'#ffffff88')
         }
+
+        // Draw any temporary tiles (tools) the same way the cursor preview is drawn.
+        try {
+            if (Array.isArray(this.tempTiles) && this.tempTiles.length > 0) {
+                const previewSheet = this._tilemap.getTileSheet(this.drawSheet || 'house');
+                for (let ti = 0; ti < this.tempTiles.length; ti++) {
+                    let p = this.tempTiles[ti];
+                    // accept Vector or plain {x,y}
+                    let tx = (p && typeof p.x === 'number') ? p.x : (Array.isArray(p) ? p[0] : null);
+                    let ty = (p && typeof p.y === 'number') ? p.y : (Array.isArray(p) ? p[1] : null);
+                    if (tx === null || ty === null) continue;
+                    try {
+                        // draw preview tile (don't draw if editmode blocks placement in some cases)
+                        this.Draw.tile(previewSheet, (new Vector(tx * this.tileSize, ty * this.tileSize)).addS(this.levelOffset), new Vector(this.tileSize, this.tileSize), this.drawType, this.drawRot, new Vector(this.drawInvert,1), 1);
+                    } catch (e) {}
+                    try {
+                        this.Draw.rect(new Vector(tx * this.tileSize, ty * this.tileSize).addS(this.levelOffset), new Vector(this.tileSize, this.tileSize), '#FFFFFF22');
+                        this.Draw.rect(new Vector(tx * this.tileSize, ty * this.tileSize).addS(this.levelOffset), new Vector(this.tileSize, this.tileSize), '#00000000', false, true, 2, '#88FF88');
+                    } catch (e) {}
+                }
+            }
+        } catch (e) {}
 
         // draw selection rectangle for any selected placed tile
         try {
@@ -2001,59 +2348,93 @@ export class TitleScene extends Scene {
                 }
             }
         } catch (e) { /* ignore overlay draw errors */ }
-        // Draw a right-side tile palette using UIDraw
+        // Draw a right-side tile palette using the modular Palette UI
         try {
             const uiCtx = this.UIDraw.getCtx('UI');
             // hide right-side palette when camera is locked
             if (uiCtx && !(this.camera && this.camera.locked)) {
                 const uiW = uiCtx.canvas.width / this.UIDraw.Scale.x;
                 const uiH = uiCtx.canvas.height / this.UIDraw.Scale.y;
-                const m = this.uiMenu;
-                const menuX = uiW - m.menuWidth - m.margin;
-                const menuY = m.margin;
-                const menuH = uiH - m.margin * 2;
-
-                // background panel
-                this.UIDraw.rect(new Vector(menuX, menuY), new Vector(m.menuWidth, menuH), '#FFFFFF22');
-
-                // draw each tile option in a grid (supports multiple sheets)
-                const cols = Math.max(1, Math.floor((m.menuWidth - 16 + m.spacing) / (m.itemSize + m.spacing)));
-                for (let i = 0; i < this.tileTypes.length; i++) {
-                    const ty = this.tileTypes[i];
-                    const col = i % cols;
-                    const row = Math.floor(i / cols);
-                    const xPos = menuX + 8 + col * (m.itemSize + m.spacing);
-                    const yPos = menuY + 8 + row * (m.itemSize + m.spacing);
-                    // item background
-                    this.UIDraw.rect(new Vector(xPos, yPos), new Vector(m.itemSize, m.itemSize), '#FFFFFF11');
-                    // highlight selection
-                    if (this.drawType && Array.isArray(this.drawType) && ty && this.drawSheet && ty.sheetId === this.drawSheet && this.drawType[0] === ty.row && this.drawType[1] === ty.col) {
-                        this.UIDraw.rect(new Vector(xPos, yPos), new Vector(m.itemSize, m.itemSize), '#00000000', false, true, 3, '#FFFFFF88');
-                    }
-                    // draw tile icon centered inside item
-                    const centerX = xPos + m.itemSize / 2;
-                    const centerY = yPos + m.itemSize / 2;
-                    try {
-                        const sheetObj = this._tilemap.getTileSheet(ty.sheetId);
-                        this.UIDraw.tile(sheetObj, new Vector(centerX-24, centerY-24), new Vector(m.itemSize, m.itemSize), [ty.row, ty.col], this.drawRot, new Vector(this.drawInvert,1), 1, false);
-                    } catch (e) { /* ignore drawing errors for individual tiles */ }
+                // create palette on first use
+                if (!this.palette) {
+                    this.palette = new Palette(this, this.mouse, this.keys, this.UIDraw);
                 }
-                // draw Save / Load buttons below the grid
+                // layout, update and draw
+                try { this.palette.layout(uiW, uiH); } catch (e) {}
+                try { this.palette.update(0); } catch (e) {}
+                try { this.palette.draw(this.UIDraw); } catch (e) {}
+
+                // Create and draw fixed Export / Import UIButtons anchored to the
+                // bottom of the screen next to the right-side sidebar (they do not scroll).
                 try {
-                    const rowsUsed = Math.ceil(this.tileTypes.length / cols);
-                    const gridH = rowsUsed * (m.itemSize + m.spacing) - m.spacing;
-                    const btnX = menuX + 8;
-                    const btnW = m.menuWidth - 16;
-                    const btnH = 28;
-                    const btnYStart = menuY + 8 + gridH + m.spacing;
-                        // Export Tilesheets
-                        this.UIDraw.rect(new Vector(btnX, btnYStart), new Vector(btnW, btnH), '#FFFFFF11');
-                        this.UIDraw.text('Export Tilesheets', new Vector(btnX + btnW / 2, btnYStart + btnH / 2 + 6), '#FFFFFFFF', 0, 14, { align: 'center' });
-                        // Import Tilesheets
-                        this.UIDraw.rect(new Vector(btnX, btnYStart + btnH + m.spacing), new Vector(btnW, btnH), '#FFFFFF11');
-                        this.UIDraw.text('Import Tilesheets', new Vector(btnX + btnW / 2, btnYStart + btnH + m.spacing + btnH / 2 + 6), '#FFFFFFFF', 0, 14, { align: 'center' });
-                        // (old Save/Load buttons removed — Export/Import replace them)
-                } catch (e) { /* ignore button draw errors */ }
+                    const m = this.palette;
+                    const menuX = m.menu.pos.x;
+                    const menuW = m.menu.size.x;
+                    const uiCtx = this.UIDraw.getCtx('UI');
+                    const uiW = uiCtx.canvas.width / this.UIDraw.Scale.x;
+                    const uiH = uiCtx.canvas.height / this.UIDraw.Scale.y;
+
+                    // button sizing and spacing
+                    const gap = 16;
+                    const btnH = 64;
+                    const btnW = Math.max(120, Math.min(220, Math.floor(menuW * 0.75)));
+
+                    // position the buttons to the LEFT of the sidebar (so they're visible next to it)
+                    const rightEdge = menuX - gap; // left edge where buttons should sit against
+                    const x = rightEdge - btnW;
+                    const bottomY = 1080 - gap/2;
+
+                    // Create buttons once
+                    if (!this.fixedExportBtn) {
+                        this.fixedExportBtn = new UIButton(this.mouse, this.keys, new Vector(x, bottomY - (btnH * 2 + gap)), new Vector(btnW, btnH), 200);
+                        this.fixedExportBtn.onPressed['left'].connect(async () => {
+                            try {
+                                if (!this.packageManager) this.packageManager = new (await import('../js/PackageManager.js')).default(this._tilemap, this);
+                                const mapPayload = {
+                                    map: (this._tilemap && typeof this._tilemap.toJSON === 'function') ? this._tilemap.toJSON() : null,
+                                    levelOffset: Vector.encode(this.levelOffset),
+                                    tileSize: this.tileSize,
+                                    drawType: this.drawType,
+                                    drawRot: this.drawRot,
+                                    drawInvert: this.drawInvert,
+                                    zoom: this.zoom
+                                };
+                                if (this.packageManager && typeof this.packageManager.exportAsTarFile === 'function') {
+                                    this.packageManager.exportAsTarFile('tilesheets.tar', mapPayload);
+                                }
+                            } catch (e) { console.warn('Export button failed', e); }
+                        });
+                    }
+
+                    if (!this.fixedImportBtn) {
+                        this.fixedImportBtn = new UIButton(this.mouse, this.keys, new Vector(x, 1080-64-16), new Vector(btnW, btnH), 200);
+                        this.fixedImportBtn.onPressed['left'].connect(async () => {
+                            try {
+                                if (this && typeof this.promptImportFiles === 'function') await this.promptImportFiles();
+                            } catch (e) { console.warn('Import button failed', e); }
+                        });
+                    }
+
+                    // Update and draw the buttons each frame (absolute screen coordinates)
+                    try {
+                        // export button above import button
+                        this.fixedExportBtn.pos = new Vector(x, bottomY - (btnH * 2 + gap));
+                        this.fixedExportBtn.size = new Vector(btnW, btnH);
+                        this.fixedExportBtn.addOffset(new Vector(0,0));
+                        this.fixedExportBtn.update(0);
+                        this.fixedExportBtn.draw(this.UIDraw);
+                        this.UIDraw.text('Export', new Vector(x + btnW / 2, bottomY - (btnH * 1.5 + gap)), '#FFFFFFFF', 0, 20, { align: 'center', baseline: 'middle' });
+                    } catch (e) {}
+
+                    try {
+                        this.fixedImportBtn.pos = new Vector(x, 1080-btnH-8);
+                        this.fixedImportBtn.size = new Vector(btnW, btnH);
+                        this.fixedImportBtn.addOffset(new Vector(0,0));
+                        this.fixedImportBtn.update(0);
+                        this.fixedImportBtn.draw(this.UIDraw);
+                        this.UIDraw.text('Import', new Vector(x + btnW / 2, bottomY - (btnH * 0.5)), '#FFFFFFFF', 0, 20, { align: 'center', baseline: 'middle' });
+                    } catch (e) {}
+                } catch (e) {}
             }
         } catch (e) {
             // ignore UI draw errors

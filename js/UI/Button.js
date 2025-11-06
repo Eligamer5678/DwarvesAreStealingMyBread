@@ -74,9 +74,9 @@ export default class UIButton {
         }
         this.heldTime += delta;
         this.color = this.baseColor;
-    this.mouse.setPower(this.layer)
-    // Use current mouse position for hit detection so clicks/releases are handled where the cursor actually is
-    if (Geometry.pointInRect(this.mouse.pos,this.pos.add(this.offset),this.size)){
+        this.mouse.setPower(this.layer)
+        // Use current mouse position for hit detection so clicks/releases are handled where the cursor actually is
+        if (Geometry.pointInRect(this.mouse.pos,this.pos.add(this.offset),this.size)){
             if(this.layer > this.mouse.mask){
                 this.mouse.setMask(this.layer);
             }
