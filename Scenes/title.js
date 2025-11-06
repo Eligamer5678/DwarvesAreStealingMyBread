@@ -1113,7 +1113,8 @@ export class TitleScene extends Scene {
 
     updateRightBounds(tickDelta){
         let pointerOverUI = false;
-        if(this.mouse.pos.x > 1920-48*5){
+        // If camera is locked, don't treat the right-side palette as UI (hide it and allow placement)
+        if (!(this.camera && this.camera.locked) && this.mouse.pos.x > 1920-48*5) {
             try {
                 const uiCtx = this.UIDraw.getCtx('UI');
                 if (uiCtx) {
@@ -1533,6 +1534,7 @@ export class TitleScene extends Scene {
 
             // if locked, compute desired levelOffset so the testSprite appears offset from center
             if (this.camera.locked && this.testSprite && this.testSprite.pos) {
+                this.zoom = 1
                 const drawCtx = this.UIDraw.ctx;
                 if (drawCtx && drawCtx.canvas) {
                     const uiW = drawCtx.canvas.width / this.UIDraw.Scale.x;
@@ -1998,7 +2000,8 @@ export class TitleScene extends Scene {
         // Draw a right-side tile palette using UIDraw
         try {
             const uiCtx = this.UIDraw.getCtx('UI');
-            if (uiCtx) {
+            // hide right-side palette when camera is locked
+            if (uiCtx && !(this.camera && this.camera.locked)) {
                 const uiW = uiCtx.canvas.width / this.UIDraw.Scale.x;
                 const uiH = uiCtx.canvas.height / this.UIDraw.Scale.y;
                 const m = this.uiMenu;
