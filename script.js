@@ -32,6 +32,7 @@ const mainWidth = 1920;
 const mainheight = 1080;
 
 
+
 class Game {
     // Top-level game container: owns scene manager, saves, UI helpers and
     // optional multiplayer glue. Scenes are dynamically imported and receive
