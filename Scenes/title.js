@@ -1350,7 +1350,7 @@ export class TitleScene extends Scene {
     handleKeys(){
         // Toggle edit mode with e
         let toggleEdit = ()=>{
-            if (!(this.keys.pressed('e') && this.selectedTile)) return; 
+            if (!(this.keys.held('e') && this.selectedTile)) return; 
             if (!this.selectedTile.info) { this.createNewTile(); return; } 
             if (!this.editmode) {
                 this.editmode = true;
@@ -1358,7 +1358,7 @@ export class TitleScene extends Scene {
                 try { this._startEditZoom(); } catch (e) { /* ignore */ }
                 return;
             }
-            this.exitEditMode();
+            
         }
         toggleEdit()
 
