@@ -38,11 +38,39 @@ export default class Mouse {
         this._lastWheelDelta = 0;
         this._lastWheelCtrl = false;
         this._lastWheel = 0; // value exposed to update() consumers
-    this._lastWheelDeltaX = 0; // horizontal wheel (touchpad two-finger) accumulator
-    this._lastWheelX = 0;
+        this._lastWheelDeltaX = 0; // horizontal wheel (touchpad two-finger) accumulator
+        this._lastWheelX = 0;
         window.addEventListener("wheel", e => {
             // if ctrl is held, prevent default browser zoom so our app can handle it
-            try { if (e.ctrlKey) e.preventDefault(); } catch (err) { /* ignore */ }
+            // inside your wheel listener in Mouse.js (handler has access to `this` and `this.rect`)
+        try {
+            // If user is doing ctrl+wheel (pinch/zoom), prevent default so browser doesn't zoom
+            if (e.ctrlKey) {
+                e.preventDefault();
+            }
+
+            // Detect large horizontal two-finger swipes (likely trackpad back/forward)
+            const absX = Math.abs(e.deltaX || 0);
+            const absY = Math.abs(e.deltaY || 0);
+
+            // Sensitivity thresholds: tune these to taste.
+            const HORIZONTAL_THRESHOLD = 30;      // minimum deltaX to treat as swipe
+            const HORIZONTAL_DOMINANCE = 1.5;     // require deltaX > HORIZONTAL_DOMINANCE * deltaY
+
+            // Only prevent when the pointer is over our canvas/UI area to avoid globally blocking horizontal scrolling.
+            const rect = this.rect || { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
+            const insideApp =
+                e.clientX >= rect.left && e.clientX <= rect.right &&
+                e.clientY >= rect.top && e.clientY <= rect.bottom;
+
+            if (insideApp && absX > HORIZONTAL_THRESHOLD && absX > absY * HORIZONTAL_DOMINANCE) {
+                // This is likely a two-finger horizontal swipe — prevent browser back/forward
+                e.preventDefault();
+                e.stopImmediatePropagation();
+            }
+        } catch (err) {
+            /* ignore */
+        }                               
             this.scrollDelta += e.deltaY;
             this._lastWheelDelta += e.deltaY;
             this._lastWheelDeltaX += e.deltaX;
@@ -53,6 +81,10 @@ export default class Mouse {
             this._tapStart = e.timeStamp;
             this._tapStartX = touch.clientX;
             this._tapStartY = touch.clientY;
+            this._setButton('left', 1);
+            this.pos.x = this._tapStartX
+            this.pos.y = this._tapStartY
+            
         });
         window.addEventListener("touchend", e => {
             const touch = e.changedTouches[0];
@@ -60,9 +92,8 @@ export default class Mouse {
             const moveX = Math.abs(touch.clientX - this._tapStartX);
             const moveY = Math.abs(touch.clientY - this._tapStartY);
             if (tapDuration < this._TAP_THRESHOLD && moveX < this._MOVE_THRESHOLD && moveY < this._MOVE_THRESHOLD) {
-                // Recognized as a tap
-                this._setButton(0, 1);
                 setTimeout(() => this._setButton(0, 0), 10); // Release after short delay
+                this._setButton('left', 0);
             }
         });
     }

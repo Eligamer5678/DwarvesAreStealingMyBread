@@ -2336,7 +2336,11 @@ export class TitleScene extends Scene {
                 this.Draw.clear();
             } catch (e) { console.warn('Could not clear world layer', ln, e); }
         }
-        this.Draw.useCtx('bg')
+        try {
+            this.Draw.useCtx('bg')
+        } catch(e){
+            console.error("couldn't swap to ctx")
+        }
         // Draw a special edit-mode background when editing. Use direct rect/gradient
         // on the bg context so transforms (push/pop matrix) don't affect it.
         try {
