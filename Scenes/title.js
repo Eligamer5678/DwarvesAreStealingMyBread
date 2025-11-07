@@ -19,6 +19,8 @@ export class TitleScene extends Scene {
     constructor(...args) {
         super('title', ...args);
         this.loaded = 0;
+        // default draw layer for placement: 'base' | 'bg' | 'overlay'
+        this.drawLayer = 'base';
         // Number of players expected in session (1 by default). Used by
         // multiplayer logic to decide whether to send/receive state.
         this.playerCount = 1;
@@ -290,7 +292,10 @@ export class TitleScene extends Scene {
         // UI click debounce flag (prevents multiple triggers per press)
         this._uiHandled = false;
 
-            // Level editor
+        // Ensure drawLayer exists (can be toggled by UI buttons)
+        this.drawLayer = this.drawLayer || 'base';
+
+        // Level editor
         this.levelOffset = new Vector(50,0)
         this.tileSize = 120
         this.cursor = new Vector(0,0)
@@ -346,6 +351,8 @@ export class TitleScene extends Scene {
         this.editColor = Color.convertColor('#FFFFFFFF');
         // eyedropper / color input state
         this.eyedropActive = false;
+        // brush size for pixel-editing (1..n pixels)
+        this.editBrushSize = 1;
         // Camera follow state (lock when arrow keys pressed, unlock on mouse movement)
         this.camera = {
             locked: false,
@@ -362,6 +369,44 @@ export class TitleScene extends Scene {
         
     }
 
+    /**
+     * Create simple UI buttons to switch draw layer (bg, base, overlay)
+     */
+    createUI() {
+        try {
+            // small container (attached to UI layer)
+            const panel = createHDiv(null, new Vector(8, 8), new Vector(320, 44), '#00000033', {
+                borderRadius: '6px', border: '1px solid #FFFFFF22', padding: '6px', display: 'flex', alignItems: 'center', gap: '6px'
+            }, 'UI');
+
+            const btnSize = new Vector(88, 32);
+            const bgBtn = createHButton(null, new Vector(12, 12), btnSize, '#333', { color: '#fff', borderRadius: '4px', fontSize: 14, border: '1px solid #777' }, panel);
+            bgBtn.textContent = 'BG';
+            const baseBtn = createHButton(null, new Vector(110, 12), btnSize, '#333', { color: '#fff', borderRadius: '4px', fontSize: 14, border: '1px solid #777' }, panel);
+            baseBtn.textContent = 'Base';
+            const ovBtn = createHButton(null, new Vector(208, 12), btnSize, '#333', { color: '#fff', borderRadius: '4px', fontSize: 14, border: '1px solid #777' }, panel);
+            ovBtn.textContent = 'Overlay';
+
+            const setActive = (name) => {
+                this.drawLayer = name;
+                bgBtn.style.background = (name === 'bg') ? '#555' : '#333';
+                baseBtn.style.background = (name === 'base') ? '#555' : '#333';
+                ovBtn.style.background = (name === 'overlay') ? '#555' : '#333';
+            };
+
+            bgBtn.addEventListener('click', () => setActive('bg'));
+            baseBtn.addEventListener('click', () => setActive('base'));
+            ovBtn.addEventListener('click', () => setActive('overlay'));
+
+            // store references so other UI code can query
+            this.layerUI = { panel, bgBtn, baseBtn, ovBtn };
+            // reflect current
+            setActive(this.drawLayer || 'base');
+        } catch (e) {
+            console.warn('createUI failed:', e);
+        }
+    }
+
     loadTilemap(){
         const bg = this.BackgroundImages['house'];
         // create a tilesheet and register it with a TileMap
@@ -376,13 +421,13 @@ export class TitleScene extends Scene {
         ts.addTile('wall', 0, 1);
         ts.addTile('roof', 0, 2);
 
-        this._tilemap.setTile(0,5,'house','wall',2)
-        this._tilemap.setTile(0,6,'house','wall',2)
-        this._tilemap.setTile(0,7,'house','wall',2)
-        this._tilemap.setTile(0,8,'house','wall',2)
-        this._tilemap.setTile(1,8,'house','floor',0)
-        this._tilemap.setTile(2,8,'house','floor',0)
-        this._tilemap.setTile(3,8,'house','floor',0)
+        this._tilemap.setTile(0,5,'house','wall',2, undefined, 'base')
+        this._tilemap.setTile(0,6,'house','wall',2, undefined, 'base')
+        this._tilemap.setTile(0,7,'house','wall',2, undefined, 'base')
+        this._tilemap.setTile(0,8,'house','wall',2, undefined, 'base')
+        this._tilemap.setTile(1,8,'house','floor',0, undefined, 'base')
+        this._tilemap.setTile(2,8,'house','floor',0, undefined, 'base')
+        this._tilemap.setTile(3,8,'house','floor',0, undefined, 'base')
 
         // populate tileTypes from all registered sheets (sheetId,row,col entries)
         this.tileTypes = [];
@@ -405,7 +450,7 @@ export class TitleScene extends Scene {
         try {
             if (!this.selectedTile || !this.selectedTile.info) return false;
             const info = this.selectedTile.info;
-            const ts = info.sheet; // TileSheet object
+        const ts = info.sheet; // TileSheet object
             const slice = ts.slicePx || 16;
 
             // determine row/col of the tileKey
@@ -425,7 +470,7 @@ export class TitleScene extends Scene {
                 cv.width = orig.width || (col + 1) * slice;
                 cv.height = orig.height || (row + 1) * slice;
                 const ctx = cv.getContext('2d');
-                try { ctx.drawImage(orig, 0, 0); } catch (e) {}
+                try { ctx.drawImage(orig, 0, 0); } catch (e) { console.warn('prepareEditTile drawImage failed', e); }
                 ts.sheet = cv;
             }
 
@@ -532,9 +577,10 @@ export class TitleScene extends Scene {
             if (this.selectedTile && typeof this.selectedTile.x === 'number' && typeof this.selectedTile.y === 'number') {
                 try {
                     // place the new tile at the selected coordinates (use array [row,col])
-                    this._tilemap.setTile(this.selectedTile.x, this.selectedTile.y, sheetId, [0,0], 0);
+                    const placeLayer = (this.selectedTile.info && this.selectedTile.info.layer) ? this.selectedTile.info.layer : this.drawLayer || 'base';
+                    this._tilemap.setTile(this.selectedTile.x, this.selectedTile.y, sheetId, [0,0], 0, undefined, placeLayer);
                     // update selectedTile.info so editor shows the new tile
-                    this.selectedTile.info = { sheet: ts, tileKey: [0,0], tilesheetId: sheetId, rotation: 0 };
+                    this.selectedTile.info = { sheet: ts, tileKey: [0,0], tilesheetId: sheetId, rotation: 0, layer: placeLayer };
                 } catch (e) { /* ignore placement errors */ }
             } else {
                 // set palette drawing to the new tile so user can place it
@@ -576,9 +622,48 @@ export class TitleScene extends Scene {
         try {
             // apply any remaining changes
             this.applyEditTileToTilesheet();
-        } catch (e) {}
+    } catch (e) { console.warn('tempTiles preview block failed', e); }
         this.editmode = false;
         // keep edit canvas in memory if needed, but could cleanup
+    }
+
+    // Start an animated zoom that focuses the view on the currently selected tile.
+    _startEditZoom(duration = 0.45) {
+        if (!this.selectedTile) return;
+        const drawCtx = this.Draw.ctx;
+        if (!drawCtx || !drawCtx.canvas) return;
+
+        const uiW = drawCtx.canvas.width / this.Draw.Scale.x;
+        const uiH = drawCtx.canvas.height / this.Draw.Scale.y;
+        const center = new Vector(uiW / 2, uiH / 2);
+
+        // choose a target zoom so the tile occupies a large portion of the view
+        const approx = Math.floor((Math.min(uiW, uiH) * 0.6) / this.tileSize);
+        const targetZoom = Math.max(1.25, Math.min(this.maxZoom || 10, approx || 3));
+
+        // compute world position of the tile (top-left)
+        const tileWorld = new Vector(this.selectedTile.x * this.tileSize, this.selectedTile.y * this.tileSize);
+
+        // compute new levelOffset so tileWorld maps to screen center under targetZoom
+        // formula derived from: S = newZoom * (W + levelOffset) + (1 - newZoom) * origin
+        // => levelOffset = (S + (newZoom - 1) * origin) / newZoom - W
+    const newZoom = targetZoom;
+    const origin = center;
+    const S = center;
+    // Compute levelOffset so that the tile's center maps to screen center.
+    const tileCenter = tileWorld.addS(new Vector(this.tileSize / 2, this.tileSize / 2));
+    const newLevelOffset = center.sub(tileCenter);
+
+        // store animation state
+        this._editZooming = true;
+        this._editZoomTime = 0;
+        this._editZoomDuration = duration;
+        this._editZoomFrom = this.zoom;
+        this._editZoomTo = newZoom;
+        this._editZoomFromOffset = this.levelOffset.clone ? this.levelOffset.clone() : new Vector(this.levelOffset.x, this.levelOffset.y);
+        this._editZoomToOffset = newLevelOffset;
+        // set zoom origin so transforms center on screen during animation
+        this.zoomOrigin = center;
     }
 
     // Convert hex color '#RRGGBBAA' or '#RRGGBB' into [r,g,b,a]
@@ -1267,7 +1352,12 @@ export class TitleScene extends Scene {
         let toggleEdit = ()=>{
             if (!(this.keys.pressed('e') && this.selectedTile)) return; 
             if (!this.selectedTile.info) { this.createNewTile(); return; } 
-            if (!this.editmode) {this.editmode = true; this.prepareEditTile(); return;} 
+            if (!this.editmode) {
+                this.editmode = true;
+                this.prepareEditTile();
+                try { this._startEditZoom(); } catch (e) { /* ignore */ }
+                return;
+            }
             this.exitEditMode();
         }
         toggleEdit()
@@ -1423,7 +1513,8 @@ export class TitleScene extends Scene {
     }
 
     eyedropper(draw){
-            const ctx = draw && draw.ctx;
+        
+            const ctx = draw.getCtx(this.drawLayer);
             if (!ctx || !ctx.canvas) return null;
 
             // fix draw.scale
@@ -1517,17 +1608,57 @@ export class TitleScene extends Scene {
             }
             const ctx = ts.sheet.getContext('2d');
             const im = ctx.getImageData(col * slice, row * slice, slice, slice);
-            const idx = (py * slice + px) * 4;
-            if (this.mouse.held('right')) {
-                im.data[idx+0] = 0; im.data[idx+1] = 0; im.data[idx+2] = 0; im.data[idx+3] = 0;
-            } else {
-                const colc = Color.convertColor(this.editColor || '#FFFFFFFF').toRgb();
-                im.data[idx+0] = Math.round(colc.a || 0);
-                im.data[idx+1] = Math.round(colc.b || 0);
-                im.data[idx+2] = Math.round(colc.c || 0);
-                im.data[idx+3] = Math.round((colc.d || 1) * 255);
+            // brush: apply a square of pixels of size this.editBrushSize centered on (px,py)
+            const bsize = Math.max(1, Math.floor(this.editBrushSize || 1));
+            const half = Math.floor(bsize / 2);
+            const startX = Math.max(0, px - half);
+            const startY = Math.max(0, py - half);
+            const endX = Math.min(slice - 1, startX + bsize - 1);
+            const endY = Math.min(slice - 1, startY + bsize - 1);
+            const doErase = this.mouse.held('right');
+            const colc = doErase ? null : Color.convertColor(this.editColor || '#FFFFFFFF').toRgb();
+            // account for tile rotation/invert so clicking on a rotated/flipped tile
+            // correctly maps display pixel coords to the tilesheet source pixels
+            const rot = (info.rotation !== undefined) ? (Number(info.rotation) || 0) : 0;
+            const invX = (info.invert !== undefined) ? (Number(info.invert) || 1) : 1;
+            const invY = 1; // we only support horizontal invert currently (legacy)
+            const rnorm = ((rot % 4) + 4) % 4;
+            for (let yy = startY; yy <= endY; yy++) {
+                for (let xx = startX; xx <= endX; xx++) {
+                    // display-space normalized coords (0..1) for the pixel center
+                    const u_disp = (xx + 0.5) / slice;
+                    const v_disp = (yy + 0.5) / slice;
+                    // center-origin coords (-0.5 .. 0.5)
+                    let cx = u_disp - 0.5;
+                    let cy = v_disp - 0.5;
+                    // inverse of invert (scale) applied during draw
+                    if (invX < 0) cx = -cx;
+                    if (invY < 0) cy = -cy;
+                    // inverse rotate by -rot*90deg
+                    let sxn = 0, syn = 0;
+                    switch (rnorm) {
+                        case 0: sxn = cx; syn = cy; break;
+                        case 1: sxn = cy; syn = -cx; break;
+                        case 2: sxn = -cx; syn = -cy; break;
+                        case 3: sxn = -cy; syn = cx; break;
+                    }
+                    // convert back to 0..1 normalized source coords
+                    const u_src = Math.min(1, Math.max(0, sxn + 0.5));
+                    const v_src = Math.min(1, Math.max(0, syn + 0.5));
+                    const srcX = Math.min(slice - 1, Math.max(0, Math.floor(u_src * slice)));
+                    const srcY = Math.min(slice - 1, Math.max(0, Math.floor(v_src * slice)));
+                    const idx = (srcY * slice + srcX) * 4;
+                    if (doErase) {
+                        im.data[idx+0] = 0; im.data[idx+1] = 0; im.data[idx+2] = 0; im.data[idx+3] = 0;
+                    } else {
+                        im.data[idx+0] = Math.round(colc.a || 0);
+                        im.data[idx+1] = Math.round(colc.b || 0);
+                        im.data[idx+2] = Math.round(colc.c || 0);
+                        im.data[idx+3] = Math.round((colc.d || 1) * 255);
+                    }
+                }
             }
-            ctx.putImageData(im, col * slice, row * slice);
+            try { ctx.putImageData(im, col * slice, row * slice); } catch (e) { console.warn('putImageData failed in handleEdit', e); }
             // update the edit canvas view if present
             try {
                 if (this.editTileCanvas) {
@@ -1544,21 +1675,24 @@ export class TitleScene extends Scene {
         if(this.handleEdit(tickDelta,pointerOverUI)){
             return;
         }
+        
 
         if(this.mouse.held('right') && !this.editmode){
             // right-click: if a tool is active, cancel it; otherwise remove tile
             if (this.toolActive) {
                 this.toolActive = false; this.toolMode = null; this.toolStart = null; this.clearTempTiles();
             } else {
-                // record previous tile so we can undo deletion
+                // record previous tile so we can undo deletion (operate on active layer)
                 try {
-                    const prev = this._tilemap.getTile(this.cursor.x, this.cursor.y) || null;
+                    const layer = this.drawLayer || 'base';
+                    const prev = this._tilemap.getTile(this.cursor.x, this.cursor.y, layer) || null;
                     if (prev) {
-                        this._tilemap.removeTile(this.cursor.x, this.cursor.y);
-                        this._pushUndo([{ x: this.cursor.x, y: this.cursor.y, prev: prev, next: null }]);
+                        this._tilemap.removeTile(this.cursor.x, this.cursor.y, layer);
+                        const prevWithLayer = Object.assign({}, prev, { layer });
+                        this._pushUndo([{ x: this.cursor.x, y: this.cursor.y, prev: prevWithLayer, next: null }]);
                     }
                 } catch (e) {
-                    try { this._tilemap.removeTile(this.cursor.x,this.cursor.y) } catch (ex) {}
+                    try { this._tilemap.removeTile(this.cursor.x,this.cursor.y, this.drawLayer || 'base') } catch (ex) {}
                 }
             }
         }
@@ -1570,7 +1704,7 @@ export class TitleScene extends Scene {
 
         // Select tiles
         if (this.keys.held('Shift')) {
-            const info = this._tilemap.getTileRenderInfo(this.cursor.x, this.cursor.y);
+            const info = this._tilemap.getTileRenderInfo(this.cursor.x, this.cursor.y, this.drawLayer || 'base');
             if (info)  this.selectedTile = { x: this.cursor.x, y: this.cursor.y, info };
             else  this.selectedTile = { x: this.cursor.x, y: this.cursor.y, info: null};
             return;
@@ -1578,7 +1712,7 @@ export class TitleScene extends Scene {
 
         // Copy tiles
         if (this.keys.held('Control')){
-            const info = this._tilemap.getTileRenderInfo(this.cursor.x, this.cursor.y);
+            const info = this._tilemap.getTileRenderInfo(this.cursor.x, this.cursor.y, this.drawLayer || 'base');
             if (info) {
                 this.drawType = info.tileKey;
                 this.drawSheet = info.tilesheetId || info.tilesheet || this.drawSheet;
@@ -1597,14 +1731,16 @@ export class TitleScene extends Scene {
             this._uiHandled = true;
             return;
         }
-
+        if(this.mouse.pos.y < 100) return;
         const sheetId = this.drawSheet || 'house';
         // push undo for single-tile placement
         try {
-            const prev = this._tilemap.getTile(this.cursor.x, this.cursor.y) || null;
-            const next = { tilesheetId: sheetId, tileKey: this.drawType, rotation: this.drawRot, invert: this.drawInvert };
-            this._tilemap.setTile(this.cursor.x,this.cursor.y,sheetId,this.drawType,this.drawRot,this.drawInvert);
-            this._pushUndo([{ x: this.cursor.x, y: this.cursor.y, prev: prev, next: next }]);
+            const layer = this.drawLayer || 'base';
+            const prev = this._tilemap.getTile(this.cursor.x, this.cursor.y, layer) || null;
+            const prevWithLayer = prev ? Object.assign({}, prev, { layer }) : null;
+            const next = { tilesheetId: sheetId, tileKey: this.drawType, rotation: this.drawRot, invert: this.drawInvert, layer };
+            this._tilemap.setTile(this.cursor.x, this.cursor.y, sheetId, this.drawType, this.drawRot, this.drawInvert, layer);
+            this._pushUndo([{ x: this.cursor.x, y: this.cursor.y, prev: prevWithLayer, next: next }]);
         } catch (e) { console.warn('set tile failed', e); }
     }
     sceneTick(tickDelta){
@@ -1612,6 +1748,34 @@ export class TitleScene extends Scene {
         this.panWorld(tickDelta)
         this.getCursor()
         this.undoTimer-=tickDelta;
+        // Animate edit-mode zoom when requested (_startEditZoom sets the targets)
+        try {
+            if (this._editZooming) {
+                this._editZoomTime = (this._editZoomTime || 0) + tickDelta;
+                const dur = this._editZoomDuration || 0.45;
+                const t = Math.min(1, this._editZoomTime / dur);
+                // easeOutCubic
+                const ease = 1 - Math.pow(1 - t, 3);
+                // interpolate zoom
+                this.zoom = (this._editZoomFrom || this.zoom) + ((this._editZoomTo || this.zoom) - (this._editZoomFrom || this.zoom)) * ease;
+                // interpolate levelOffset
+                if (this._editZoomFromOffset && this._editZoomToOffset) {
+                    const from = this._editZoomFromOffset;
+                    const to = this._editZoomToOffset;
+                    try {
+                        this.levelOffset = from.add(to.sub(from).mult(ease));
+                    } catch (e) {
+                        // fallback: lerp components
+                        const lx = from.x + (to.x - from.x) * ease;
+                        const ly = from.y + (to.y - from.y) * ease;
+                        this.levelOffset = new Vector(lx, ly);
+                    }
+                }
+                if (t >= 1) {
+                    this._editZooming = false;
+                }
+            }
+        } catch (e) { console.warn('edit zoom animation failed', e); }
         if(this.keys.held('c')){
             this.testSprite.pos.x = this.cursor.x*this.tileSize - this.testSprite.size.x/2.7 
             this.testSprite.pos.y = this.cursor.y*this.tileSize-this.testSprite.size.y/1.9
@@ -1812,6 +1976,16 @@ export class TitleScene extends Scene {
         this.rotDelay -= tickDelta
         this.handleKeys()
 
+        // Quick brush size shortcuts when in edit mode: 1..4
+        try {
+            if (this.editmode) {
+                if (this.keys.pressed('1')) { this.editBrushSize = 1; console.log('Brush size -> 1'); }
+                else if (this.keys.pressed('2')) { this.editBrushSize = 2; console.log('Brush size -> 2'); }
+                else if (this.keys.pressed('3')) { this.editBrushSize = 3; console.log('Brush size -> 3'); }
+                else if (this.keys.pressed('4')) { this.editBrushSize = 4; console.log('Brush size -> 4'); }
+            }
+        } catch (e) { /* ignore input read errors */ }
+
         // If a tool is active, update preview based on current cursor
         try {
             if (this.toolActive && this.toolStart) {
@@ -1922,18 +2096,35 @@ export class TitleScene extends Scene {
         if (this.mouse.released('left')) this._uiHandled = false;
     }
 
-    drawTilemap(){
-        // draw the entire placed region (simple for-each). Use display size 64px per tile
-        this._tilemap.forEach((tx, ty, entry) => {
-            const info = this._tilemap.getTileRenderInfo(tx, ty);
-            if (!info || !info.sheet) return;
+    drawTilemap(layerName){
+        // Draw tiles that belong to `layerName`. The Draw context should already be
+        // set to the matching canvas and transforms applied.
+        const layer = layerName || 'base';
+        this._tilemap.forEach((tx, ty, entry, lname) => {
+            // entry is the raw stored mapping { tilesheetId, tileKey, rotation, invert }
+            if (!entry) return;
+            const sheet = this._tilemap.getTileSheet(entry.tilesheetId);
+            if (!sheet) {
+                console.warn('Missing TileSheet for tile at', { tilesheetId: entry.tilesheetId, x: tx, y: ty, layer });
+                return;
+            }
             const px = tx * this.tileSize;
             const py = ty * this.tileSize;
-            const rot = info.rotation ?? 0;
-            const invert = info.invert ?? 0;
-            this.Draw.tile(info.sheet, (new Vector(px, py)).addS(this.levelOffset), new Vector(this.tileSize, this.tileSize), info.tileKey, rot, new Vector(invert,1), 1);
-        });
-    }    
+            const rot = entry.rotation ?? 0;
+            const invert = entry.invert ?? 0;
+            try {
+                this.Draw.tile(sheet, (new Vector(px, py)).addS(this.levelOffset), new Vector(this.tileSize, this.tileSize), entry.tileKey, rot, new Vector(invert,1), 1);
+                if(!this.camera.locked){
+                    if(layer === 'overlay' && this.drawLayer !== 'overlay' || layer === 'base' && this.drawLayer === 'bg'){
+                        this.Draw.rect(new Vector(px, py).addS(this.levelOffset).subS(new Vector(1,1)), new Vector(this.tileSize, this.tileSize).addS(new Vector(2,2)),'#FFFFFF33')
+                    }
+                    if(layer === 'bg' && this.drawLayer !== 'bg' || layer === 'base' && this.drawLayer === 'overlay'){
+                        this.Draw.rect(new Vector(px, py).addS(this.levelOffset).subS(new Vector(1,1)), new Vector(this.tileSize, this.tileSize).addS(new Vector(2,2)),'#000000AA')
+                    }
+                }
+            } catch (e) { console.warn('Draw.tile failed at', { layer, x: tx, y: ty, entry }, e); }
+        }, layer);
+    }
 
     // Temp tiles helpers -------------------------------------------------
     // Normalize input into {x,y} or null
@@ -1975,17 +2166,19 @@ export class TitleScene extends Scene {
         if (!Array.isArray(batch)) return false;
         try {
             this._suppressUndo = true;
-            // apply in reverse order
+            // apply in reverse order for per-tile undo batches
             for (let i = batch.length - 1; i >= 0; i--) {
                 const op = batch[i];
                 try {
                     if (!op || typeof op.x !== 'number' || typeof op.y !== 'number') continue;
                     if (!op.prev) {
-                        // previous was empty -> remove
-                        this._tilemap.removeTile(op.x, op.y);
+                        // previous was empty -> remove from the layer stored in next (or default)
+                        const layerToRemove = (op.next && op.next.layer) ? op.next.layer : (this.drawLayer || 'base');
+                        this._tilemap.removeTile(op.x, op.y, layerToRemove);
                     } else {
                         const p = op.prev;
-                        this._tilemap.setTile(op.x, op.y, p.tilesheetId, p.tileKey, p.rotation ?? 0, p.invert ?? 1);
+                        const layerToSet = p.layer || (this.drawLayer || 'base');
+                        this._tilemap.setTile(op.x, op.y, p.tilesheetId, p.tileKey, p.rotation ?? 0, p.invert ?? 1, layerToSet);
                     }
                 } catch (e) { console.warn('undo op failed', e); }
             }
@@ -2020,20 +2213,27 @@ export class TitleScene extends Scene {
             if (!this._tilemap || !Array.isArray(this.tempTiles) || this.tempTiles.length === 0) return 0;
             let applied = 0;
             const batch = [];
+            // If the operation affects many tiles, creating a full snapshot and restoring
+            // it on undo is usually much faster than thousands of individual set/delete ops.
+            // snapshot optimization removed (simpler per-tile updates across layers)
             for (let i = 0; i < this.tempTiles.length; i++) {
                 const e = this.tempTiles[i];
                 const p = (e && typeof e.x === 'number') ? e : (Array.isArray(e) ? { x: e[0], y: e[1] } : null);
                 if (!p) continue;
                 try {
                     const sheetId = this.drawSheet || 'house';
-                    const prev = this._tilemap.getTile(p.x, p.y) || null;
-                    const next = { tilesheetId: sheetId, tileKey: this.drawType, rotation: this.drawRot, invert: this.drawInvert };
-                    this._tilemap.setTile(p.x, p.y, sheetId, this.drawType, this.drawRot, this.drawInvert);
-                    batch.push({ x: p.x, y: p.y, prev: prev, next: next });
+                    const layer = this.drawLayer || 'base';
+                    const prev = this._tilemap.getTile(p.x, p.y, layer) || null;
+                    const prevWithLayer = prev ? Object.assign({}, prev, { layer }) : null;
+                    const next = { tilesheetId: sheetId, tileKey: this.drawType, rotation: this.drawRot, invert: this.drawInvert, layer };
+                    this._tilemap.setTile(p.x, p.y, sheetId, this.drawType, this.drawRot, this.drawInvert, layer);
+                    batch.push({ x: p.x, y: p.y, prev: prevWithLayer, next: next });
                     applied++;
                 } catch (ex) { console.warn('applyTempTiles setTile failed for', p, ex); }
             }
-            if (batch.length > 0) this._pushUndo(batch);
+            if (batch.length > 0) {
+                this._pushUndo(batch);
+            }
             this.tempTiles = [];
             return applied;
         } catch (e) { console.warn('applyTempTiles failed', e); return 0; }
@@ -2125,39 +2325,103 @@ export class TitleScene extends Scene {
      * Draws the game. Use the Draw class to draw elements. 
      * */
     draw() {
-        console.log('updated')
         if(!this.isReady) return;
-        this.Draw.background('#000000ff')
-        this.UIDraw.clear()
+        // Clear all world layers explicitly (Draw.clear only clears the active ctx).
+        // This ensures 'bg' and 'overlay' are cleared even when current ctx is 'base'.
+        const worldLayers = ['bg', 'base', 'overlay'];
+        for (const ln of worldLayers) {
+            try {
+                this.Draw.useCtx(ln);
+                this.Draw.popMatrix(false,true)
+                this.Draw.clear();
+            } catch (e) { console.warn('Could not clear world layer', ln, e); }
+        }
+        this.Draw.useCtx('bg')
+        // Draw a special edit-mode background when editing. Use direct rect/gradient
+        // on the bg context so transforms (push/pop matrix) don't affect it.
+        try {
+            // Use Draw.rect which has built-in gradient support. Compute two
+            // animated colors and pass them as an array with fill='gradient'.
+            this._editBgPhase = (this._editBgPhase || 0) + 0.02;
+            const phase = (Math.sin(this._editBgPhase) + 1) / 2; // 0..1
+            // small color shift for a subtle animated effect
+            const r1 = Math.floor(10 + phase * 20);
+            const g1 = Math.floor(20 + phase * 30);
+            const b1 = Math.floor(50 + phase * 40);
+            const r2 = Math.floor(30 + (1 - phase) * 20);
+            const g2 = Math.floor(40 + (1 - phase) * 30);
+            const b2 = Math.floor(60 + (1 - phase) * 30);
+            const c1 = `rgba(${r1},${g1},${b1},1)`;
+            const c2 = `rgba(${r2},${g2},${b2},1)`;
+
+            if (this.editmode) {
+                // rect expects Draw-space coords; background() uses canvas.width/Scale.x
+                const ctx = this.Draw.ctx;
+                const w = ctx ? (ctx.canvas.width / this.Draw.Scale.x) : 1920;
+                const h = ctx ? (ctx.canvas.height / this.Draw.Scale.y) : 1080;
+                this.Draw.rect(new Vector(0, 0), new Vector(w, h), [c1, c2], 'gradient');
+            } else {
+                this.Draw.background('#000000FF');
+            }
+        } catch (e) { console.warn('bg draw failed', e); }
+        // Clear UI layers explicitly as well (both UI and overlays)
+        try { this.UIDraw.useCtx('UI'); this.UIDraw.clear(); } catch (e) { console.warn('Could not clear UIDraw UI ctx', e); }
+        try { this.UIDraw.useCtx('overlays'); this.UIDraw.clear(); } catch (e) { console.warn('Could not clear UIDraw overlays ctx', e); }
         // Apply zoom transform around screen center for world drawing
         const drawCtx = this.Draw.ctx;
         const uiW = drawCtx.canvas.width / this.Draw.Scale.x;
         const uiH = drawCtx.canvas.height / this.Draw.Scale.y;
         const center = new Vector(uiW / 2, uiH / 2);
         const origin = this.zoomOrigin ? this.zoomOrigin : center;
-        // translate to origin, scale, translate back (grouped so popMatrix restores)
+        // draw per logical layer so tiles end up on the correct canvas
+        const layers = ['bg','base','overlay'];
+        for (const layerName of layers) {
+            try {
+                this.Draw.useCtx(layerName);
+            } catch (e) {
+                // skip layers without a registered ctx
+                continue;
+            }
+
+            // apply zoom/translate transforms for this ctx
+            this.Draw.pushMatrix()
+            this.Draw.translate(origin);
+            this.Draw.scale(this.zoom);
+            this.Draw.translate(new Vector(-origin.x, -origin.y));
+
+            // draw tiles assigned to this layer
+            this.drawTilemap(layerName);
+
+            // draw test sprite only on base layer
+            if (layerName === 'base') {
+                this.testSprite.draw(this.levelOffset);
+            }
+
+            // restore transforms for this ctx
+            try { this.Draw.popMatrix(); } catch (e) { console.warn('Draw.popMatrix failed for layer', layerName, e); }
+        }
+
+        // apply zoom/translate transforms for this ctx
+        this.Draw.pushMatrix()
         this.Draw.translate(origin);
         this.Draw.scale(this.zoom);
         this.Draw.translate(new Vector(-origin.x, -origin.y));
- 
-
-        
-        this.drawTilemap()
-        this.testSprite.draw(this.levelOffset)
-        
-        // draw preview of the tile under the cursor (on world layer) when not over palette
-        if(this.mouse.pos.x < 1920 - this.uiMenu.menuWidth){
+        // draw preview of the tile under the cursor on the currently-selected layer
+        if (this.mouse.pos.x < 1920 - this.uiMenu.menuWidth) {
             const previewSheet = this._tilemap.getTileSheet(this.drawSheet || 'house');
-            if(!this.editmode){
-                if(!this.keys.held('Shift')){
-                    this.Draw.tile(previewSheet, (new Vector(this.cursor.x * this.tileSize, this.cursor.y * this.tileSize)).addS(this.levelOffset), new Vector(this.tileSize, this.tileSize), this.drawType, this.drawRot, new Vector(this.drawInvert,1), 1);
+            try {
+                //this.Draw.useCtx(this.drawLayer || 'base');
+                if (!this.editmode) {
+                    if (!this.keys.held('Shift')) {
+                        this.Draw.tile(previewSheet, (new Vector(this.cursor.x * this.tileSize, this.cursor.y * this.tileSize)).addS(this.levelOffset), new Vector(this.tileSize, this.tileSize), this.drawType, this.drawRot, new Vector(this.drawInvert, 1), 1);
+                    }
+                    this.Draw.rect(this.cursor.mult(this.tileSize).add(this.levelOffset), new Vector(this.tileSize, this.tileSize), '#FFFFFF44');
                 }
-                this.Draw.rect(this.cursor.mult(this.tileSize).add(this.levelOffset), new Vector(this.tileSize, this.tileSize), '#FFFFFF44')
-            }
-                this.Draw.rect(this.cursor.mult(this.tileSize).add(this.levelOffset), new Vector(this.tileSize, this.tileSize), '#907f7f44',false,true,2,'#ffffff88')
+                this.Draw.rect(this.cursor.mult(this.tileSize).add(this.levelOffset), new Vector(this.tileSize, this.tileSize), '#907f7f44', false, true, 2, '#ffffff88');
+            } catch (e) { console.warn('preview draw failed (layer=' + (this.drawLayer || 'base') + ')', e); }
         }
 
-        // Draw any temporary tiles (tools) the same way the cursor preview is drawn.
+        // Draw any temporary tiles (tools) on the selected layer
         try {
             if (Array.isArray(this.tempTiles) && this.tempTiles.length > 0) {
                 const previewSheet = this._tilemap.getTileSheet(this.drawSheet || 'house');
@@ -2169,12 +2433,12 @@ export class TitleScene extends Scene {
                     if (tx === null || ty === null) continue;
                     try {
                         // draw preview tile (don't draw if editmode blocks placement in some cases)
-                        this.Draw.tile(previewSheet, (new Vector(tx * this.tileSize, ty * this.tileSize)).addS(this.levelOffset), new Vector(this.tileSize, this.tileSize), this.drawType, this.drawRot, new Vector(this.drawInvert,1), 1);
-                    } catch (e) {}
+                        this.Draw.tile(previewSheet, (new Vector(tx * this.tileSize, ty * this.tileSize)).addS(this.levelOffset), new Vector(this.tileSize, this.tileSize), this.drawType, this.drawRot, new Vector(this.drawInvert, 1), 1);
+                    } catch (e) { console.warn('tempTiles Draw.tile failed for', { x: tx, y: ty, p }, e); }
                     try {
                         this.Draw.rect(new Vector(tx * this.tileSize, ty * this.tileSize).addS(this.levelOffset), new Vector(this.tileSize, this.tileSize), '#FFFFFF22');
                         this.Draw.rect(new Vector(tx * this.tileSize, ty * this.tileSize).addS(this.levelOffset), new Vector(this.tileSize, this.tileSize), '#00000000', false, true, 2, '#88FF88');
-                    } catch (e) {}
+                    } catch (e) { console.warn('tempTiles rect draw failed for', { x: tx, y: ty, p }, e); }
                 }
             }
         } catch (e) {}
@@ -2186,7 +2450,8 @@ export class TitleScene extends Scene {
                 const sy = this.selectedTile.y * this.tileSize;
                 this.Draw.rect(new Vector(sx, sy).addS(this.levelOffset), new Vector(this.tileSize, this.tileSize), '#00000000', false, true, 3, this.selectionColor);
             }
-        } catch (e) { /* ignore selection draw errors */ }
+        } catch (e) { console.warn('selection draw failed', e); }
+        this.Draw.popMatrix();
 
         // (mini pixel cursor removed from world-layer draw; drawn later into UIDraw overlays so it isn't affected by zoom)
         
@@ -2217,21 +2482,31 @@ export class TitleScene extends Scene {
                     const py = Math.floor((withinTileY / this.tileSize) * slice);
 
                     if (px >= 0 && py >= 0 && px < slice && py < slice) {
+                        // Draw brush-sized cursor preview (square)
+                        const bsize = Math.max(1, Math.floor(this.editBrushSize || 1));
+                        const half = Math.floor(bsize / 2);
+                        const startX = Math.max(0, px - half);
+                        const startY = Math.max(0, py - half);
+                        const drawW = Math.min(slice - startX, bsize);
+                        const drawH = Math.min(slice - startY, bsize);
+
                         const pixelWorldSize = this.tileSize / slice;
-                        const pxWorld = this.selectedTile.x * this.tileSize + px * pixelWorldSize;
-                        const pyWorld = this.selectedTile.y * this.tileSize + py * pixelWorldSize;
+                        const pxWorld = this.selectedTile.x * this.tileSize + startX * pixelWorldSize;
+                        const pyWorld = this.selectedTile.y * this.tileSize + startY * pixelWorldSize;
                         // convert world position to screen-space using the same transform used for world drawing
                         const screenPos = new Vector(
                             pxWorld * this.zoom + origin.x * (1 - this.zoom),
                             pyWorld * this.zoom + origin.y * (1 - this.zoom)
                         );
-                        const screenSize = pixelWorldSize * this.zoom;
-                        // draw a highlighted rectangle for the single pixel in overlay space
-                        this.UIDraw.rect(screenPos.addS(this.levelOffset.mult(this.zoom)), new Vector(screenSize, screenSize), '#00000000', false, true, 0.5, '#ffcc00ff');
+                        const screenSizeX = pixelWorldSize * this.zoom * drawW;
+                        const screenSizeY = pixelWorldSize * this.zoom * drawH;
+                        // draw highlighted rectangle for the brush area in overlay space
+                        
+                        this.UIDraw.rect(screenPos.addS(this.levelOffset.mult(this.zoom)), new Vector(screenSizeX, screenSizeY), this.editColor,this.mouse.held('right') ? false : true, true, 0.5, '#ffcc00ff');
                     }
                 }
             }
-        } catch (e) { /* ignore cursor draw errors */ }
+        } catch (e) { console.warn('cursor draw failed', e); }
         // Draw left-side edit menu when edit mode is active (blank panel for now)
         try {
             if (this.editmode) {
@@ -2347,7 +2622,7 @@ export class TitleScene extends Scene {
                     } catch (e) { /* ignore edit-canvas draw errors */ }
                 }
             }
-        } catch (e) { /* ignore overlay draw errors */ }
+        } catch (e) { console.warn('overlay draw failed', e); }
         // Draw a right-side tile palette using the modular Palette UI
         try {
             const uiCtx = this.UIDraw.getCtx('UI');
@@ -2440,7 +2715,7 @@ export class TitleScene extends Scene {
             // ignore UI draw errors
         }
         // restore world transforms
-        try { this.Draw.popMatrix(); } catch (e) { /* ignore */ }
-        this.UIDraw.useCtx('UI')
+        try { this.Draw.popMatrix(); } catch (e) { console.warn('popMatrix restore failed', e); }
+            this.UIDraw.useCtx('UI')
     }
 }

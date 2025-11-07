@@ -48,12 +48,16 @@ class Game {
         this.runtime = 0;
         this.delta = 0;
         // Add game layers here!  false=default, true=UI version (has div container)
+        this.program.addLayer('bg', false);
         this.program.addLayer('base', false);
+        this.program.addLayer('overlay', false);
         this.program.addLayer('UI', true);
         this.program.addLayer('overlays', true);
 
         this.program.updateZ();
-        //Could you register a new ctx here in UIDraw:
+        this.Draw.registerCtx('base',this.program.getCtx('base'));
+        this.Draw.registerCtx('bg',this.program.getCtx('bg'));
+        this.Draw.registerCtx('overlay',this.program.getCtx('overlay'));
         this.UIDraw.registerCtx('overlays',this.program.getCtx('overlays'));
         this.UIDraw.registerCtx('UI',this.program.getCtx('UI'));
 
