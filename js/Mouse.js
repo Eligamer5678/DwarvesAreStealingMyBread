@@ -49,6 +49,7 @@ export default class Mouse {
         window.addEventListener('auxclick', e => {
             try {
                 if (typeof e.button === 'number' && (e.button === 3 || e.button === 4)) {
+                    console.log('blocked back nav')
                     e.preventDefault();
                     e.stopImmediatePropagation();
                 }
