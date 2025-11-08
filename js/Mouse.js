@@ -32,8 +32,28 @@ export default class Mouse {
 
         // Use Pointer Events (covers mouse, touch, pen)
         window.addEventListener("pointermove", e => this._onMove(e));
-        window.addEventListener("pointerdown", e => this._setButton(e.button, 1));
+        // Prevent browser navigation from extra mouse buttons (X1/X2). Some browsers
+        // map the back/forward buttons to button values 3 and 4. Intercept pointerdown
+        // and auxclick to call preventDefault so the browser doesn't navigate.
+        window.addEventListener("pointerdown", e => {
+            try {
+                if (typeof e.button === 'number' && (e.button === 3 || e.button === 4)) {
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                }
+            } catch (ex) {}
+            this._setButton(e.button, 1);
+        });
         window.addEventListener("pointerup", e => this._setButton(e.button, 0));
+        // auxclick is fired for non-primary buttons in some browsers; block back/forward here as well
+        window.addEventListener('auxclick', e => {
+            try {
+                if (typeof e.button === 'number' && (e.button === 3 || e.button === 4)) {
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                }
+            } catch (ex) {}
+        });
         // capture wheel events; we may want to override ctrl+wheel for zooming
         this._lastWheelDelta = 0;
         this._lastWheelCtrl = false;
