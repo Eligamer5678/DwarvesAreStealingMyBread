@@ -33,6 +33,7 @@ html, body {
     height: 100%;
     /* UI should be able to receive events (buttons, etc). You can adjust per-layer. */
     pointer-events: auto;
+    overscroll-behavior-x:none;
     z-index: 100;
 }
 
@@ -46,6 +47,7 @@ html, body {
     image-rendering: pixelated;
     overflow: hidden;
     touch-action: none;
+    overscroll-behavior-x:none;
     user-select: none;
     -webkit-user-select: none;
     -moz-user-select: none;
