@@ -2664,6 +2664,20 @@ export class TitleScene extends Scene {
                     const bottomY = 1080 - gap/2;
 
                     // Create buttons once
+                    // Export as image chunks button (above the normal export button)
+                    if (!this.fixedExportImagesBtn) {
+                        this.fixedExportImagesBtn = new UIButton(this.mouse, this.keys, new Vector(x, bottomY - (btnH * 3 + gap*1.5)), new Vector(btnW, btnH), 200);
+                        this.fixedExportImagesBtn.onPressed['left'].connect(async () => {
+                            try {
+                                if (!this.packageManager) this.packageManager = new (await import('../js/PackageManager.js')).default(this._tilemap, this);
+                                if (this.packageManager && typeof this.packageManager.exportAsImageChunks === 'function') {
+                                    // default chunk size 16 tiles, export tile pixels at 16px by default
+                                    await this.packageManager.exportAsImageChunks(this._tilemap, { chunkSize: 16, tilePixelSize: 16, filename: 'map_chunks.tar' });
+                                }
+                            } catch (e) { console.warn('Export images button failed', e); }
+                        });
+                    }
+
                     if (!this.fixedExportBtn) {
                         this.fixedExportBtn = new UIButton(this.mouse, this.keys, new Vector(x, bottomY - (btnH * 2 + gap)), new Vector(btnW, btnH), 200);
                         this.fixedExportBtn.onPressed['left'].connect(async () => {
@@ -2696,7 +2710,16 @@ export class TitleScene extends Scene {
 
                     // Update and draw the buttons each frame (absolute screen coordinates)
                     try {
-                        // export button above import button
+                        // export images button (top), export button (middle) and import (bottom)
+                        if (this.fixedExportImagesBtn) {
+                            this.fixedExportImagesBtn.pos = new Vector(x, bottomY - (btnH * 3 + gap*1.5));
+                            this.fixedExportImagesBtn.size = new Vector(btnW, btnH);
+                            this.fixedExportImagesBtn.addOffset(new Vector(0,0));
+                            this.fixedExportImagesBtn.update(0);
+                            this.fixedExportImagesBtn.draw(this.UIDraw);
+                            this.UIDraw.text('Export images', new Vector(x + btnW / 2, bottomY - (btnH * 2.5 + gap*1.5)), '#FFFFFFFF', 0, 18, { align: 'center', baseline: 'middle' });
+                        }
+
                         this.fixedExportBtn.pos = new Vector(x, bottomY - (btnH * 2 + gap));
                         this.fixedExportBtn.size = new Vector(btnW, btnH);
                         this.fixedExportBtn.addOffset(new Vector(0,0));

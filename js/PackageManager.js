@@ -319,4 +319,167 @@ export default class PackageManager {
             } catch (e) { console.warn('Import files failed:', e); resolve(false); }
         });
     }
+
+    /**
+     * Export the tilemap as PNG image chunks grouped by layer.
+     * Each chunk is chunkSize x chunkSize tiles (default 16) and each tile in the
+     * exported images is drawn at tilePixelSize pixels (default 16).
+     * Files are named using the chunk's top-left tile vector coords: "<layer>/<x>_<y>.png"
+     * where x,y are the tile coordinates of the chunk origin (in tile units).
+     * Returns true on success, false on failure.
+     */
+    async exportAsImageChunks(tilemap = null, options = {}){
+        try {
+            const tm = tilemap || this._tilemap;
+            if (!tm) { console.warn('exportAsImageChunks: no tilemap'); return false; }
+
+            const chunkSize = Number(options.chunkSize || 16) || 16; // tiles per chunk
+            const tilePixelSize = Number(options.tilePixelSize || 16) || 16; // px per tile in output
+            const filename = options.filename || 'map_chunks.tar';
+
+            // Map of fileName -> canvas
+            const canvases = new Map();
+
+            // iterate all tiles and draw into corresponding chunk canvas
+            tm.forEach((x, y, entry, layerName) => {
+                try {
+                    const layer = layerName || 'base';
+                    const chunkXIdx = Math.floor(x / chunkSize);
+                    const chunkYIdx = Math.floor(y / chunkSize);
+                    const originX = chunkXIdx * chunkSize;
+                    const originY = chunkYIdx * chunkSize;
+                    const fileKey = `${layer}/${originX}_${originY}.png`;
+
+                    let info = canvases.get(fileKey);
+                    if (!info) {
+                        const c = document.createElement('canvas');
+                        c.width = chunkSize * tilePixelSize;
+                        c.height = chunkSize * tilePixelSize;
+                        const ctx = c.getContext('2d');
+                        // Start transparent
+                        ctx.clearRect(0,0,c.width,c.height);
+                        info = { canvas: c, ctx, layer, originX, originY };
+                        canvases.set(fileKey, info);
+                    }
+
+                    const ctx = info.ctx;
+                    // find tilesheet and tile meta
+                    const ts = tm.getTileSheet(entry.tilesheetId);
+                    if (!ts || !ts.sheet) return; // skip if missing
+                    const slice = ts.slicePx || 16;
+
+                    // Resolve tile meta (row/col)
+                    let meta = null;
+                    const tile = entry.tileKey;
+                    if (Array.isArray(tile) || (tile && typeof tile === 'object' && (tile.row !== undefined || tile[0] !== undefined))) {
+                        if (Array.isArray(tile)) meta = { row: Number(tile[0]) || 0, col: Number(tile[1]) || 0 };
+                        else meta = { row: Number(tile.row) || 0, col: Number(tile.col) || 0 };
+                    } else {
+                        if (ts.tiles instanceof Map) meta = ts.tiles.get(tile);
+                        else if (ts.tiles && ts.tiles[tile]) meta = ts.tiles[tile];
+                    }
+                    // if meta missing and tile is numeric, treat as frame index
+                    let sx = 0, sy = 0;
+                    if (meta && (meta.col !== undefined || meta.frame !== undefined)) {
+                        const col = meta.col ?? meta.frame ?? 0;
+                        sx = col * slice;
+                        sy = (meta.row !== undefined) ? meta.row * slice : 0;
+                    } else if (!isNaN(Number(tile))) {
+                        const fi = Math.max(0, Math.floor(Number(tile)));
+                        sx = fi * slice;
+                        sy = 0;
+                    }
+
+                    const img = ts.sheet;
+                    // dest position within chunk
+                    const dx = (x - info.originX) * tilePixelSize;
+                    const dy = (y - info.originY) * tilePixelSize;
+
+                    // draw with rotation and invert handling
+                    ctx.save();
+                    // translate to center of destination tile
+                    ctx.translate(dx + tilePixelSize/2, dy + tilePixelSize/2);
+
+                    // rotation: integer steps of 90deg
+                    let rot = Number(entry.rotation || 0) || 0;
+                    rot = ((rot % 4) + 4) % 4;
+                    if (rot !== 0) ctx.rotate(rot * Math.PI / 2);
+
+                    // invert handling: support number (1/-1) or object {x,y}
+                    let invX = 1, invY = 1;
+                    if (typeof entry.invert === 'number') invX = entry.invert < 0 ? -1 : 1;
+                    else if (entry.invert && typeof entry.invert.x === 'number') { invX = entry.invert.x < 0 ? -1 : 1; invY = entry.invert.y < 0 ? -1 : 1; }
+                    if (invX < 0 || invY < 0) ctx.scale(invX, invY);
+
+                    // draw the tile into a box centered at origin
+                    try {
+                        ctx.drawImage(img, sx, sy, slice, slice, -tilePixelSize/2, -tilePixelSize/2, tilePixelSize, tilePixelSize);
+                    } catch (e) {
+                        console.warn('exportAsImageChunks: drawImage failed for', fileKey, e);
+                    }
+                    ctx.restore();
+
+                } catch (e) {
+                    console.warn('exportAsImageChunks: per-tile draw failed', e);
+                }
+            });
+
+            // convert canvases to PNG blobs and package into tar
+            const entries = [];
+            for (const [name, info] of canvases.entries()) {
+                try {
+                    const blob = await new Promise((res) => info.canvas.toBlob(res, 'image/png'));
+                    const arrayBuf = await blob.arrayBuffer();
+                    entries.push({ name, data: new Uint8Array(arrayBuf) });
+                } catch (e) {
+                    console.warn('exportAsImageChunks: failed to encode', name, e);
+                }
+            }
+
+            if (entries.length === 0) {
+                console.warn('exportAsImageChunks: no chunks generated');
+                return false;
+            }
+
+            const tarBlob = await this.createTarBlob(entries);
+
+            // Save using File System Access API if available
+            try {
+                if (window.showSaveFilePicker) {
+                    const opts = { suggestedName: filename, types: [{ description: 'TAR Archive', accept: { 'application/x-tar': ['.tar'] } }] };
+                    let handle;
+                    try { handle = await window.showSaveFilePicker(opts); } catch (pickerErr) {
+                        if (pickerErr && (pickerErr.name === 'AbortError' || pickerErr.name === 'NotAllowedError')) { console.log('Save cancelled by user.'); return false; }
+                        throw pickerErr;
+                    }
+                    const writable = await handle.createWritable();
+                    await writable.write(tarBlob);
+                    await writable.close();
+                    console.log('Image chunks saved to file:', handle.name);
+                    return true;
+                }
+            } catch (fsErr) { console.warn('File System Access API save failed, falling back to download:', fsErr); }
+
+            // fallback download
+            try {
+                let userFileName = filename;
+                if (typeof window.prompt === 'function') {
+                    const res = window.prompt('Enter filename to save', filename);
+                    if (res === null) { console.log('User cancelled filename prompt.'); return false; }
+                    userFileName = (res && res.trim()) ? res.trim() : filename;
+                }
+                const url = URL.createObjectURL(tarBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = userFileName;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+                console.log('Image chunks exported to tar file (download):', userFileName);
+                return true;
+            } catch (dlErr) { console.warn('Fallback download failed:', dlErr); return false; }
+
+        } catch (e) { console.warn('exportAsImageChunks failed', e); return false; }
+    }
 }
