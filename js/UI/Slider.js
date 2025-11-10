@@ -166,6 +166,6 @@ export default class UISlider {
         }
 
         // Border
-        Draw.rect(pos, this.size, '#222', false, 2);
+        Draw.rect(pos, this.size, '#222222', false, true, 5,'#222222');
     }
 }

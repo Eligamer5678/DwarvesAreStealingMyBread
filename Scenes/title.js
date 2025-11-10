@@ -1478,7 +1478,6 @@ export class TitleScene extends Scene {
     }
     panWorld(tickDelta){
         if(this.mouse.pos.x>1700) return;
-        // Shift+scroll should pan the world (like middle-drag). Use horizontal (wheelX) and vertical wheel.
         if (!this.mouse.held('left')&& !this.keys.held('Control')) {
             const dx = this.mouse.wheelX(null, false, false) || 0;
             const dy = this.mouse.wheel(null, false, false) || 0;
@@ -2035,6 +2034,10 @@ export class TitleScene extends Scene {
 
         if(this.mouse.pressed('middle')){
             this.mouse.grab(this.mouse.pos)
+            this.startOffset = this.levelOffset.clone()
+        }
+        if(this.mouse.released('middle')){
+            this.mouse.releaseGrab(this.mouse.pos)
             this.startOffset = this.levelOffset.clone()
         }
 

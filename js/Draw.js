@@ -624,10 +624,13 @@ export default class Draw {
         ctx.save();
         ctx.globalCompositeOperation = erase ? 'destination-out' : 'source-over';
         const col = Color.convertColor(erase ? '#000000FF' : color);
-        // If italics is requested, prepend 'italic ' to the font string
-        let fontStr = font;
-        if (italics) fontStr = 'italic ' + fontStr;
-        ctx.font = fontStr;
+    // Build font string. If caller passed a font family/name without size
+    // (for example 'monospace'), prepend the computed fontSize so scaling works.
+    // Respect italics option by placing 'italic' before the size/family.
+    const baseFont = font;
+    const hasSize = (typeof baseFont === 'string') && (/\b\d+px\b/.test(baseFont));
+    let fontStr = (italics ? 'italic ' : '') + (hasSize ? baseFont : `${fontSize}px ${baseFont}`);
+    ctx.font = fontStr;
         ctx.textAlign = align;
         // Determine if we're drawing into a bounded box (wrap + clip)
         let boxWidth = null;
@@ -809,7 +812,7 @@ export default class Draw {
      * invert: optional flip vector like {x:-1,y:1}
      * opacity: optional opacity multiplier
      */
-    sheet(sheet, pos, size = null, animation = null, frame = 0, invert = null, opacity = 1, smoothing = true) {
+    sheet(sheet, pos, size = null, animation = null, frame = 0, invert = null, opacity = 1, smoothing = false) {
         const ctx = this._assertCtx('sheet');
         if (!sheet || !sheet.sheet || !sheet.slicePx) {
             console.warn('Draw.sheet: invalid sheet provided');
@@ -875,7 +878,31 @@ export default class Draw {
         ctx.globalAlpha *= (opacity !== undefined ? opacity : 1);
 
         try {
-            ctx.drawImage(img, sx, sy, sw, sh, -this.px(dstW) / 2, -this.py(dstH) / 2, this.px(dstW), this.py(dstH));
+            // Prefer drawing a per-frame canvas or lazy descriptor directly when available.
+            let drawn = false;
+            try {
+                if (sheet && sheet._frames && animation) {
+                    const arr = sheet._frames.get(animation);
+                    if (arr && arr.length > 0) {
+                        const entry = arr[fi];
+                        if (entry) {
+                            if (entry.__lazy === true && entry.src) {
+                                // draw directly from the source image/bitmap using the descriptor
+                                ctx.drawImage(entry.src, entry.sx || 0, entry.sy || 0, entry.w || sw, entry.h || sh, -this.px(dstW) / 2, -this.py(dstH) / 2, this.px(dstW), this.py(dstH));
+                                drawn = true;
+                            } else if (entry instanceof HTMLCanvasElement || entry instanceof ImageBitmap) {
+                                ctx.drawImage(entry, -this.px(dstW) / 2, -this.py(dstH) / 2, this.px(dstW), this.py(dstH));
+                                drawn = true;
+                            }
+                        }
+                    }
+                }
+            } catch (inner) {
+                // swallow and fallback to packed sheet draw
+            }
+            if (!drawn) {
+                ctx.drawImage(img, sx, sy, sw, sh, -this.px(dstW) / 2, -this.py(dstH) / 2, this.px(dstW), this.py(dstH));
+            }
         } catch (e) {
             console.warn('Draw.sheet: drawImage failed', e);
         }
