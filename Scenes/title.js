@@ -42,7 +42,10 @@ export class TitleScene extends Scene {
         this.elements = new Map()
         
     }
-    
+    onSwitchTo(){
+        super.onSwitchTo()
+        
+    }
     /**
      * Preload necesary resources. Called BEFORE onReady()
      */
@@ -253,6 +256,7 @@ export class TitleScene extends Scene {
         const tickKey = remoteId + 'tick'; 
         if (!(tickKey in state)) return; 
         while (state[tickKey] > this.tickCount) this.tick();
+        
     } 
 
     /** 

@@ -167,6 +167,9 @@ export class SpriteScene extends Scene {
         this.isReady = false;
         // call parent behaviour
         if (super.onSwitchFrom) try { super.onSwitchFrom(resources); } catch(e){}
+        
+
+        this._colorInput = null; this._colorLabel = null;
     }
 
     // When switching to this scene, ensure it is initialized. If we were
@@ -188,6 +191,23 @@ export class SpriteScene extends Scene {
                 }
             }
         } catch (e) { console.warn('spriteScene.onSwitchTo failed', e); }
+        // remove color picker input/label added in onReady to avoid leaving DOM/listeners behind
+        try {
+            if (this._colorInput && this._colorInput.parentNode) { try { this._colorInput.remove(); } catch(e){} }
+            if (this._colorLabel && this._colorLabel.parentNode) { try { this._colorLabel.remove(); } catch(e){} }
+        } catch (e) {}
+        try {
+            const pen = document.getElementById('pen-color'); if (pen && pen.parentNode) try { pen.remove(); } catch(e){}
+        } catch (e) {}
+        try {
+            const impBtn = document.getElementById('import-spritesheet-btn'); if (impBtn && impBtn.parentNode) try { impBtn.remove(); } catch(e){}
+        } catch (e) {}
+        try {
+            const expBtn = document.getElementById('export-spritesheet-btn'); if (expBtn && expBtn.parentNode) try { expBtn.remove(); } catch(e){}
+        } catch (e) {}
+        try {
+            const impInput = document.getElementById('import-spritesheet-input'); if (impInput && impInput.parentNode) try { impInput.remove(); } catch(e){}
+        } catch (e) {}
         return this.packResources ? this.packResources() : null;
     }
     
