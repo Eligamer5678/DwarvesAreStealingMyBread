@@ -42,6 +42,7 @@ export class SpriteScene extends Scene {
                 // If the panel was created by the Tiles scene, update the scene buttons
                 const tilesBtn = document.getElementById('tiles-scene-btn');
                 const spritesBtn = document.getElementById('sprites-scene-btn');
+                const collisionBtn = document.getElementById('collision-scene-btn');
                 if (tilesBtn) {
                     tilesBtn.style.background = '#333';
                     tilesBtn.onclick = () => { try { this.switchScene && this.switchScene('title'); } catch(e){} };
@@ -50,14 +51,20 @@ export class SpriteScene extends Scene {
                     spritesBtn.style.background = '#555';
                     spritesBtn.onclick = () => { try { this.switchScene && this.switchScene('spriteScene'); } catch(e){} };
                 }
+                if (collisionBtn) {
+                    collisionBtn.style.background = '#333';
+                    collisionBtn.onclick = () => { try { this.switchScene && this.switchScene('collision'); } catch(e){} };
+                }
             } else {
                 // If the panel doesn't exist (edge case), create a small placeholder panel
-                const panel2 = createHDiv('layer-panel', new Vector(8,8), new Vector(360,44), '#00000033', { borderRadius: '6px', border: '1px solid #FFFFFF22', padding: '6px', display: 'flex', alignItems: 'center', gap: '6px' }, 'UI');
+                const panel2 = createHDiv('layer-panel', new Vector(8,8), new Vector(540,44), '#00000033', { borderRadius: '6px', border: '1px solid #FFFFFF22', padding: '6px', display: 'flex', alignItems: 'center', gap: '6px' }, 'UI');
                 const sceneBtnSize = new Vector(80, 28);
                 const tilesSceneBtn = createHButton('tiles-scene-btn', new Vector(6, 8), sceneBtnSize, '#333', { color: '#fff', borderRadius: '4px', fontSize: 13, border: '1px solid #777' }, panel2);
                 tilesSceneBtn.textContent = 'Tiles';
                 const spritesSceneBtn = createHButton('sprites-scene-btn', new Vector(92, 8), sceneBtnSize, '#333', { color: '#fff', borderRadius: '4px', fontSize: 13, border: '1px solid #777' }, panel2);
                 spritesSceneBtn.textContent = 'Sprites';
+                const collisionSceneBtn = createHButton('collision-scene-btn', new Vector(178, 8), sceneBtnSize, '#333', { color: '#fff', borderRadius: '4px', fontSize: 13, border: '1px solid #777' }, panel2);
+                collisionSceneBtn.textContent = 'Collision';
                 tilesSceneBtn.onclick = () => { try { this.switchScene && this.switchScene('title'); } catch(e){} };
                 spritesSceneBtn.onclick = () => { try { this.switchScene && this.switchScene('spriteScene'); } catch(e){} };
                 spritesSceneBtn.style.background = '#555';

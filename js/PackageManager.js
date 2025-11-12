@@ -211,6 +211,54 @@ export default class PackageManager {
         } catch (e) { console.warn('Failed to parse tar buffer', e); return null; }
     }
 
+    // Parse a tar containing chunked images exported by exportAsImageChunks
+    // Returns { chunks: [{ layer: 'bg'|'base'|'overlay', x: number, y: number, url: string, name: string }] }
+    async parseImageChunksTar(arrayBuffer){
+        try {
+            const u = new Uint8Array(arrayBuffer);
+            const entries = {};
+            let offset = 0;
+            while (offset + 512 <= u.length) {
+                const nameBytes = u.subarray(offset, offset+100);
+                const name = new TextDecoder().decode(nameBytes).replace(/\0.*$/,'');
+                if (!name) break;
+                const sizeBytes = u.subarray(offset+124, offset+136);
+                const sizeStr = new TextDecoder().decode(sizeBytes).replace(/\0.*$/,'').trim();
+                const size = sizeStr ? parseInt(sizeStr, 8) : 0;
+                offset += 512;
+                const data = u.subarray(offset, offset + size);
+                entries[name] = data.slice();
+                const skip = (512 - (size % 512)) % 512;
+                offset += size + skip;
+            }
+
+            const chunks = [];
+            const keys = Object.keys(entries);
+            for (const key of keys) {
+                // Expect paths like 'bg/0_0.png', 'base/16_0.png', 'overlay/0_16.png'
+                if (!key.toLowerCase().endsWith('.png')) continue;
+                const parts = key.split('/');
+                if (parts.length < 2) continue;
+                const layer = parts[0];
+                if (layer !== 'bg' && layer !== 'base' && layer !== 'overlay') continue;
+                const file = parts[parts.length - 1];
+                const base = file.replace(/\.png$/i,'');
+                const m = base.match(/^(\d+)_(\d+)$/);
+                if (!m) continue;
+                const tx = parseInt(m[1], 10);
+                const ty = parseInt(m[2], 10);
+                const arr = entries[key];
+                const blob = new Blob([arr], { type: 'image/png' });
+                const url = URL.createObjectURL(blob);
+                chunks.push({ layer, x: tx, y: ty, url, name: key });
+            }
+            return { chunks };
+        } catch (e) {
+            console.warn('parseImageChunksTar failed', e);
+            return { chunks: [] };
+        }
+    }
+
     // Import payload (register tilesheets into tilemap)
     async importSheetsPayload(payload){
         try {

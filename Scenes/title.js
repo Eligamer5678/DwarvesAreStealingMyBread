@@ -380,29 +380,32 @@ export class TitleScene extends Scene {
         try {
             // small container (attached to UI layer). Give it a stable id so other
             // scenes can reuse the same DOM container for persistent buttons.
-            const panel = createHDiv('layer-panel', new Vector(8, 8), new Vector(480, 44), '#00000033', {
+            const panel = createHDiv('layer-panel', new Vector(8, 8), new Vector(540, 44), '#00000033', {
                 borderRadius: '6px', border: '1px solid #FFFFFF22', padding: '6px', display: 'flex', alignItems: 'center', gap: '6px'
             }, 'UI');
 
             // Scene swap buttons (HTML buttons that persist between scenes). We place
             // them in the same panel so they remain visible when switching scenes.
             const sceneBtnSize = new Vector(80, 28);
-            const tilesSceneBtn = createHButton('tiles-scene-btn', new Vector(6, 12), sceneBtnSize, '#333', { color: '#fff', borderRadius: '4px', fontSize: 13, border: '1px solid #777' }, panel);
+            const tilesSceneBtn = createHButton('tiles-scene-btn', new Vector(6, 8), sceneBtnSize, '#333', { color: '#fff', borderRadius: '4px', fontSize: 13, border: '1px solid #777' }, panel);
             tilesSceneBtn.textContent = 'Tiles';
-            const spritesSceneBtn = createHButton('sprites-scene-btn', new Vector(92, 12), sceneBtnSize, '#333', { color: '#fff', borderRadius: '4px', fontSize: 13, border: '1px solid #777' }, panel);
+            const spritesSceneBtn = createHButton('sprites-scene-btn', new Vector(92, 8), sceneBtnSize, '#333', { color: '#fff', borderRadius: '4px', fontSize: 13, border: '1px solid #777' }, panel);
             spritesSceneBtn.textContent = 'Sprites';
+            const collisionSceneBtn = createHButton('collision-scene-btn', new Vector(178, 8), sceneBtnSize, '#333', { color: '#fff', borderRadius: '4px', fontSize: 13, border: '1px solid #777' }, panel);
+            collisionSceneBtn.textContent = 'Collision';
 
             // Bind scene switching. `this.switchScene` is bound to the Game.switchScene
             // when the scene instance is constructed, so calling it will switch scenes.
             tilesSceneBtn.addEventListener('click', () => { try { this.switchScene && this.switchScene('title'); } catch(e){} });
             spritesSceneBtn.addEventListener('click', () => { try { this.switchScene && this.switchScene('spriteScene'); } catch(e){} });
+            collisionSceneBtn.addEventListener('click', () => { try { this.switchScene && this.switchScene('collision'); } catch(e){} });
 
             const btnSize = new Vector(88, 32);
-            const bgBtn = createHButton(null, new Vector(188, 12), btnSize, '#333', { color: '#fff', borderRadius: '4px', fontSize: 14, border: '1px solid #777' }, panel);
+            const bgBtn = createHButton(null, new Vector(266, 8), btnSize, '#333', { color: '#fff', borderRadius: '4px', fontSize: 14, border: '1px solid #777' }, panel);
             bgBtn.textContent = 'BG';
-            const baseBtn = createHButton(null, new Vector(286, 12), btnSize, '#333', { color: '#fff', borderRadius: '4px', fontSize: 14, border: '1px solid #777' }, panel);
+            const baseBtn = createHButton(null, new Vector(364, 8), btnSize, '#333', { color: '#fff', borderRadius: '4px', fontSize: 14, border: '1px solid #777' }, panel);
             baseBtn.textContent = 'Base';
-            const ovBtn = createHButton(null, new Vector(384, 12), btnSize, '#333', { color: '#fff', borderRadius: '4px', fontSize: 14, border: '1px solid #777' }, panel);
+            const ovBtn = createHButton(null, new Vector(462, 8), btnSize, '#333', { color: '#fff', borderRadius: '4px', fontSize: 14, border: '1px solid #777' }, panel);
             ovBtn.textContent = 'Overlay';
 
             const setActive = (name) => {
@@ -417,12 +420,16 @@ export class TitleScene extends Scene {
             ovBtn.addEventListener('click', () => setActive('overlay'));
 
             // store references so other UI code can query
-            this.layerUI = { panel, bgBtn, baseBtn, ovBtn, tilesSceneBtn, spritesSceneBtn };
+            this.layerUI = { panel, bgBtn, baseBtn, ovBtn, tilesSceneBtn, spritesSceneBtn, collisionSceneBtn };
             // reflect current
             setActive(this.drawLayer || 'base');
 
             // mark the current scene button active (we are in the Tiles scene)
-            try { tilesSceneBtn.style.background = '#555'; } catch(e){}
+            try {
+                tilesSceneBtn.style.background = '#555';
+                spritesSceneBtn.style.background = '#333';
+                collisionSceneBtn.style.background = '#333';
+            } catch(e){}
         } catch (e) {
             console.warn('createUI failed:', e);
         }
