@@ -11,7 +11,7 @@ import BufferedPolygon from '../js/physics/BufferedPolygon.js';
 import Menu from '../js/UI/Menu.js';
 import UIButton from '../js/UI/Button.js';
 import UIRect from '../js/UI/Rect.js';
-import BoxSprite from '../js/sprites/Box.js';
+import Sprite from '../js/sprites/Sprite.js';
 
 export class CollisionScene extends Scene {
     constructor(...args) {
@@ -21,8 +21,8 @@ export class CollisionScene extends Scene {
         this.importedChunks = []; // [{layer, x, y, image, url}] (image chunk import)
         this._importUrls = []; // object URLs to revoke on cleanup
         this.packageManager = new PackageManager(null, this);
-    this.segment = null; // single test segment (legacy/demo)
-    // removed test polygon; editor-created polygons live in this.editor.polyObjects
+        this.segment = null; // single test segment (legacy/demo)
+        // removed test polygon; editor-created polygons live in this.editor.polyObjects
         this.editor = {
             polygons: [],        // Array<Vector[]> finalized polygons
             polyObjects: [],     // Array<BufferedPolygon>
@@ -43,6 +43,9 @@ export class CollisionScene extends Scene {
         // Entities (UI + data)
         this.entitiesUI = null;
         this.defaultEntitySize = new Vector(64, 64);
+        this.defaultEntityMass = 5; // boxes heavier than cat
+        this.gravityEnabled = false;
+        this.gravity = new Vector(0, 100); // px/s^2 downward
         this.entitiesRuntime = [];
         this.assets = { boxImage: null };
     }
@@ -107,7 +110,7 @@ export class CollisionScene extends Scene {
                 collisionSceneBtn.style.background = '#555';
                 // Import button is handled as a floating control (bottom-right), not in this panel.
             }
-        } catch (e) { /* ignore panel errors */ }
+        } catch (e) { /* ignore */ }
 
         this.zoom = new Vector(1,1)
         this.pan = new Vector(0,0)
@@ -160,7 +163,7 @@ export class CollisionScene extends Scene {
             const exportPos = new Vector(pos.x, pos.y - (btnSize.y + 8));
             const exportBtn = createHButton('export-json-btn', exportPos, btnSize, '#446', { color: '#fff', borderRadius: '6px', fontSize: 14, border: '1px solid #778' }, 'UI');
             exportBtn.textContent = 'Export JSON';
-            exportBtn.onclick = () => { try { this.exportLevelJSON(); } catch(e){ console.warn('export failed', e); } };
+            exportBtn.onclick = async () => { try { await this.exportLevelTar(); } catch (e){ console.warn('export failed', e); } };
         } catch (e) { /* ignore button errors */ }
 
         // Collision editor UI panel (minimal)
@@ -199,7 +202,7 @@ export class CollisionScene extends Scene {
             const labelBg = new UIRect(new Vector(8, 8), new Vector(244, 20), layer + 1, '#00000055');
             const addBoxBtn = new UIButton(this.mouse, this.keys, new Vector(8, 34), new Vector(120, 28), layer + 2, null, '#444', '#555', '#222');
             // quick title by drawing an overlay rect; we'll draw the text with UIDraw later
-            addBoxBtn.onPressed['left'].connect(() => { this._placeMode = 'entity-box'; });
+            addBoxBtn.onPressed.left.connect(() => { this._placeMode = 'entity-box'; console.log('place mode updated')});
             menu.addElement('labelBg', labelBg);
             menu.addElement('addBox', addBoxBtn);
             this.entitiesUI = { menu, addBoxBtn };
@@ -300,6 +303,10 @@ export class CollisionScene extends Scene {
                                 this.importedChunks.push({ layer: c.layer, x: c.x, y: c.y, image: img, url: c.url });
                             }
                             console.log('Imported chunks:', this.importedChunks.length);
+                            // if the tar also contained a level payload (level.json / map.json), apply it
+                            if (chunksParsed.levelPayload && this.loadMapFromPayload) {
+                                try { this.loadMapFromPayload(chunksParsed.levelPayload); } catch (e) { console.warn('Failed to load level payload from chunks tar', e); }
+                            }
                             resolve(this.importedChunks.length > 0);
                         } else {
                             // Fallback to tilesheets tar format
@@ -396,10 +403,14 @@ export class CollisionScene extends Scene {
 
     // Called by base Scene.tick() at fixed rate
     sceneTick(tickDelta) {
+        this.mouse.setMask(0)
+        // Update Entities UI
+        try { if (this.entitiesUI && this.entitiesUI.menu) this.entitiesUI.menu.update(tickDelta); } catch (e) {}
+        this.mouse.setPower(0)
         // If mouse is over the general UI area, pause mouse input briefly to prevent bleed-through
         const inTopLeft = (this.mouse.pos.x < 700 && this.mouse.pos.y < 200);
         const inTopRight = (this.mouse.pos.x > (1920 - 300) && this.mouse.pos.y < 200);
-        if (inTopLeft || inTopRight) this.mouse.pause(0.1);        
+        if (inTopLeft && inTopRight) this.mouse.pause(0.1);        
 
         // handle ctrl+wheel zoom (adds velocity impulses)
         this.zoomScreen(tickDelta);
@@ -462,99 +473,264 @@ export class CollisionScene extends Scene {
             } catch (e) {
                 console.warn('pan integration failed', e);
             }
-            // update cat
-            try {
-                if (this.cat && typeof this.cat.update === 'function') {
-                    // compute acceleration from velocity delta
-                    const lastV = this.cat.vlos ? this.cat.vlos.clone() : new Vector(0,0);
-                    this.cat.update(tickDelta);
-                    const curV = this.cat.vlos ? this.cat.vlos.clone() : new Vector(0,0);
-                    const accelMag = tickDelta > 0 ? curV.sub(this._prevCatVel || lastV).divS(tickDelta).mag() : 0;
-                    const velMag = curV.mag();
-                    if (this.segment) this.segment.updateBuffer(velMag, accelMag);
-                    if (this.editor && this.editor.polyObjects) {
-                        for (const obj of this.editor.polyObjects) obj.updateBuffer(velMag, accelMag);
-                    }
-                    this._prevCatVel = curV;
+        } catch (e) {
+            console.warn('zoom integration failed', e);
+        }
+        // update cat
+        try {
+            if (this.cat && typeof this.cat.update === 'function') {
+                // compute acceleration from velocity delta
+                const lastV = this.cat.vlos ? this.cat.vlos.clone() : new Vector(0,0);
+                this.cat.update(tickDelta);
+                const curV = this.cat.vlos ? this.cat.vlos.clone() : new Vector(0,0);
+                const accelMag = tickDelta > 0 ? curV.sub(this._prevCatVel || lastV).divS(tickDelta).mag() : 0;
+                const velMag = curV.mag();
+                if (this.segment) this.segment.updateBuffer(velMag, accelMag);
+                if (this.editor && this.editor.polyObjects) {
+                    for (const obj of this.editor.polyObjects) obj.updateBuffer(velMag, accelMag);
                 }
-            } catch (e) {}
-            // Editor input: add points and finalize polygons
-            try {
-                if (this.mouse && this.mouse.pressed('left')) {
-                    const wp = this.getWorldPos(this.mouse.pos);
-                    if (this._placeMode === 'spawn') {
-                        const topLeft = wp.sub(this.spawnSize.mult(0.5));
-                        this.levelData.spawn = { pos: { x: topLeft.x, y: topLeft.y }, size: { x: this.spawnSize.x, y: this.spawnSize.y } };
-                        this._placeMode = null;
-                    } else if (this._placeMode === 'goal') {
-                        const topLeft = wp.sub(this.goalSize.mult(0.5));
-                        this.levelData.goal = { pos: { x: topLeft.x, y: topLeft.y }, size: { x: this.goalSize.x, y: this.goalSize.y } };
-                        this._placeMode = null;
-                    } else if (this._placeMode === 'entity-box') {
-                        const sz = this.defaultEntitySize;
-                        const topLeft = wp.sub(sz.mult(0.5));
-                        const entData = { type: 'box', pos: { x: topLeft.x, y: topLeft.y }, size: { x: sz.x, y: sz.y } };
-                        this.levelData.entities.push(entData);
-                        try {
-                            const sprite = new BoxSprite(this.Draw, new Vector(entData.pos.x, entData.pos.y), new Vector(entData.size.x, entData.size.y), this.assets.boxImage);
-                            this.entitiesRuntime.push({ type:'box', sprite });
-                        } catch (e) {}
-                        this._placeMode = null;
-                    } else {
-                        this.editor.current.push(wp);
-                    }
+                this._prevCatVel = curV;
+            }
+        } catch (e) {}
+        
+        // Editor input: add points and finalize polygons
+        if (this.mouse && this.mouse.pressed('left')) {
+            const wp = this.getWorldPos(this.mouse.pos);
+            if (this._placeMode === 'spawn') {
+                const topLeft = wp.sub(this.spawnSize.mult(0.5));
+                this.levelData.spawn = { pos: { x: topLeft.x, y: topLeft.y }, size: { x: this.spawnSize.x, y: this.spawnSize.y } };
+                this._placeMode = null;
+            } else if (this._placeMode === 'goal') {
+                const topLeft = wp.sub(this.goalSize.mult(0.5));
+                this.levelData.goal = { pos: { x: topLeft.x, y: topLeft.y }, size: { x: this.goalSize.x, y: this.goalSize.y } };
+                this._placeMode = null;
+            } else if (this._placeMode === 'entity-box') {
+                console.log('box should be placed')
+                const sz = this.defaultEntitySize;
+                const topLeft = wp.sub(sz.mult(0.5));
+                const entData = { type: 'box', pos: { x: topLeft.x, y: topLeft.y }, size: { x: sz.x, y: sz.y } };
+                this.levelData.entities.push(entData);
+                let BoxSheet = new SpriteSheet(this.assets.boxImage,16)
+                BoxSheet.addAnimation('base',0,8)
+
+                const sprite = new Sprite(this.Draw, new Vector(entData.pos.x, entData.pos.y), new Vector(entData.size.x, entData.size.y), BoxSheet);
+                // ensure sprite has appropriate mass
+                try { sprite.mass = this.defaultEntityMass; } catch (e) {}
+                this.entitiesRuntime.push({ type:'box', sprite });
+
+                this._placeMode = null;
+            } else {
+                this.editor.current.push(wp);
+            }
+        }
+        if (this.keys && this.keys.pressed(' ')) {
+            this._finalizeCurrentPolygon();
+        }
+        if (this.keys && this.keys.pressed('Backspace')) {
+            this._undoPoint();
+        }
+
+        // Toggle gravity with '9'
+        try {
+            if (this.keys.pressed('9')) {
+                this.gravityEnabled = !this.gravityEnabled;
+                console.log('gravity:', this.gravityEnabled);
+            }
+        } catch (e) {}
+
+        // Resolve collision between cat (circle) and buffered shapes (edge-only)
+        try {
+            if (this.cat && this.segment) {
+                const center = this.cat.pos.add(this.cat.size.mult(0.5));
+                const radius = this.catRadius || Math.min(this.cat.size.x, this.cat.size.y) * 0.2;
+                const hit = this.segment.collideCircle(center, radius);
+                if (hit && hit.collides) {
+                    // push cat out along normal by penetration
+                    const push = hit.normal.mult(hit.penetration);
+                    // move top-left by same push as center
+                    this.cat.pos.addS(push);
+                    // remove inward normal component of velocity (simple resolve, no bounce)
+                    const vn = this.cat.vlos.dot(hit.normal);
+                    if (vn < 0) this.cat.vlos.subS(hit.normal.mult(vn));
                 }
-                if (this.keys && this.keys.pressed(' ')) {
-                    this._finalizeCurrentPolygon();
-                }
-                if (this.keys && this.keys.pressed('Backspace')) {
-                    this._undoPoint();
-                }
-            } catch (e) { /* ignore editor input errors */ }
-            // Resolve collision between cat (circle) and buffered shapes (edge-only)
-            try {
-                if (this.cat && this.segment) {
+            }
+            // removed test polygon collision; editor polygons below handle collisions
+            if (this.cat && this.editor && this.editor.polyObjects && this.editor.polyObjects.length) {
+                for (let iter = 0; iter < 2; iter++) {
                     const center = this.cat.pos.add(this.cat.size.mult(0.5));
                     const radius = this.catRadius || Math.min(this.cat.size.x, this.cat.size.y) * 0.2;
-                    const hit = this.segment.collideCircle(center, radius);
-                    if (hit && hit.collides) {
-                        // push cat out along normal by penetration
-                        const push = hit.normal.mult(hit.penetration);
-                        // move top-left by same push as center
-                        this.cat.pos.addS(push);
-                        // remove inward normal component of velocity (simple resolve, no bounce)
-                        const vn = this.cat.vlos.dot(hit.normal);
-                        if (vn < 0) this.cat.vlos.subS(hit.normal.mult(vn));
+                    let resolved = false;
+                    // collide against all editor polygons; apply deepest first
+                    let best = null; let bestPen = 0; let bestObj = null;
+                    for (const obj of this.editor.polyObjects) {
+                        const hit = obj.collideCircle(center, radius);
+                        if (hit && hit.collides && hit.penetration > bestPen) { best = hit; bestPen = hit.penetration; bestObj = obj; }
                     }
+                    if (best && best.collides) {
+                        const push = best.normal.mult(best.penetration);
+                        this.cat.pos.addS(push);
+                        const vn = this.cat.vlos.dot(best.normal);
+                        if (vn < 0) this.cat.vlos.subS(best.normal.mult(vn));
+                        resolved = true;
+                    }
+                    if (!resolved) break;
                 }
-                // removed test polygon collision; editor polygons below handle collisions
-                if (this.cat && this.editor && this.editor.polyObjects && this.editor.polyObjects.length) {
+            }
+            // Resolve collision for any placed runtime entities (use a circle approx for consistency)
+            if (Array.isArray(this.entitiesRuntime) && this.entitiesRuntime.length) {
+                for (const ent of this.entitiesRuntime) {
+                    if (!ent || !ent.sprite) continue;
+                    const sprite = ent.sprite;
+                    // iterate a couple times to avoid deep tunneling
                     for (let iter = 0; iter < 2; iter++) {
-                        const center = this.cat.pos.add(this.cat.size.mult(0.5));
-                        const radius = this.catRadius || Math.min(this.cat.size.x, this.cat.size.y) * 0.2;
+                        const center = sprite.pos.add(sprite.size.mult(0.5));
+                        // use a circle radius even though entity is a box (recommended)
+                        // doubled from 0.2 -> 0.4 to match intended radius (not diameter)
+                        const radius = Math.min(sprite.size.x, sprite.size.y) * 0.4;
                         let resolved = false;
-                        // collide against all editor polygons; apply deepest first
-                        let best = null; let bestPen = 0; let bestObj = null;
-                        for (const obj of this.editor.polyObjects) {
-                            const hit = obj.collideCircle(center, radius);
-                            if (hit && hit.collides && hit.penetration > bestPen) { best = hit; bestPen = hit.penetration; bestObj = obj; }
+                        // first test against single demo segment if present
+                        if (this.segment) {
+                            const hit = this.segment.collideCircle(center, radius);
+                            if (hit && hit.collides) {
+                                const push = hit.normal.mult(hit.penetration);
+                                sprite.pos.addS(push);
+                                const vn = sprite.vlos ? sprite.vlos.dot(hit.normal) : 0;
+                                if (vn < 0 && sprite.vlos) sprite.vlos.subS(hit.normal.mult(vn));
+                                resolved = true;
+                            }
                         }
-                        if (best && best.collides) {
-                            const push = best.normal.mult(best.penetration);
-                            this.cat.pos.addS(push);
-                            const vn = this.cat.vlos.dot(best.normal);
-                            if (vn < 0) this.cat.vlos.subS(best.normal.mult(vn));
-                            resolved = true;
+                        // then against editor polygons (deepest collision first)
+                        if (!resolved && this.editor && this.editor.polyObjects && this.editor.polyObjects.length) {
+                            let best = null; let bestPen = 0;
+                            for (const obj of this.editor.polyObjects) {
+                                const hit = obj.collideCircle(center, radius);
+                                if (hit && hit.collides && hit.penetration > bestPen) { best = hit; bestPen = hit.penetration; }
+                            }
+                            if (best && best.collides) {
+                                const push = best.normal.mult(best.penetration);
+                                sprite.pos.addS(push);
+                                const vn = sprite.vlos ? sprite.vlos.dot(best.normal) : 0;
+                                if (vn < 0 && sprite.vlos) sprite.vlos.subS(best.normal.mult(vn));
+                                resolved = true;
+                            }
                         }
                         if (!resolved) break;
                     }
                 }
-            } catch (e) { /* ignore collision errors */ }
-        } catch (e) {
-            console.warn('zoom integration failed', e);
+            }
+                // Apply gravity (if enabled) then run pairwise circle-circle collisions between cat and boxes, and box-box
+                try {
+                    const dt = tickDelta || 0;
+                    if (this.gravityEnabled && dt > 0) {
+                        try {
+                            // apply gravity acceleration to cat
+                            if (this.cat && this.cat.vlos) this.cat.vlos.addS(this.gravity.mult(dt));
+                        } catch (e) {}
+                        try {
+                            for (const ent of this.entitiesRuntime) {
+                                if (ent && ent.sprite && ent.sprite.vlos) {
+                                    ent.sprite.vlos.addS(this.gravity.mult(dt));
+                                }
+                            }
+                        } catch (e) {}
+                    }
+
+                    // Update entity sprites (use their own update method instead of manual integration)
+                    try {
+                        for (const ent of this.entitiesRuntime) {
+                            if (ent && ent.sprite && typeof ent.sprite.update === 'function') {
+                                try { ent.sprite.update(dt); } catch (e) {}
+                            }
+                        }
+                    } catch (e) {}
+
+                    // Pairwise circle-circle collisions between cat and boxes, and box-box
+                
+                    const collidables = [];
+                    // add cat if present
+                    if (this.cat) {
+                        const ccenter = this.cat.pos.add(this.cat.size.mult(0.5));
+                        const cradius = this.catRadius || Math.min(this.cat.size.x, this.cat.size.y) * 0.2;
+                        collidables.push({ id: 'cat', sprite: this.cat, center: ccenter, radius: cradius, mass: (this.cat.mass || 1), restitution: (this.cat.restitution || 1.0) });
+                    }
+                    // add entities
+                    for (let i = 0; i < this.entitiesRuntime.length; i++) {
+                        const e = this.entitiesRuntime[i];
+                        if (!e || !e.sprite) continue;
+                        const s = e.sprite;
+                        const center = s.pos.add(s.size.mult(0.5));
+                        const radius = Math.min(s.size.x, s.size.y) * 0.4; // use larger entity radius
+                        collidables.push({ id: 'ent' + i, sprite: s, center, radius, mass: (s.mass || this.defaultEntityMass || 5), restitution: (s.restitution || 1.0) });
+                    }
+
+                    // resolve each unordered pair once
+                    for (let i = 0; i < collidables.length; i++) {
+                        for (let j = i + 1; j < collidables.length; j++) {
+                            const A = collidables[i];
+                            const B = collidables[j];
+                            // recompute centers in case earlier corrections moved them
+                            const cA = A.sprite.pos.add(A.sprite.size.mult(0.5));
+                            const cB = B.sprite.pos.add(B.sprite.size.mult(0.5));
+                            const delta = cA.sub(cB);
+                            const dist = delta.mag();
+                            const totalR = A.radius + B.radius;
+                            if (dist <= 0) continue; // degenerate; skip fine tuning
+                            if (dist < totalR) {
+                                const penetration = totalR - dist;
+                                const n = delta.div(dist); // from B to A
+                                const mA = A.mass || 1;
+                                const mB = B.mass || 1;
+                                const invA = (mA > 0) ? 1 / mA : 0;
+                                const invB = (mB > 0) ? 1 / mB : 0;
+                                const invSum = invA + invB || 1;
+                                // positional correction distributed by inverse mass (heavier moves less)
+                                const corrA = n.mult(penetration * (invA / invSum));
+                                const corrB = n.mult(penetration * (invB / invSum));
+                                // apply corrections to centers -> update sprite top-left positions
+                                try {
+                                    A.sprite.pos.addS(corrA);
+                                    B.sprite.pos.subS(corrB);
+                                } catch (e) {}
+
+                                // relative velocity along normal
+                                const vA = A.sprite.vlos ? A.sprite.vlos.clone() : new Vector(0,0);
+                                const vB = B.sprite.vlos ? B.sprite.vlos.clone() : new Vector(0,0);
+                                const rel = vA.sub(vB);
+                                const relN = rel.dot(n);
+                                // only apply impulse if approaching (relN < 0)
+                                if (relN < 0) {
+                                    const eRest = Math.min(A.restitution || 1.0, B.restitution || 1.0);
+                                    const j = -(1 + eRest) * relN / invSum; // impulse magnitude
+                                    const impulse = n.mult(j);
+                                    try {
+                                        if (A.sprite.vlos) A.sprite.vlos.addS(impulse.mult(invA));
+                                        if (B.sprite.vlos) B.sprite.vlos.subS(impulse.mult(invB));
+                                    } catch (e) {}
+                                }
+                            }
+                        }
+                    }
+                } catch (e) { /* ignore pairwise collision errors */ }
+        } catch (e) { /* ignore collision errors */ }
+        
+    }
+
+    drawChunks(){
+        if (!this.importedChunks) return;
+        if (!this.importedChunks.length) return;
+        // If imported chunk images exist, draw them at their world positions by layer order.
+        const layerOrder = ['bg','base','overlay'];
+        for (const layer of layerOrder) {
+            const items = this.importedChunks.filter(c => c.layer === layer).sort((a,b)=> (a.y-b.y) || (a.x-b.x));
+            for (const c of items) {
+                // infer tilePixelSize from image width assuming 16x16 tiles per chunk
+                const chunkSize = 16;
+                const tilePx = c.image.width / chunkSize;
+                const pxX = c.x * tilePx;
+                const pxY = c.y * tilePx;
+                this.Draw.image(c.image, (new Vector(pxX, pxY)).mult(4), new Vector(c.image.width, c.image.height).mult(4), null, 0, 1, false);
+            }
         }
-        // Update Entities UI
-        try { if (this.entitiesUI && this.entitiesUI.menu) this.entitiesUI.menu.update(tickDelta); } catch (e) {}
     }
 
     draw() {
@@ -568,29 +744,7 @@ export class CollisionScene extends Scene {
         this.Draw.scale(this.zoom);
         this.Draw.translate(this.offset);
 
-        // If imported chunk images exist, draw them at their world positions by layer order.
-        if (this.importedChunks && this.importedChunks.length) {
-            const layerOrder = ['bg','base','overlay'];
-            for (const layer of layerOrder) {
-                const items = this.importedChunks.filter(c => c.layer === layer).sort((a,b)=> (a.y-b.y) || (a.x-b.x));
-                for (const c of items) {
-                    try {
-                        // infer tilePixelSize from image width assuming 16x16 tiles per chunk
-                        const chunkSize = 16;
-                        const tilePx = c.image.width / chunkSize;
-                        const pxX = c.x * tilePx;
-                        const pxY = c.y * tilePx;
-                        this.Draw.image(c.image, (new Vector(pxX, pxY)).mult(4), new Vector(c.image.width, c.image.height).mult(4), null, 0, 1, false);
-                    } catch (e) { /* ignore draw errors */ }
-                }
-            }
-        } else if (this.importedSheets && this.importedSheets.length) {
-            // Legacy tilesheet preview: draw first sheet centered
-            const s = this.importedSheets[0];
-            if (s && s.image) this.Draw.image(s.image, new Vector(32, 32), new Vector(512, 512), null, 0, 1, false);
-        } else {
-            // no fallback test geometry in world; leave empty
-        }
+        this.drawChunks()
 
         // draw buffered segment inside world transform so it respects pan/zoom
         if (this.editor && this.editor.polyObjects) {
@@ -625,28 +779,6 @@ export class CollisionScene extends Scene {
             // single call: fill + outline
             this.Draw.rect(p, sz, '#00FF0088', true, true, 2, '#00FF00FF');
         }
-
-        this.Draw.popMatrix();
-
-        // Optional UI label and Entities UI label
-        if (this.UIDraw) {
-            this.UIDraw.useCtx('UI');
-            this.UIDraw.text('Collision Editor (WIP)', new Vector(32, 32), '#FFFFFFFF', 1, 20, { align: 'left', baseline: 'top' });
-            const count = (this.importedChunks && this.importedChunks.length) ? this.importedChunks.length : (this.importedSheets && this.importedSheets.length) ? this.importedSheets.length : 0;
-            if (count) this.UIDraw.text(`Images: ${count}`, new Vector(32, 56), '#FFFFFFFF', 1, 16, { align: 'left', baseline: 'top' });
-            // Small HUD showing zoom level
-            this.UIDraw.text(`zoom: ${this.zoom.x.toFixed(2)}x`, new Vector(32, 76), '#FFFFFFFF', 1, 16, { align: 'left', baseline: 'top' });
-            // Draw Entities UI components and labels at their positions
-            if (this.entitiesUI && this.entitiesUI.menu) {
-                const m = this.entitiesUI.menu;
-                this.entitiesUI.menu.draw(this.UIDraw);
-                // Title inside label area
-                this.UIDraw.text('Entities', m.pos.add(new Vector(12, 10)), '#FFFFFFCC', 1, 14, { align: 'left', baseline: 'top' });
-                // Button label: align with button local pos (8,34)
-                this.UIDraw.text('Add Box', m.pos.add(new Vector(16, 40)), '#FFFFFF', 1, 13, { align: 'left', baseline: 'top' });
-            }
-        }
-
         // Draw entities in world (use sprites if available)
         if (Array.isArray(this.entitiesRuntime) && this.entitiesRuntime.length) {
             for (const r of this.entitiesRuntime) {
@@ -662,6 +794,45 @@ export class CollisionScene extends Scene {
                 }
             }
         }
+
+        // Draw entity collision circles for debug/visualization
+        if (Array.isArray(this.entitiesRuntime) && this.entitiesRuntime.length) {
+            for (const r of this.entitiesRuntime) {
+                if (!r || !r.sprite) continue;
+                try {
+                    const sprite = r.sprite;
+                    const center = sprite.pos.add(sprite.size.mult(0.5));
+                    // doubled from 0.2 -> 0.4 to match intended radius (not diameter)
+                    const radius = Math.min(sprite.size.x, sprite.size.y) * 0.4;
+                    this.Draw.circle(center, radius, '#FF6666AA', false, 2);
+                } catch (e) {}
+            }
+        }
+
+        this.Draw.popMatrix();
+
+        // Optional UI label and Entities UI label
+        if (this.UIDraw) {
+            this.UIDraw.useCtx('UI');
+            this.UIDraw.text('Collision Editor (WIP)', new Vector(32, 32), '#FFFFFFFF', 1, 20, { align: 'left', baseline: 'top' });
+            const count = (this.importedChunks && this.importedChunks.length) ? this.importedChunks.length : (this.importedSheets && this.importedSheets.length) ? this.importedSheets.length : 0;
+            if (count) this.UIDraw.text(`Images: ${count}`, new Vector(32, 56), '#FFFFFFFF', 1, 16, { align: 'left', baseline: 'top' });
+            // Small HUD showing zoom level
+            this.UIDraw.text(`zoom: ${this.zoom.x.toFixed(2)}x`, new Vector(32, 76), '#FFFFFFFF', 1, 16, { align: 'left', baseline: 'top' });
+            // Gravity status
+            this.UIDraw.text(`gravity: ${this.gravityEnabled ? 'on' : 'off'}`, new Vector(32, 96), '#FFFFFFFF', 1, 16, { align: 'left', baseline: 'top' });
+            // Draw Entities UI components and labels at their positions
+            if (this.entitiesUI && this.entitiesUI.menu) {
+                const m = this.entitiesUI.menu;
+                this.entitiesUI.menu.draw(this.UIDraw);
+                // Title inside label area
+                this.UIDraw.text('Entities', m.pos.add(new Vector(12, 10)), '#FFFFFFCC', 1, 14, { align: 'left', baseline: 'top' });
+                // Button label: align with button local pos (8,34)
+                this.UIDraw.text('Add Box', m.pos.add(new Vector(16, 40)), '#FFFFFF', 1, 13, { align: 'left', baseline: 'top' });
+            }
+        }
+
+        
         
     }
 }
@@ -687,4 +858,113 @@ CollisionScene.prototype.exportLevelJSON = function(){
     } catch (e) {
         console.warn('exportLevelJSON failed', e);
     }
+}
+
+// Export level + imported chunk images as a .tar (includes level.json)
+CollisionScene.prototype.exportLevelTar = async function(filename = 'level.tar'){
+    try {
+        const entries = [];
+        // include imported chunk images if present
+        try {
+            if (Array.isArray(this.importedChunks) && this.importedChunks.length) {
+                for (const c of this.importedChunks) {
+                    try {
+                        const img = c.image;
+                        if (!img) continue;
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.width; canvas.height = img.height;
+                        const ctx = canvas.getContext('2d'); ctx.drawImage(img,0,0);
+                        const blob = await new Promise((res)=>canvas.toBlob(res,'image/png'));
+                        const arrayBuf = await blob.arrayBuffer();
+                        const name = `${c.layer}/${c.x}_${c.y}.png`;
+                        entries.push({ name, data: new Uint8Array(arrayBuf) });
+                    } catch (e) { console.warn('Failed to include chunk image', e); }
+                }
+            }
+        } catch (e) {}
+
+        // include level JSON
+        try {
+            const data = {
+                spawn: this.levelData.spawn,
+                goal: this.levelData.goal,
+                entities: this.levelData.entities || [],
+                collision: (this.editor.polygons || []).map(poly => poly.map(v => [v.x, v.y]))
+            };
+            const json = JSON.stringify(data, null, 2);
+            entries.push({ name: 'level.json', data: new TextEncoder().encode(json) });
+        } catch (e) { console.warn('Failed to build level.json', e); }
+
+        const tarBlob = await this.packageManager.createTarBlob(entries);
+
+        // Save (File System Access API if available)
+        try {
+            if (window.showSaveFilePicker) {
+                const opts = { suggestedName: filename, types: [{ description: 'TAR Archive', accept: { 'application/x-tar': ['.tar'] } }] };
+                const handle = await window.showSaveFilePicker(opts);
+                const writable = await handle.createWritable();
+                await writable.write(tarBlob);
+                await writable.close();
+                console.log('Level tar saved to file:', handle.name);
+                return true;
+            }
+        } catch (e) { console.warn('Save via FS API failed, falling back to download', e); }
+
+        // Fallback: download
+        try {
+            const url = URL.createObjectURL(tarBlob);
+            const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+            console.log('Level tar downloaded:', filename);
+            return true;
+        } catch (e) { console.warn('Fallback download failed', e); return false; }
+    } catch (e) { console.warn('exportLevelTar failed', e); return false; }
+}
+
+// Load map/level payload (spawn, goal, entities, collision) into scene
+CollisionScene.prototype.loadMapFromPayload = function(payload){
+    try {
+        if (!payload) return false;
+        // apply spawn/goal/entities
+        try { if (payload.spawn) this.levelData.spawn = payload.spawn; } catch (e) {}
+        try { if (payload.goal) this.levelData.goal = payload.goal; } catch (e) {}
+        try { this.levelData.entities = Array.isArray(payload.entities) ? payload.entities : (this.levelData.entities || []); } catch (e) {}
+        // rebuild runtime entities from levelData.entities
+        try {
+            this.entitiesRuntime = [];
+            for (const ent of this.levelData.entities || []) {
+                if (ent.type === 'box' && ent.pos && ent.size) {
+                    let BoxSheet = new SpriteSheet(this.assets.boxImage,16);
+                    BoxSheet.addAnimation('base',0,8);
+                    const sprite = new Sprite(this.Draw, new Vector(ent.pos.x, ent.pos.y), new Vector(ent.size.x, ent.size.y), BoxSheet);
+                    try { sprite.mass = ent.mass || this.defaultEntityMass; } catch (e) {}
+                    this.entitiesRuntime.push({ type: 'box', sprite });
+                }
+            }
+        } catch (e) { console.warn('Failed to rebuild runtime entities', e); }
+
+        // apply collision polygons if provided
+        try {
+            if (payload.collision && Array.isArray(payload.collision)) {
+                this.editor.polygons = payload.collision.map(arr => arr.map(p => new Vector(p[0], p[1])));
+                this.editor.polyObjects = [];
+                for (const poly of this.editor.polygons) {
+                    try { this.editor.polyObjects.push(new BufferedPolygon(poly, this.editor.baseRadius, this.editor.coeffs)); } catch (e) {}
+                }
+            }
+        } catch (e) {}
+
+        // position the cat at spawn center if available
+        try {
+            if (payload.spawn && this.cat) {
+                const sp = payload.spawn;
+                const spawnPos = new Vector(sp.pos.x, sp.pos.y);
+                const spawnSize = new Vector(sp.size.x, sp.size.y);
+                // center cat in spawn region
+                const target = spawnPos.add(spawnSize.mult(0.5)).sub(this.cat.size.mult(0.5));
+                this.cat.pos = target;
+            }
+        } catch (e) {}
+
+        return true;
+    } catch (e) { console.warn('loadMapFromPayload failed', e); return false; }
 }

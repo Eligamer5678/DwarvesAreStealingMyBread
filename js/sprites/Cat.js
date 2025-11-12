@@ -18,6 +18,9 @@ export default class Cat {
         this.Draw = Draw;
         this.destroy = new Signal();
         this.color = new Color(1,1,1,1);
+    // physics
+    this.mass = 1; // light creature
+    this.restitution = 1.0; // elastic collisions (conserve energy)
         // Render-only adjustments (do not affect physics/collision center)
         this.renderScale = 1/2;                 // ~0.6667 shrink (divide by ~1.5)
         this.renderOffset = new Vector(0, -38); // raise sprite a bit so hitbox aligns visually

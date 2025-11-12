@@ -22,15 +22,7 @@ export default class BufferedSegment {
         this.currentRadius = baseRadius;
     }
 
-    /**
-     * Update the dynamic radius using |vel| and |accel| magnitudes (pixels/sec and pixels/sec^2)
-     * clamp to [baseRadius*0.25, baseRadius*8] to avoid degenerate cases
-     */
     updateBuffer(velMag = 0, accelMag = 0){
-        // Shrink radius as motion increases; never exceed baseRadius
-        const dec = this.kv * velMag + this.ka * accelMag;
-        const r = this.baseRadius - dec;
-        this.currentRadius = Math.max(this.minRadius*Math.log(velMag?velMag:1), Math.min(this.baseRadius, r));
         return this.currentRadius;
     }
 

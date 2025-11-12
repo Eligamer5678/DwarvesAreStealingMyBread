@@ -252,7 +252,13 @@ export default class PackageManager {
                 const url = URL.createObjectURL(blob);
                 chunks.push({ layer, x: tx, y: ty, url, name: key });
             }
-            return { chunks };
+            // also check for a level.json or map.json entry and parse it
+            let levelPayload = null;
+            const levelKey = keys.find(k => k.toLowerCase().endsWith('level.json') || k.toLowerCase().endsWith('map.json'));
+            if (levelKey && entries[levelKey]) {
+                try { levelPayload = JSON.parse(new TextDecoder().decode(entries[levelKey])); } catch (e) { console.warn('Failed to parse level.json in chunks tar', e); }
+            }
+            return { chunks, levelPayload };
         } catch (e) {
             console.warn('parseImageChunksTar failed', e);
             return { chunks: [] };
