@@ -8,6 +8,10 @@ import Cat from '../js/sprites/Cat.js';
 import PackageManager from '../js/PackageManager.js';
 import BufferedSegment from '../js/physics/BufferedSegment.js';
 import BufferedPolygon from '../js/physics/BufferedPolygon.js';
+import Menu from '../js/UI/Menu.js';
+import UIButton from '../js/UI/Button.js';
+import UIRect from '../js/UI/Rect.js';
+import BoxSprite from '../js/sprites/Box.js';
 
 export class CollisionScene extends Scene {
     constructor(...args) {
@@ -17,8 +21,8 @@ export class CollisionScene extends Scene {
         this.importedChunks = []; // [{layer, x, y, image, url}] (image chunk import)
         this._importUrls = []; // object URLs to revoke on cleanup
         this.packageManager = new PackageManager(null, this);
-        this.segment = null; // single test segment (legacy/demo)
-        this.polygon = null; // polygon composed of buffered edge capsules
+    this.segment = null; // single test segment (legacy/demo)
+    // removed test polygon; editor-created polygons live in this.editor.polyObjects
         this.editor = {
             polygons: [],        // Array<Vector[]> finalized polygons
             polyObjects: [],     // Array<BufferedPolygon>
@@ -26,6 +30,21 @@ export class CollisionScene extends Scene {
             baseRadius: 22,
             coeffs: { kv: 0.20, ka: 0.06, min: 3 },
         };
+        // Level data for export (JSON)
+        this.levelData = {
+            spawn: null,   // { pos: {x,y}, size: {x,y} }
+            goal: null,    // { pos: {x,y}, size: {x,y} }
+            entities: [],  // placeholder for future
+        };
+        this._placeMode = null; // 'spawn' | 'goal' | null
+        this.spawnSize = new Vector(48, 48);
+        this.goalSize = new Vector(48, 48);
+ 
+        // Entities (UI + data)
+        this.entitiesUI = null;
+        this.defaultEntitySize = new Vector(64, 64);
+        this.entitiesRuntime = [];
+        this.assets = { boxImage: null };
     }
 
     onReady() {
@@ -130,22 +149,18 @@ export class CollisionScene extends Scene {
             const btnSize = new Vector(140, 36);
             const pos = new Vector(1920 - btnSize.x - 12, 1080 - btnSize.y - 12);
 
-            // Create a polygon made of buffered edge capsules (edge-only collisions)
-            try {
-                const verts = [
-                    new Vector(700, 380),
-                    new Vector(1100, 420),
-                    
-                ];
-                this.polygon = new BufferedPolygon(verts, 22, { kv: 0.20, ka: 0.06, min: 3 });
-            } catch (e) { /* ignore poly errors */ }
-
             // Optionally keep a single segment for quick comparison; disabled by default
             // this.segment = new BufferedSegment(new Vector(420, 420), new Vector(1280, 720), 18, { kv: 0.20, ka: 0.06 });
             this._prevCatVel = new Vector(0,0);
             const importBtn = createHButton('import-images-btn', pos, btnSize, '#444', { color: '#fff', borderRadius: '6px', fontSize: 14, border: '1px solid #777' }, 'UI');
             importBtn.textContent = 'Import Images';
             importBtn.onclick = async () => { try { await this.promptImportImagesTar(); } catch(e){ console.warn('import failed', e); } };
+
+            // Export JSON button above Import
+            const exportPos = new Vector(pos.x, pos.y - (btnSize.y + 8));
+            const exportBtn = createHButton('export-json-btn', exportPos, btnSize, '#446', { color: '#fff', borderRadius: '6px', fontSize: 14, border: '1px solid #778' }, 'UI');
+            exportBtn.textContent = 'Export JSON';
+            exportBtn.onclick = () => { try { this.exportLevelJSON(); } catch(e){ console.warn('export failed', e); } };
         } catch (e) { /* ignore button errors */ }
 
         // Collision editor UI panel (minimal)
@@ -153,7 +168,7 @@ export class CollisionScene extends Scene {
             const panelId = 'collision-editor-panel';
             const old = document.getElementById(panelId);
             if (old) old.remove();
-            const panel = createHDiv(panelId, new Vector(8, 60), new Vector(420, 90), '#00000055', { borderRadius: '6px', border: '1px solid #FFFFFF22', padding: '8px' }, 'UI');
+            const panel = createHDiv(panelId, new Vector(8, 60), new Vector(560, 120), '#00000055', { borderRadius: '6px', border: '1px solid #FFFFFF22', padding: '8px' }, 'UI');
             createHLabel(null, new Vector(12, 8), new Vector(396, 20), 'Collision Editor: click to add points; Space = new polygon; Backspace = undo', { color: '#fff', fontSize: 13, justifyContent: 'left' }, panel);
             const newBtn = createHButton('editor-new-poly', new Vector(12, 38), new Vector(130, 28), '#333', { color: '#fff', borderRadius: '4px', fontSize: 13, border: '1px solid #777' }, panel);
             newBtn.textContent = 'New (Space)';
@@ -164,7 +179,38 @@ export class CollisionScene extends Scene {
             const clearBtn = createHButton('editor-clear', new Vector(262, 38), new Vector(130, 28), '#333', { color: '#fff', borderRadius: '4px', fontSize: 13, border: '1px solid #777' }, panel);
             clearBtn.textContent = 'Clear All';
             clearBtn.onclick = () => this._clearAllPolygons();
+
+            // Spawn/Goal placement controls
+            const spawnBtn = createHButton('editor-set-spawn', new Vector(402, 38), new Vector(70, 28), '#665500', { color: '#fff', borderRadius: '4px', fontSize: 13, border: '1px solid #AA8' }, panel);
+            spawnBtn.textContent = 'Spawn';
+            spawnBtn.onclick = () => { this._placeMode = 'spawn'; };
+            const goalBtn = createHButton('editor-set-goal', new Vector(482, 38), new Vector(66, 28), '#225522', { color: '#fff', borderRadius: '4px', fontSize: 13, border: '1px solid #7A7' }, panel);
+            goalBtn.textContent = 'Goal';
+            goalBtn.onclick = () => { this._placeMode = 'goal'; };
         } catch (e) { /* ignore editor UI errors */ }
+
+        // Entities UI (JS UI components with signals)
+        try {
+            // Create a menu at the top-right of the screen
+            const menuSize = new Vector(260, 70);
+            const layer = 60;
+            const menuPos = new Vector(1920 - menuSize.x - 8, 8);
+            const menu = new Menu(this.mouse, this.keys, menuPos, menuSize, layer, '#222A');
+            const labelBg = new UIRect(new Vector(8, 8), new Vector(244, 20), layer + 1, '#00000055');
+            const addBoxBtn = new UIButton(this.mouse, this.keys, new Vector(8, 34), new Vector(120, 28), layer + 2, null, '#444', '#555', '#222');
+            // quick title by drawing an overlay rect; we'll draw the text with UIDraw later
+            addBoxBtn.onPressed['left'].connect(() => { this._placeMode = 'entity-box'; });
+            menu.addElement('labelBg', labelBg);
+            menu.addElement('addBox', addBoxBtn);
+            this.entitiesUI = { menu, addBoxBtn };
+        } catch (e) { /* ignore entities UI errors */ }
+
+        // Preload box image asset
+        try {
+            const img = new Image();
+            img.onload = () => { this.assets.boxImage = img; };
+            img.src = 'Assets/Sprites/box.png';
+        } catch (e) { /* ignore asset load errors */ }
 
         this.isReady = true;
     }
@@ -178,6 +224,7 @@ export class CollisionScene extends Scene {
         } catch (e) { /* ignore */ }
         this._importUrls = [];
         try { const btn = document.getElementById('import-images-btn'); if (btn) btn.remove(); } catch (e) {}
+        try { const btn2 = document.getElementById('export-json-btn'); if (btn2) btn2.remove(); } catch (e) {}
         try { const panel = document.getElementById('collision-editor-panel'); if (panel) panel.remove(); } catch (e) {}
         // call parent if defined
         if (super.onSwitchFrom) try { super.onSwitchFrom(); } catch(e){}
@@ -349,6 +396,11 @@ export class CollisionScene extends Scene {
 
     // Called by base Scene.tick() at fixed rate
     sceneTick(tickDelta) {
+        // If mouse is over the general UI area, pause mouse input briefly to prevent bleed-through
+        const inTopLeft = (this.mouse.pos.x < 700 && this.mouse.pos.y < 200);
+        const inTopRight = (this.mouse.pos.x > (1920 - 300) && this.mouse.pos.y < 200);
+        if (inTopLeft || inTopRight) this.mouse.pause(0.1);        
+
         // handle ctrl+wheel zoom (adds velocity impulses)
         this.zoomScreen(tickDelta);
         // handle wheel-based panning (horizontal/vertical wheel)
@@ -420,7 +472,6 @@ export class CollisionScene extends Scene {
                     const accelMag = tickDelta > 0 ? curV.sub(this._prevCatVel || lastV).divS(tickDelta).mag() : 0;
                     const velMag = curV.mag();
                     if (this.segment) this.segment.updateBuffer(velMag, accelMag);
-                    if (this.polygon) this.polygon.updateBuffer(velMag, accelMag);
                     if (this.editor && this.editor.polyObjects) {
                         for (const obj of this.editor.polyObjects) obj.updateBuffer(velMag, accelMag);
                     }
@@ -431,7 +482,27 @@ export class CollisionScene extends Scene {
             try {
                 if (this.mouse && this.mouse.pressed('left')) {
                     const wp = this.getWorldPos(this.mouse.pos);
-                    this.editor.current.push(wp);
+                    if (this._placeMode === 'spawn') {
+                        const topLeft = wp.sub(this.spawnSize.mult(0.5));
+                        this.levelData.spawn = { pos: { x: topLeft.x, y: topLeft.y }, size: { x: this.spawnSize.x, y: this.spawnSize.y } };
+                        this._placeMode = null;
+                    } else if (this._placeMode === 'goal') {
+                        const topLeft = wp.sub(this.goalSize.mult(0.5));
+                        this.levelData.goal = { pos: { x: topLeft.x, y: topLeft.y }, size: { x: this.goalSize.x, y: this.goalSize.y } };
+                        this._placeMode = null;
+                    } else if (this._placeMode === 'entity-box') {
+                        const sz = this.defaultEntitySize;
+                        const topLeft = wp.sub(sz.mult(0.5));
+                        const entData = { type: 'box', pos: { x: topLeft.x, y: topLeft.y }, size: { x: sz.x, y: sz.y } };
+                        this.levelData.entities.push(entData);
+                        try {
+                            const sprite = new BoxSprite(this.Draw, new Vector(entData.pos.x, entData.pos.y), new Vector(entData.size.x, entData.size.y), this.assets.boxImage);
+                            this.entitiesRuntime.push({ type:'box', sprite });
+                        } catch (e) {}
+                        this._placeMode = null;
+                    } else {
+                        this.editor.current.push(wp);
+                    }
                 }
                 if (this.keys && this.keys.pressed(' ')) {
                     this._finalizeCurrentPolygon();
@@ -456,22 +527,7 @@ export class CollisionScene extends Scene {
                         if (vn < 0) this.cat.vlos.subS(hit.normal.mult(vn));
                     }
                 }
-                if (this.cat && this.polygon) {
-                    // Do a couple of passes for stability near corners
-                    for (let iter = 0; iter < 2; iter++) {
-                        const center = this.cat.pos.add(this.cat.size.mult(0.5));
-                        const radius = this.catRadius || Math.min(this.cat.size.x, this.cat.size.y) * 0.2;
-                        const hit = this.polygon.collideCircle(center, radius);
-                        if (hit && hit.collides) {
-                            const push = hit.normal.mult(hit.penetration);
-                            this.cat.pos.addS(push);
-                            const vn = this.cat.vlos.dot(hit.normal);
-                            if (vn < 0) this.cat.vlos.subS(hit.normal.mult(vn));
-                        } else {
-                            break;
-                        }
-                    }
-                }
+                // removed test polygon collision; editor polygons below handle collisions
                 if (this.cat && this.editor && this.editor.polyObjects && this.editor.polyObjects.length) {
                     for (let iter = 0; iter < 2; iter++) {
                         const center = this.cat.pos.add(this.cat.size.mult(0.5));
@@ -497,6 +553,8 @@ export class CollisionScene extends Scene {
         } catch (e) {
             console.warn('zoom integration failed', e);
         }
+        // Update Entities UI
+        try { if (this.entitiesUI && this.entitiesUI.menu) this.entitiesUI.menu.update(tickDelta); } catch (e) {}
     }
 
     draw() {
@@ -522,7 +580,7 @@ export class CollisionScene extends Scene {
                         const tilePx = c.image.width / chunkSize;
                         const pxX = c.x * tilePx;
                         const pxY = c.y * tilePx;
-                        this.Draw.image(c.image, new Vector(pxX, pxY), new Vector(c.image.width, c.image.height), null, 0, 1, false);
+                        this.Draw.image(c.image, (new Vector(pxX, pxY)).mult(4), new Vector(c.image.width, c.image.height).mult(4), null, 0, 1, false);
                     } catch (e) { /* ignore draw errors */ }
                 }
             }
@@ -531,41 +589,46 @@ export class CollisionScene extends Scene {
             const s = this.importedSheets[0];
             if (s && s.image) this.Draw.image(s.image, new Vector(32, 32), new Vector(512, 512), null, 0, 1, false);
         } else {
-            // Simple red square (world units)
-            this.Draw.rect(new Vector(100, 100), new Vector(200, 200), '#FF0000FF', true);
+            // no fallback test geometry in world; leave empty
         }
 
         // draw buffered segment inside world transform so it respects pan/zoom
-        try {
-            if (this.polygon) { this.polygon.drawBuffer(this.Draw, '#44AAFF66'); this.polygon.drawDebug(this.Draw); }
-            if (this.editor && this.editor.polyObjects) {
-                for (const obj of this.editor.polyObjects) { obj.drawBuffer(this.Draw, '#66FFAA55'); obj.drawDebug(this.Draw); }
-            }
-            if (!this.polygon && this.segment) { this.segment.drawBuffer(this.Draw, '#44AAFF66'); this.segment.drawDebug(this.Draw); }
-        } catch (e) {}
+        if (this.editor && this.editor.polyObjects) {
+            for (const obj of this.editor.polyObjects) { obj.drawBuffer(this.Draw, '#66FFAA55'); obj.drawDebug(this.Draw); }
+        }
+        if (this.segment) { this.segment.drawBuffer(this.Draw, '#44AAFF66'); this.segment.drawDebug(this.Draw); }
 
         // Draw current editing poly (thin lines and points)
-        try {
-            const cur = this.editor.current || [];
-            for (let i=1;i<cur.length;i++) {
-                this.Draw.line(cur[i-1], cur[i], '#FF66AA', 2);
-            }
-            for (const p of cur) this.Draw.circle(p, 4, '#FF66AA', true);
-        } catch (e) {}
+        const cur = this.editor.current || [];
+        for (let i=1;i<cur.length;i++) {
+            this.Draw.line(cur[i-1], cur[i], '#FF66AA', 2);
+        }
+        for (const p of cur) this.Draw.circle(p, 4, '#FF66AA', true);
         // draw cat collision radius (outline)
-        try {
-            if (this.cat) {
-                const center = this.cat.pos.add(this.cat.size.mult(0.5));
-                const radius = this.catRadius || Math.min(this.cat.size.x, this.cat.size.y) * 0.2;
-                this.Draw.circle(center, radius, '#00FF00AA', false, 2);
-            }
-        } catch (e) {}
+        if (this.cat) {
+            const center = this.cat.pos.add(this.cat.size.mult(0.5));
+            const radius = this.catRadius || Math.min(this.cat.size.x, this.cat.size.y) * 0.2;
+            this.Draw.circle(center, radius, '#00FF00AA', false, 2);
+        }
         // draw cat above segment for visibility
-        try { if (this.cat) this.cat.draw(new Vector(0,0)); } catch (e) {}
+        this.cat.draw(new Vector(0,0));
+        // Draw spawn/goal boxes (world)
+        if (this.levelData.spawn) {
+            const p = new Vector(this.levelData.spawn.pos.x, this.levelData.spawn.pos.y);
+            const sz = new Vector(this.levelData.spawn.size.x, this.levelData.spawn.size.y);
+            // single call: fill + outline
+            this.Draw.rect(p, sz, '#FFFF0088', true, true, 2, '#FFFF00FF');
+        }
+        if (this.levelData.goal) {
+            const p = new Vector(this.levelData.goal.pos.x, this.levelData.goal.pos.y);
+            const sz = new Vector(this.levelData.goal.size.x, this.levelData.goal.size.y);
+            // single call: fill + outline
+            this.Draw.rect(p, sz, '#00FF0088', true, true, 2, '#00FF00FF');
+        }
 
-    this.Draw.popMatrix();
+        this.Draw.popMatrix();
 
-        // Optional UI label
+        // Optional UI label and Entities UI label
         if (this.UIDraw) {
             this.UIDraw.useCtx('UI');
             this.UIDraw.text('Collision Editor (WIP)', new Vector(32, 32), '#FFFFFFFF', 1, 20, { align: 'left', baseline: 'top' });
@@ -573,7 +636,55 @@ export class CollisionScene extends Scene {
             if (count) this.UIDraw.text(`Images: ${count}`, new Vector(32, 56), '#FFFFFFFF', 1, 16, { align: 'left', baseline: 'top' });
             // Small HUD showing zoom level
             this.UIDraw.text(`zoom: ${this.zoom.x.toFixed(2)}x`, new Vector(32, 76), '#FFFFFFFF', 1, 16, { align: 'left', baseline: 'top' });
+            // Draw Entities UI components and labels at their positions
+            if (this.entitiesUI && this.entitiesUI.menu) {
+                const m = this.entitiesUI.menu;
+                this.entitiesUI.menu.draw(this.UIDraw);
+                // Title inside label area
+                this.UIDraw.text('Entities', m.pos.add(new Vector(12, 10)), '#FFFFFFCC', 1, 14, { align: 'left', baseline: 'top' });
+                // Button label: align with button local pos (8,34)
+                this.UIDraw.text('Add Box', m.pos.add(new Vector(16, 40)), '#FFFFFF', 1, 13, { align: 'left', baseline: 'top' });
+            }
+        }
+
+        // Draw entities in world (use sprites if available)
+        if (Array.isArray(this.entitiesRuntime) && this.entitiesRuntime.length) {
+            for (const r of this.entitiesRuntime) {
+                if (r && r.type === 'box' && r.sprite) r.sprite.draw(new Vector(0,0));
+            }
+        } else if (Array.isArray(this.levelData.entities)) {
+            // Fallback if runtime not built yet
+            for (const ent of this.levelData.entities) {
+                if (ent.type === 'box' && ent.pos && ent.size) {
+                    const p = new Vector(ent.pos.x, ent.pos.y);
+                    const sz = new Vector(ent.size.x, ent.size.y);
+                    this.Draw.rect(p, sz, '#00CCFFFF', true, true, 2, '#0066FFFF');
+                }
+            }
         }
         
+    }
+}
+
+// Export helpers
+CollisionScene.prototype.exportLevelJSON = function(){
+    try {
+        const data = {
+            spawn: this.levelData.spawn,
+            goal: this.levelData.goal,
+            entities: this.levelData.entities || [],
+            collision: (this.editor.polygons || []).map(poly => poly.map(v => [v.x, v.y]))
+        };
+        const json = JSON.stringify(data, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'level.json';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { try { URL.revokeObjectURL(url); a.remove(); } catch(e){} }, 0);
+    } catch (e) {
+        console.warn('exportLevelJSON failed', e);
     }
 }

@@ -2,8 +2,8 @@ import Vector from '../Vector.js';
 import BufferedSegment from './BufferedSegment.js';
 
 /**
- * BufferedPolygon: edge-only collision using a ring of BufferedSegments.
- * No interior tests; collision is the union of edge capsules.
+ * BufferedPolygon: edge-only collision using a sequence of BufferedSegments (open polyline).
+ * Edges are not connected from last->first; no interior tests — collision is the union of edge capsules.
  */
 export default class BufferedPolygon {
     /**
@@ -28,9 +28,10 @@ export default class BufferedPolygon {
         this.edges = [];
         const n = this.vertices.length;
         if (n < 2) return;
-        for (let i = 0; i < n; i++) {
+        // Create edges only between consecutive vertices (open polyline). Do NOT connect last->first.
+        for (let i = 0; i < n-1; i++) {
             const a = this.vertices[i];
-            const b = this.vertices[(i+1)%n];
+            const b = this.vertices[i+1];
             this.edges.push(new BufferedSegment(a, b, this.baseRadius, this.coeffs));
         }
     }

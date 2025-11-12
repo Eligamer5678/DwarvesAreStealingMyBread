@@ -18,10 +18,13 @@ export default class Cat {
         this.Draw = Draw;
         this.destroy = new Signal();
         this.color = new Color(1,1,1,1);
+        // Render-only adjustments (do not affect physics/collision center)
+        this.renderScale = 1/2;                 // ~0.6667 shrink (divide by ~1.5)
+        this.renderOffset = new Vector(0, -38); // raise sprite a bit so hitbox aligns visually
 
-    // input (default for now so we can move freely in CollisionScene)
-    this.keys = keys;
-    this.input = new Input(keys, 'default');
+        // input (default for now so we can move freely in CollisionScene)
+        this.keys = keys;
+        this.input = new Input(keys, 'default');
         this.facing = 1; // 1 = right, -1 = left
 
         // animation state (copied from TestSprite)
@@ -88,7 +91,12 @@ export default class Cat {
     draw(levelOffset){
         if (this.sheet && this.anim) {
             const invert = this.facing < 0 ? { x: -1, y: 1 } : null;
-            this.Draw.sheet(this.sheet, this.pos.add(levelOffset), this.size, this.anim, this.animFrame, invert, 1, false);
+            const s = this.renderScale || 1;
+            const drawSize = this.size.mult(s);
+            // center the scaled sprite within the original rect, then apply a render offset to raise
+            const centerOffset = new Vector((this.size.x - drawSize.x) * 0.5, (this.size.y - drawSize.y) * 0.5);
+            const drawPos = this.pos.add(levelOffset).add(centerOffset).add(this.renderOffset);
+            this.Draw.sheet(this.sheet, drawPos, drawSize, this.anim, this.animFrame, invert, 1, false);
         }
     }
 }
