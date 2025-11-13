@@ -36,6 +36,8 @@ export class CollisionScene extends Scene {
         };
         // Grab/transform state for keyboard-driven polygon ops (g=move, r=rotate, s=scale)
         this._grabState = { active: false, idx: -1, originalVerts: null, mode: null, origin: null, initialAngle: 0, initialDist: 0 };
+        // Editor action history for undo (stack of {type, sel, before, after, beforeBase, afterBase})
+        this._editorHistory = [];
         // Level data for export (JSON)
         this.levelData = {
             spawn: null,   // { pos: {x,y}, size: {x,y} }
@@ -146,6 +148,7 @@ export class CollisionScene extends Scene {
                 sheet.addAnimation('land', 8, 7);
                 this.cat = new Cat(this.keys, this.Draw, new Vector(628,328), new Vector(256,256), sheet);
                 this.catRadius = 24; // collision radius for the cat, independent of draw size
+                try { this._initialCatPos = this.cat.pos.clone(); } catch (e) {}
                 console.log('CollisionScene: cat spritesheet loaded and Cat created');
             } catch (e) { console.warn('Failed to build cat sheet', e); }
         };
@@ -154,6 +157,7 @@ export class CollisionScene extends Scene {
                 console.warn('CollisionScene: failed to load cat image, creating fallback Cat');
                 this.cat = new Cat(this.keys, this.Draw, new Vector(628,328), new Vector(256,256), null);
                 this.catRadius = 24;
+                    try { this._initialCatPos = this.cat.pos.clone(); } catch (e) {}
             } catch (e) { console.warn('Failed to create fallback Cat', e); }
         };
         img.src = 'Assets/Sprites/cat.png';
@@ -300,6 +304,24 @@ export class CollisionScene extends Scene {
         this.editor.current = [];
     }
     _undoPoint(){
+        // First prefer undoing recorded editor actions (transforms, extrudes)
+        try {
+            if (Array.isArray(this._editorHistory) && this._editorHistory.length > 0) {
+                const action = this._editorHistory.pop();
+                if (action && typeof action.sel === 'number') {
+                    const si = action.sel;
+                    try {
+                        if (action.before && Array.isArray(action.before)) {
+                            this.editor.polygons[si] = action.before.map(v => v.clone());
+                            try { this.editor.polyObjects[si] = new BufferedPolygon(this.editor.polygons[si], (typeof action.beforeBase === 'number') ? action.beforeBase : this.editor.baseRadius, this.editor.coeffs); } catch (e) { try { this.editor.polyObjects[si] = null; } catch (ee) {} }
+                        }
+                        // clear any vertex selection
+                        try { if (this.editor) this.editor.selectedVertex = -1; } catch (e) {}
+                    } catch (e) {}
+                }
+                return;
+            }
+        } catch (e) {}
         // Prefer removing the last-inserted point. If there are points in the
         // current in-progress polygon, pop from that. Otherwise pop the last
         // point from the most recently finalized polygon. If that polygon
@@ -610,13 +632,15 @@ export class CollisionScene extends Scene {
             try {
                 const sel = (this.editor && typeof this.editor.selected === 'number') ? this.editor.selected : -1;
                 if (sel >= 0 && Array.isArray(this.editor.polygons) && this.editor.polygons[sel] && !skipPlacement) {
-                    const poly = this.editor.polygons[sel];
+                    // Choose preview vertices when a transform preview is active so clicks hit the live positions
+                    const usePreview = (this._grabState && this._grabState.active && typeof this._grabState.idx === 'number' && this._grabState.idx === sel && this.editor.polyObjects && this.editor.polyObjects[sel]);
+                    const polySource = usePreview ? (this.editor.polyObjects[sel] && this.editor.polyObjects[sel].vertices ? this.editor.polyObjects[sel].vertices : this.editor.polygons[sel]) : this.editor.polygons[sel];
                     // handle radius in world-space so hits are consistent across zoom
                     const handlePx = 10; // screen pixels
                     const handleWorldR = handlePx / (this.zoom.x || 1);
-                    for (let vi = 0; vi < poly.length; vi++) {
+                    for (let vi = 0; vi < polySource.length; vi++) {
                         try {
-                            const v = poly[vi];
+                            const v = polySource[vi];
                             const d = v.sub(wp).mag();
                             if (d <= handleWorldR) {
                                 this.editor.selectedVertex = vi;
@@ -625,6 +649,13 @@ export class CollisionScene extends Scene {
                             }
                         } catch (ee) {}
                     }
+                }
+            } catch (e) {}
+            // If a polygon is selected, do not allow placing new points (unless a vertex was hit)
+            try {
+                const sel2 = (this.editor && typeof this.editor.selected === 'number') ? this.editor.selected : -1;
+                if (sel2 >= 0 && !skipPlacement) {
+                    skipPlacement = true;
                 }
             } catch (e) {}
             if (this._placeMode === 'spawn') {
@@ -669,7 +700,7 @@ export class CollisionScene extends Scene {
             } else {
                 // Polygon placement; support Shift to snap to 8 directions from last point.
                 // If shift-click selection handled this click, skip placement.
-                if (!skipPlacement) {
+                if (!skipPlacement ) {
                     let newPt = wp;
                     try {
                         const shiftHeld = this.keys && (this.keys.held && this.keys.held('Shift'));
@@ -702,11 +733,76 @@ export class CollisionScene extends Scene {
             this._undoPoint();
         }
 
+        // Delete selected polygon or vertex with 'x'
+        if (this.keys && this.keys.pressed && this.keys.pressed('x')) {
+            try {
+                const sel = (this.editor && typeof this.editor.selected === 'number') ? this.editor.selected : -1;
+                const vIdx = (this.editor && typeof this.editor.selectedVertex === 'number') ? this.editor.selectedVertex : -1;
+                if (sel >= 0 && Array.isArray(this.editor.polygons) && this.editor.polygons[sel]) {
+                    const poly = this.editor.polygons[sel];
+                    try {
+                        // record before snapshot
+                        const before = poly.map(v => v.clone());
+                        const beforeBase = (this.editor.polyObjects && this.editor.polyObjects[sel] && typeof this.editor.polyObjects[sel].baseRadius === 'number') ? this.editor.polyObjects[sel].baseRadius : this.editor.baseRadius;
+
+                        if (vIdx >= 0 && vIdx < poly.length) {
+                            // Delete a single vertex
+                            const newPoly = poly.filter((_, i) => i !== vIdx).map(v => v.clone());
+                            if (newPoly.length < 2) {
+                                // If removing the vertex collapses the polygon, remove the whole polygon
+                                this.editor.polygons.splice(sel, 1);
+                                if (this.editor.polyObjects && this.editor.polyObjects.length > sel) this.editor.polyObjects.splice(sel, 1);
+                                // push history: before->null (deleted)
+                                try { this._editorHistory.push({ type: 'delete', sel: sel, before: before, after: null, beforeBase: beforeBase, afterBase: null }); } catch (e) {}
+                                this.editor.selected = -1;
+                                this.editor.selectedVertex = -1;
+                            } else {
+                                // Replace polygon with vertex removed
+                                this.editor.polygons[sel] = newPoly;
+                                try { this.editor.polyObjects[sel] = new BufferedPolygon(newPoly, this.editor.baseRadius, this.editor.coeffs); } catch (e) {}
+                                // push history: before->after
+                                try { this._editorHistory.push({ type: 'delete', sel: sel, before: before, after: newPoly.map(v => v.clone()), beforeBase: beforeBase, afterBase: (this.editor.polyObjects && this.editor.polyObjects[sel] && typeof this.editor.polyObjects[sel].baseRadius === 'number') ? this.editor.polyObjects[sel].baseRadius : this.editor.baseRadius }); } catch (e) {}
+                                // clamp selected vertex
+                                this.editor.selectedVertex = Math.max(0, Math.min(vIdx, this.editor.polygons[sel].length - 1));
+                            }
+                        } else {
+                            // No vertex selected: delete entire polygon
+                            this.editor.polygons.splice(sel, 1);
+                            if (this.editor.polyObjects && this.editor.polyObjects.length > sel) this.editor.polyObjects.splice(sel, 1);
+                            try { this._editorHistory.push({ type: 'delete', sel: sel, before: before, after: null, beforeBase: beforeBase, afterBase: null }); } catch (e) {}
+                            this.editor.selected = -1;
+                            this.editor.selectedVertex = -1;
+                        }
+                    } catch (e) {}
+                }
+            } catch (e) {}
+        }
+
         // Toggle gravity with '9'
         try {
             if (this.keys.pressed('9')) {
                 this.gravityEnabled = !this.gravityEnabled;
                 console.log('gravity:', this.gravityEnabled);
+            }
+            // Reset cat to initial position and zero velocity with '0'
+            if (this.keys.pressed('0')) {
+                try {
+                    if (this.cat) {
+                        if (this._initialCatPos && typeof this._initialCatPos.clone === 'function') {
+                            this.cat.pos = this._initialCatPos.clone();
+                        } else {
+                            this.cat.pos = new Vector(628,328);
+                        }
+                        if (this.cat.vlos) {
+                            this.cat.vlos.x = 0; this.cat.vlos.y = 0;
+                        } else {
+                            this.cat.vlos = new Vector(0,0);
+                        }
+                        // reset any cached prev velocity
+                        try { this._prevCatVel = new Vector(0,0); } catch (e) {}
+                        console.log('CollisionScene: cat reset to initial position');
+                    }
+                } catch (e) {}
             }
         } catch (e) {}
 
@@ -717,6 +813,60 @@ export class CollisionScene extends Scene {
             const startMove = this.keys && this.keys.pressed && this.keys.pressed('g');
             const startRotate = this.keys && this.keys.pressed && this.keys.pressed('r');
             const startScale = this.keys && this.keys.pressed && this.keys.pressed('s');
+            // Extrude: create new endpoint vertex and auto-start a grab
+            const startExtrude = this.keys && this.keys.pressed && this.keys.pressed('e');
+            if (startExtrude && this.editor && typeof this.editor.selected === 'number' && this.editor.selected >= 0 && !this._grabState.active) {
+                const sel = this.editor.selected;
+                const poly = (this.editor.polygons && this.editor.polygons[sel]) ? this.editor.polygons[sel] : null;
+                const vIdx = (this.editor && typeof this.editor.selectedVertex === 'number') ? this.editor.selectedVertex : -1;
+                if (poly && Array.isArray(poly) && poly.length >= 1 && (vIdx === 0 || vIdx === poly.length - 1)) {
+                    try {
+                        // create new vertex at the same world position as the selected endpoint
+                        const newV = poly[vIdx].clone();
+                        let newPoly = poly.map(v => v.clone());
+                        // record history for the extrude action (before -> after)
+                        let extrudeAction = null;
+                        let newIndex = -1;
+                        if (vIdx === poly.length - 1) {
+                            newPoly.push(newV);
+                            newIndex = newPoly.length - 1;
+                        } else {
+                            newPoly.unshift(newV);
+                            newIndex = 0;
+                        }
+                        // persist the new polygon and rebuild its BufferedPolygon
+                        try {
+                            const origBase = (this.editor.polyObjects && this.editor.polyObjects[sel] && typeof this.editor.polyObjects[sel].baseRadius === 'number') ? this.editor.polyObjects[sel].baseRadius : this.editor.baseRadius;
+                            extrudeAction = { type: 'extrude', sel: sel, before: poly.map(v => v.clone()), after: newPoly.map(v => v.clone()), beforeBase: origBase, afterBase: origBase };
+                            this._editorHistory.push(extrudeAction);
+                        } catch (e) {}
+                        this.editor.polygons[sel] = newPoly;
+                        try { this.editor.polyObjects[sel] = new BufferedPolygon(newPoly, this.editor.baseRadius, this.editor.coeffs); } catch (e) {}
+                        // select the newly created vertex
+                        this.editor.selectedVertex = newIndex;
+
+                        // Start a grab in move mode for that new vertex
+                        const orig = newPoly.map(v => v.clone());
+                        // compute bounding-box origin
+                        let minX = orig[0].x, minY = orig[0].y, maxX = orig[0].x, maxY = orig[0].y;
+                        for (const p of orig) { if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y; if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y; }
+                        const origin = new Vector((minX + maxX) * 0.5, (minY + maxY) * 0.5);
+                        this._grabState.active = true;
+                        this._grabState.idx = sel;
+                        this._grabState.vertexIndex = newIndex;
+                        // attach history action to grabState so we can update/remove it on commit/cancel
+                        try { this._grabState.historyAction = extrudeAction; } catch (e) {}
+                        this._grabState.originalVerts = orig;
+                        this._grabState.previewReplaced = false;
+                        const polyObj = (this.editor.polyObjects && this.editor.polyObjects[sel]) ? this.editor.polyObjects[sel] : null;
+                        this._grabState.originalPolyObject = polyObj;
+                        this._grabState.originalBaseRadius = (polyObj && typeof polyObj.baseRadius === 'number') ? polyObj.baseRadius : (this.editor.baseRadius || 12);
+                        this._grabState.origin = origin;
+                        this._grabState.mode = 'move';
+                        try { if (this.mouse && this.mouse.grab) this.mouse.grab(this.mouse.pos); } catch (e) {}
+                    } catch (e) { /* ignore extrude errors */ }
+                }
+            }
             if ((startMove || startRotate || startScale) && this.editor && typeof this.editor.selected === 'number' && this.editor.selected >= 0 && !this._grabState.active) {
                 const sel = this.editor.selected;
                 const orig = (this.editor.polygons && this.editor.polygons[sel]) ? this.editor.polygons[sel].map(v => v.clone()) : null;
@@ -737,6 +887,12 @@ export class CollisionScene extends Scene {
                     const polyObj = (this.editor.polyObjects && this.editor.polyObjects[sel]) ? this.editor.polyObjects[sel] : null;
                     this._grabState.originalPolyObject = polyObj;
                     this._grabState.originalBaseRadius = (polyObj && typeof polyObj.baseRadius === 'number') ? polyObj.baseRadius : (this.editor.baseRadius || 12);
+                    // record a history action so the transform can be undone
+                    try {
+                        const action = { type: 'transform', sel: sel, before: orig.map(v => v.clone()), after: null, beforeBase: this._grabState.originalBaseRadius, afterBase: null };
+                        this._grabState.historyAction = action;
+                        this._editorHistory.push(action);
+                    } catch (e) {}
                     this._grabState.origin = origin;
                     if (startRotate) {
                         this._grabState.mode = 'rotate';
@@ -770,6 +926,14 @@ export class CollisionScene extends Scene {
                     }
                 } catch (e) {}
                 try { if (this.mouse && this.mouse.releaseGrab) this.mouse.releaseGrab(); } catch (e) {}
+                // If there was a pending history action for this grab (transform/extrude), remove it
+                try {
+                    const act = this._grabState.historyAction;
+                    if (act && Array.isArray(this._editorHistory)) {
+                        const idx = this._editorHistory.indexOf(act);
+                        if (idx >= 0) this._editorHistory.splice(idx, 1);
+                    }
+                } catch (e) {}
                 this._grabState.active = false;
                 this._grabState.idx = -1;
                 this._grabState.originalVerts = null;
@@ -777,6 +941,7 @@ export class CollisionScene extends Scene {
                 this._grabState.origin = null;
                 this._grabState.initialAngle = 0;
                 this._grabState.initialDist = 0;
+                this._grabState.historyAction = null;
             }
 
             // Active preview and commit handling
@@ -859,6 +1024,14 @@ export class CollisionScene extends Scene {
                                 }
                             } catch (e) {}
                             try { if (this.mouse && this.mouse.releaseGrab) this.mouse.releaseGrab(); } catch (e) {}
+                            // finalize history action (set after snapshot)
+                            try {
+                                const act = this._grabState.historyAction;
+                                if (act) {
+                                    try { act.after = this.editor.polygons[si].map(v => v.clone()); } catch (e) { act.after = null; }
+                                    try { act.afterBase = (this.editor.polyObjects && this.editor.polyObjects[si] && typeof this.editor.polyObjects[si].baseRadius === 'number') ? this.editor.polyObjects[si].baseRadius : (this._grabState.originalBaseRadius || this.editor.baseRadius); } catch (e) { act.afterBase = (this._grabState.originalBaseRadius || this.editor.baseRadius); }
+                                }
+                            } catch (e) {}
                             this._grabState.active = false;
                             this._grabState.idx = -1;
                             // clear vertex selection after committing a vertex transform
@@ -868,6 +1041,7 @@ export class CollisionScene extends Scene {
                             this._grabState.origin = null;
                             this._grabState.initialAngle = 0;
                             this._grabState.initialDist = 0;
+                            this._grabState.historyAction = null;
                         }
                     }
                 } catch (e) {}
@@ -1275,6 +1449,22 @@ export class CollisionScene extends Scene {
                     const color = isSelected ? '#4466FF66' : '#66FFAA55';
                     if (obj) obj.drawBuffer(this.Draw, color);
                     if (obj) obj.drawDebug(this.Draw);
+                    // Draw a thin dark-blue outline for the selected polygon so it stands out
+                    if (isSelected) {
+                        try {
+                            const verts = (obj && obj.vertices && Array.isArray(obj.vertices)) ? obj.vertices : (this.editor.polygons && this.editor.polygons[i] ? this.editor.polygons[i] : []);
+                            if (verts && verts.length >= 2) {
+                                const strokeCol = '#003366';
+                                // keep outline visually thin in screen pixels regardless of zoom
+                                const strokeW = 2 / (this.zoom.x || 1);
+                                for (let vi = 1; vi < verts.length; vi++) {
+                                    try { this.Draw.line(verts[vi-1], verts[vi], strokeCol, strokeW); } catch (e) {}
+                                }
+                                // close loop
+                                try { this.Draw.line(verts[verts.length-1], verts[0], strokeCol, strokeW); } catch (e) {}
+                            }
+                        } catch (e) {}
+                    }
                 } catch (e) {}
             }
         }
@@ -1328,11 +1518,13 @@ export class CollisionScene extends Scene {
         try {
             const sel = (this.editor && typeof this.editor.selected === 'number') ? this.editor.selected : -1;
             if (sel >= 0 && Array.isArray(this.editor.polygons) && this.editor.polygons[sel]) {
-                const poly = this.editor.polygons[sel];
+                // When a transform preview is active, prefer the polyObject vertices so handles follow preview.
+                const usePreview = (this._grabState && this._grabState.active && typeof this._grabState.idx === 'number' && this._grabState.idx === sel && this.editor.polyObjects && this.editor.polyObjects[sel]);
+                const polySource = usePreview ? (this.editor.polyObjects[sel] && this.editor.polyObjects[sel].vertices ? this.editor.polyObjects[sel].vertices : this.editor.polygons[sel]) : this.editor.polygons[sel];
                 const handlePx = 8; // screen-pixel size
                 const handleWorldR = handlePx / (this.zoom.x || 1);
-                for (let vi = 0; vi < poly.length; vi++) {
-                    const v = poly[vi];
+                for (let vi = 0; vi < polySource.length; vi++) {
+                    const v = polySource[vi];
                     const isSelected = (this.editor && typeof this.editor.selectedVertex === 'number' && this.editor.selectedVertex === vi);
                     const col = isSelected ? '#FFAA66' : '#FFFF66';
                     this.Draw.circle(v, handleWorldR, col, true);
