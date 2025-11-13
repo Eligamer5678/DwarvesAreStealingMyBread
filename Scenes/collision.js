@@ -1,5 +1,6 @@
 import Scene from './Scene.js';
 import Vector from '../js/Vector.js';
+import Geometry from '../js/Geometry.js';
 import createHButton from '../js/htmlElements/createHButton.js';
 import createHDiv from '../js/htmlElements/createHDiv.js';
 import createHLabel from '../js/htmlElements/createHLabel.js';
@@ -30,7 +31,11 @@ export class CollisionScene extends Scene {
             current: [],         // Array<Vector> current in-progress points
             baseRadius: 22,
             coeffs: { kv: 0.20, ka: 0.06, min: 3 },
+                selected: -1,
+                selectedVertex: -1,
         };
+        // Grab/transform state for keyboard-driven polygon ops (g=move, r=rotate, s=scale)
+        this._grabState = { active: false, idx: -1, originalVerts: null, mode: null, origin: null, initialAngle: 0, initialDist: 0 };
         // Level data for export (JSON)
         this.levelData = {
             spawn: null,   // { pos: {x,y}, size: {x,y} }
@@ -561,6 +566,67 @@ export class CollisionScene extends Scene {
         // Editor input: add points and finalize polygons
         if (this.mouse && this.mouse.pressed('left')) {
             const wp = this.getWorldPos(this.mouse.pos);
+            // Allow Shift+Click to select a polygon. If a polygon was selected
+            // by this click, skip placement behavior for this click.
+            let skipPlacement = false;
+            try {
+                const shiftHeld = this.keys && (this.keys.held && this.keys.held('Shift'));
+                if (shiftHeld && this.editor && Array.isArray(this.editor.polygons) && this.editor.polygons.length) {
+                    // Prefer selecting the most-recent polygon under the point
+                    let handled = false;
+                    for (let i = this.editor.polygons.length - 1; i >= 0; i--) {
+                        const poly = this.editor.polygons[i];
+                        if (!poly || !Array.isArray(poly) || poly.length < 2) continue;
+                        try {
+                            const polyObj = (this.editor.polyObjects && this.editor.polyObjects[i]) ? this.editor.polyObjects[i] : null;
+                            let hitDetected = false;
+                            if (polyObj && Array.isArray(polyObj.edges) && polyObj.edges.length) {
+                                // Test against buffered edges (capsules) using collideCircle with radius=0
+                                for (const edge of polyObj.edges) {
+                                    try {
+                                        const h = edge.collideCircle(wp, 0);
+                                        if (h && h.collides) { hitDetected = true; break; }
+                                    } catch (ee) {}
+                                }
+                            } else {
+                                // Fallback: point-in-polygon if buffered poly not available
+                                try {
+                                    const polyAdapter = { getTransform: () => poly };
+                                    if (Geometry.pointInPoly(wp, polyAdapter)) hitDetected = true;
+                                } catch (ee) {}
+                            }
+                            if (hitDetected) {
+                                // toggle selection
+                                this.editor.selected = (this.editor.selected === i) ? -1 : i;
+                                handled = true;
+                                break;
+                            }
+                        } catch (e) {}
+                    }
+                    if (handled) skipPlacement = true;
+                }
+            } catch (e) {}
+            // If a polygon is currently selected, allow clicking its vertices to select a vertex
+            try {
+                const sel = (this.editor && typeof this.editor.selected === 'number') ? this.editor.selected : -1;
+                if (sel >= 0 && Array.isArray(this.editor.polygons) && this.editor.polygons[sel] && !skipPlacement) {
+                    const poly = this.editor.polygons[sel];
+                    // handle radius in world-space so hits are consistent across zoom
+                    const handlePx = 10; // screen pixels
+                    const handleWorldR = handlePx / (this.zoom.x || 1);
+                    for (let vi = 0; vi < poly.length; vi++) {
+                        try {
+                            const v = poly[vi];
+                            const d = v.sub(wp).mag();
+                            if (d <= handleWorldR) {
+                                this.editor.selectedVertex = vi;
+                                skipPlacement = true;
+                                break;
+                            }
+                        } catch (ee) {}
+                    }
+                }
+            } catch (e) {}
             if (this._placeMode === 'spawn') {
                 const topLeft = wp.sub(this.spawnSize.mult(0.5));
                 this.levelData.spawn = { pos: { x: topLeft.x, y: topLeft.y }, size: { x: this.spawnSize.x, y: this.spawnSize.y } };
@@ -601,29 +667,32 @@ export class CollisionScene extends Scene {
 
                 this._placeMode = null;
             } else {
-                // Polygon placement; support Shift to snap to 8 directions from last point
-                let newPt = wp;
-                try {
-                    const shiftHeld = this.keys && (this.keys.held && this.keys.held('Shift'));
-                    const cur = this.editor && this.editor.current ? this.editor.current : [];
-                    if (shiftHeld && cur.length > 0) {
-                        const last = cur[cur.length - 1];
-                        const delta = wp.sub(last);
-                        const len = delta.mag();
-                        if (len > 1e-6) {
-                            const step = Math.PI / 4; // 8 directions
-                            const ang = Math.atan2(delta.y, delta.x);
-                            const snapped = Math.round(ang / step) * step;
-                            const dir = new Vector(Math.cos(snapped), Math.sin(snapped));
-                            // project onto snapped direction so distance follows mouse along that axis
-                            const projLen = delta.x * dir.x + delta.y * dir.y;
-                            newPt = last.add(dir.mult(projLen));
-                        } else {
-                            newPt = last.clone();
+                // Polygon placement; support Shift to snap to 8 directions from last point.
+                // If shift-click selection handled this click, skip placement.
+                if (!skipPlacement) {
+                    let newPt = wp;
+                    try {
+                        const shiftHeld = this.keys && (this.keys.held && this.keys.held('Shift'));
+                        const cur = this.editor && this.editor.current ? this.editor.current : [];
+                        if (shiftHeld && cur.length > 0) {
+                            const last = cur[cur.length - 1];
+                            const delta = wp.sub(last);
+                            const len = delta.mag();
+                            if (len > 1e-6) {
+                                const step = Math.PI / 4; // 8 directions
+                                const ang = Math.atan2(delta.y, delta.x);
+                                const snapped = Math.round(ang / step) * step;
+                                const dir = new Vector(Math.cos(snapped), Math.sin(snapped));
+                                // project onto snapped direction so distance follows mouse along that axis
+                                const projLen = delta.x * dir.x + delta.y * dir.y;
+                                newPt = last.add(dir.mult(projLen));
+                            } else {
+                                newPt = last.clone();
+                            }
                         }
-                    }
-                } catch (e) { /* ignore snapping errors; fall back to raw point */ }
-                this.editor.current.push(newPt);
+                    } catch (e) { /* ignore snapping errors; fall back to raw point */ }
+                    this.editor.current.push(newPt);
+                }
             }
         }
         if (this.keys && this.keys.pressed(' ')) {
@@ -638,6 +707,170 @@ export class CollisionScene extends Scene {
             if (this.keys.pressed('9')) {
                 this.gravityEnabled = !this.gravityEnabled;
                 console.log('gravity:', this.gravityEnabled);
+            }
+        } catch (e) {}
+
+        // Keyboard-driven transforms: when a polygon is selected, press 'g' to move, 'r' to rotate, 's' to scale.
+        // While active the polygon is previewed; right-click cancels (revert), left-click commits.
+        try {
+            // Start operation: move (g), rotate (r), scale (s)
+            const startMove = this.keys && this.keys.pressed && this.keys.pressed('g');
+            const startRotate = this.keys && this.keys.pressed && this.keys.pressed('r');
+            const startScale = this.keys && this.keys.pressed && this.keys.pressed('s');
+            if ((startMove || startRotate || startScale) && this.editor && typeof this.editor.selected === 'number' && this.editor.selected >= 0 && !this._grabState.active) {
+                const sel = this.editor.selected;
+                const orig = (this.editor.polygons && this.editor.polygons[sel]) ? this.editor.polygons[sel].map(v => v.clone()) : null;
+                const vertexIdx = (this.editor && typeof this.editor.selectedVertex === 'number' && this.editor.selectedVertex >= 0) ? this.editor.selectedVertex : -1;
+                if (orig && orig.length) {
+                    // compute bounding-box origin (center of bounds)
+                    let minX = orig[0].x, minY = orig[0].y, maxX = orig[0].x, maxY = orig[0].y;
+                    for (const p of orig) { if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y; if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y; }
+                    const origin = new Vector((minX + maxX) * 0.5, (minY + maxY) * 0.5);
+                    // mouse world pos
+                    const mWorld = (this.mouse && this.getWorldPos) ? this.getWorldPos(this.mouse.pos) : new Vector(0,0);
+                    this._grabState.active = true;
+                    this._grabState.idx = sel;
+                    this._grabState.vertexIndex = vertexIdx;
+                    this._grabState.originalVerts = orig;
+                    this._grabState.previewReplaced = false;
+                    // store the original BufferedPolygon and its base radius so we can revert or scale buffer
+                    const polyObj = (this.editor.polyObjects && this.editor.polyObjects[sel]) ? this.editor.polyObjects[sel] : null;
+                    this._grabState.originalPolyObject = polyObj;
+                    this._grabState.originalBaseRadius = (polyObj && typeof polyObj.baseRadius === 'number') ? polyObj.baseRadius : (this.editor.baseRadius || 12);
+                    this._grabState.origin = origin;
+                    if (startRotate) {
+                        this._grabState.mode = 'rotate';
+                        this._grabState.initialAngle = Math.atan2(mWorld.y - origin.y, mWorld.x - origin.x);
+                    } else if (startScale) {
+                        this._grabState.mode = 'scale';
+                        this._grabState.initialDist = Math.max(1e-3, mWorld.sub(origin).mag());
+                    } else {
+                        this._grabState.mode = 'move';
+                    }
+                    try { if (this.mouse && this.mouse.grab) this.mouse.grab(this.mouse.pos); } catch (e) {}
+                }
+            }
+
+            // Cancel on right-release: revert preview to original verts
+            if (this._grabState.active && this.mouse && this.mouse.released && this.mouse.released('right')) {
+                try {
+                    const si = this._grabState.idx;
+                    const origVerts = this._grabState.originalVerts;
+                    const origPoly = this._grabState.originalPolyObject;
+                    const origBase = (typeof this._grabState.originalBaseRadius === 'number') ? this._grabState.originalBaseRadius : (this.editor.baseRadius || 12);
+                    if (si >= 0) {
+                        // If we replaced the polyObject during preview (e.g., alt-scale), restore the original object
+                        if (this._grabState.previewReplaced && origPoly) {
+                            this.editor.polyObjects[si] = origPoly;
+                        } else if (this.editor.polyObjects && this.editor.polyObjects[si]) {
+                            try { this.editor.polyObjects[si].setVertices(origVerts); } catch (e) {}
+                        } else {
+                            try { this.editor.polyObjects[si] = new BufferedPolygon(origVerts, origBase, this.editor.coeffs); } catch (e) {}
+                        }
+                    }
+                } catch (e) {}
+                try { if (this.mouse && this.mouse.releaseGrab) this.mouse.releaseGrab(); } catch (e) {}
+                this._grabState.active = false;
+                this._grabState.idx = -1;
+                this._grabState.originalVerts = null;
+                this._grabState.mode = null;
+                this._grabState.origin = null;
+                this._grabState.initialAngle = 0;
+                this._grabState.initialDist = 0;
+            }
+
+            // Active preview and commit handling
+            if (this._grabState.active) {
+                try {
+                    const si = this._grabState.idx;
+                    const orig = this._grabState.originalVerts;
+                    const mode = this._grabState.mode;
+                    const origin = this._grabState.origin || new Vector(0,0);
+                    if (si >= 0 && orig && this.editor.polyObjects && this.editor.polyObjects[si]) {
+                        const mWorld = (this.mouse && this.getWorldPos) ? this.getWorldPos(this.mouse.pos) : new Vector(0,0);
+                        let temp = orig;
+                        if (mode === 'move') {
+                            const deltaScreen = (this.mouse && this.mouse.getGrabDelta) ? this.mouse.getGrabDelta() : new Vector(0,0);
+                            const deltaWorld = new Vector(deltaScreen.x / (this.zoom.x || 1), deltaScreen.y / (this.zoom.y || 1));
+                            if (typeof this._grabState.vertexIndex === 'number' && this._grabState.vertexIndex >= 0) {
+                                const vi = this._grabState.vertexIndex;
+                                temp = orig.map((v, idx) => idx === vi ? v.add(deltaWorld) : v.clone());
+                            } else {
+                                temp = orig.map(v => v.add(deltaWorld));
+                            }
+                            try { if (this.editor.polyObjects[si]) this.editor.polyObjects[si].setVertices(temp); } catch (e) {}
+                        } else if (mode === 'rotate') {
+                            const angleNow = Math.atan2(mWorld.y - origin.y, mWorld.x - origin.x);
+                            const deltaAngle = angleNow - (this._grabState.initialAngle || 0);
+                            if (typeof this._grabState.vertexIndex === 'number' && this._grabState.vertexIndex >= 0) {
+                                const vi = this._grabState.vertexIndex;
+                                temp = orig.map((v, idx) => idx === vi ? origin.add(v.sub(origin).rotate(deltaAngle)) : v.clone());
+                            } else {
+                                temp = orig.map(v => origin.add(v.sub(origin).rotate(deltaAngle)));
+                            }
+                            try { if (this.editor.polyObjects[si]) this.editor.polyObjects[si].setVertices(temp); } catch (e) {}
+                        } else if (mode === 'scale') {
+                            const curDist = Math.max(1e-3, mWorld.sub(origin).mag());
+                            const scale = curDist / (this._grabState.initialDist || 1);
+                            const minScale = 0.05; // avoid collapsing
+                            const s = Math.max(minScale, scale);
+                            temp = orig.map(v => origin.add(v.sub(origin).mult(s)));
+                            // If Alt is held, also scale the polygon buffer radius for preview
+                            const altHeld = this.keys && this.keys.held && this.keys.held('Alt');
+                            if (altHeld) {
+                                try {
+                                    const origBase = (typeof this._grabState.originalBaseRadius === 'number') ? this._grabState.originalBaseRadius : (this.editor.baseRadius || 12);
+                                    const newBase = Math.max(1, origBase * s);
+                                    // Create a temporary BufferedPolygon for preview with scaled base
+                                    try {
+                                        const previewObj = new BufferedPolygon(temp, newBase, this.editor.coeffs);
+                                        // replace for preview and remember we did so
+                                        this.editor.polyObjects[si] = previewObj;
+                                        this._grabState.previewReplaced = true;
+                                    } catch (e) {
+                                        // fallback to setVertices if creation fails
+                                        try { if (this.editor.polyObjects[si]) this.editor.polyObjects[si].setVertices(temp); } catch (ee) {}
+                                    }
+                                } catch (e) {}
+                            } else {
+                                try { if (this.editor.polyObjects[si]) this.editor.polyObjects[si].setVertices(temp); } catch (e) {}
+                            }
+                        }
+                        else {
+                            try { if (this.editor.polyObjects[si]) this.editor.polyObjects[si].setVertices(temp); } catch (e) {}
+                        }
+
+                        // commit when left button released
+                        if (this.mouse && this.mouse.released && this.mouse.released('left')) {
+                            try {
+                                this.editor.polygons[si] = temp.map(v => v.clone());
+                                // If Alt was held during scale, preserve the scaled base radius; otherwise rebuild with editor.baseRadius
+                                const altHeldCommit = (this._grabState.mode === 'scale') && (this.keys && this.keys.held && this.keys.held('Alt'));
+                                if (altHeldCommit) {
+                                    try {
+                                        const origBase = (typeof this._grabState.originalBaseRadius === 'number') ? this._grabState.originalBaseRadius : (this.editor.baseRadius || 12);
+                                        const curDist = Math.max(1e-3, mWorld.sub(origin).mag());
+                                        const scale = curDist / (this._grabState.initialDist || 1);
+                                        const newBase = Math.max(1, origBase * scale);
+                                        try { this.editor.polyObjects[si] = new BufferedPolygon(this.editor.polygons[si], newBase, this.editor.coeffs); } catch (ee) { try { this.editor.polyObjects[si] = new BufferedPolygon(this.editor.polygons[si], this.editor.baseRadius, this.editor.coeffs); } catch(e){} }
+                                    } catch (e) { try { this.editor.polyObjects[si] = new BufferedPolygon(this.editor.polygons[si], this.editor.baseRadius, this.editor.coeffs); } catch(e){} }
+                                } else {
+                                    try { this.editor.polyObjects[si] = new BufferedPolygon(this.editor.polygons[si], this._grabState.originalBaseRadius || this.editor.baseRadius, this.editor.coeffs); } catch (ee) { try { this.editor.polyObjects[si] = new BufferedPolygon(this.editor.polygons[si], this.editor.baseRadius, this.editor.coeffs); } catch(e){} }
+                                }
+                            } catch (e) {}
+                            try { if (this.mouse && this.mouse.releaseGrab) this.mouse.releaseGrab(); } catch (e) {}
+                            this._grabState.active = false;
+                            this._grabState.idx = -1;
+                            // clear vertex selection after committing a vertex transform
+                            try { if (this.editor) this.editor.selectedVertex = -1; } catch (e) {}
+                            this._grabState.originalVerts = null;
+                            this._grabState.mode = null;
+                            this._grabState.origin = null;
+                            this._grabState.initialAngle = 0;
+                            this._grabState.initialDist = 0;
+                        }
+                    }
+                } catch (e) {}
             }
         } catch (e) {}
 
@@ -1035,7 +1268,15 @@ export class CollisionScene extends Scene {
 
         // draw buffered segment inside world transform so it respects pan/zoom
         if (this.editor && this.editor.polyObjects) {
-            for (const obj of this.editor.polyObjects) { obj.drawBuffer(this.Draw, '#66FFAA55'); obj.drawDebug(this.Draw); }
+            for (let i = 0; i < this.editor.polyObjects.length; i++) {
+                const obj = this.editor.polyObjects[i];
+                try {
+                    const isSelected = (this.editor && this.editor.selected === i);
+                    const color = isSelected ? '#4466FF66' : '#66FFAA55';
+                    if (obj) obj.drawBuffer(this.Draw, color);
+                    if (obj) obj.drawDebug(this.Draw);
+                } catch (e) {}
+            }
         }
         if (this.segment) { this.segment.drawBuffer(this.Draw, '#44AAFF66'); this.segment.drawDebug(this.Draw); }
 
@@ -1082,6 +1323,24 @@ export class CollisionScene extends Scene {
             // delegate ground-check visualization to Cat (position/size/drawing belong there)
             try { if (typeof this.cat.drawGroundCheck === 'function') this.cat.drawGroundCheck(new Vector(0,0)); } catch (e) {}
         }
+
+        // Draw vertex handles when a polygon is selected
+        try {
+            const sel = (this.editor && typeof this.editor.selected === 'number') ? this.editor.selected : -1;
+            if (sel >= 0 && Array.isArray(this.editor.polygons) && this.editor.polygons[sel]) {
+                const poly = this.editor.polygons[sel];
+                const handlePx = 8; // screen-pixel size
+                const handleWorldR = handlePx / (this.zoom.x || 1);
+                for (let vi = 0; vi < poly.length; vi++) {
+                    const v = poly[vi];
+                    const isSelected = (this.editor && typeof this.editor.selectedVertex === 'number' && this.editor.selectedVertex === vi);
+                    const col = isSelected ? '#FFAA66' : '#FFFF66';
+                    this.Draw.circle(v, handleWorldR, col, true);
+                    // outline
+                    this.Draw.circle(v, handleWorldR + (2 / (this.zoom.x || 1)), '#00000088', false);
+                }
+            }
+        } catch (e) {}
         // Draw spawn/goal boxes (world)
         if (this.levelData.spawn) {
             const p = new Vector(this.levelData.spawn.pos.x, this.levelData.spawn.pos.y);
