@@ -53,12 +53,12 @@ export default class Cat {
         this.animTimer.start();
 
         // basic movement params
-        this.speed = 100;      // acceleration magnitude (px/s^2)
+        this.speed = 150;      // acceleration magnitude (px/s^2)
         // friction is used as an exponential base: v.x *= friction ** delta
         // smaller values produce stronger damping; default tuned for snappy control
-        this.friction = 0.0002; // exponential friction base (tuned stronger)
+        this.friction = 0.0005; // exponential friction base (tuned stronger)
         // additional ground friction multiplier applied when grounded (0..1)
-        this.groundFriction = 0.85;
+        this.groundFriction = 0.98;
     }
 
     update(delta){
