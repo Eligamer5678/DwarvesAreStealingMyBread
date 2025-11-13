@@ -97,4 +97,65 @@ export default class BufferedSegment {
         }
         return { collides: false, penetration: 0, normal: new Vector(0,0), closestPoint: new Vector(0,0), t };
     }
+
+    /**
+     * Test collision against another BufferedSegment (capsule vs capsule).
+     * Returns penetration and normal (pointing from other->this).
+     * @param {BufferedSegment} other
+     */
+    collideSegment(other){
+        try {
+            const p1 = this.a; const q1 = this.b;
+            const p2 = other.a; const q2 = other.b;
+            // compute closest points between segments p1q1 and p2q2
+            const d1 = q1.sub(p1); // direction vector of segment S1
+            const d2 = q2.sub(p2); // direction vector of segment S2
+            const r = p1.sub(p2);
+            const a = d1.dot(d1); // squared length of d1
+            const e = d2.dot(d2); // squared length of d2
+            const f = d2.dot(r);
+
+            let s, t;
+            const EPS = 1e-9;
+
+            if (a <= EPS && e <= EPS) {
+                // both segments degenerate to points
+                s = t = 0.0;
+            } else if (a <= EPS) {
+                // first segment degenerate (point)
+                s = 0.0;
+                t = Math.max(0, Math.min(1, f / e));
+            } else {
+                const c = d1.dot(r);
+                if (e <= EPS) {
+                    // second segment degenerate
+                    t = 0.0;
+                    s = Math.max(0, Math.min(1, -c / a));
+                } else {
+                    const b = d1.dot(d2);
+                    const denom = a*e - b*b;
+                    if (denom !== 0) s = Math.max(0, Math.min(1, (b*f - c*e) / denom)); else s = 0;
+                    t = (b*s + f) / e;
+                    if (t < 0) { t = 0; s = Math.max(0, Math.min(1, -c / a)); }
+                    else if (t > 1) { t = 1; s = Math.max(0, Math.min(1, (b - c) / a)); }
+                }
+            }
+
+            const closest1 = p1.add(d1.mult(s));
+            const closest2 = p2.add(d2.mult(t));
+            const delta = closest1.sub(closest2);
+            const dist = delta.mag();
+            const totalR = this.currentRadius + other.currentRadius;
+            if (dist <= totalR) {
+                let n;
+                if (dist > 1e-6) n = delta.div(dist); else {
+                    // choose a perpendicular to d1 as fallback
+                    const d = d1.normalize(); const perp = new Vector(-d.y, d.x);
+                    const sign = Math.sign(perp.dot(r)) || 1; n = perp.mult(sign);
+                }
+                return { collides: true, penetration: totalR - dist, normal: n, closestA: closest1, closestB: closest2, s, t };
+            }
+            return { collides: false };
+        } catch (e) { return { collides: false }; }
+    }
 }

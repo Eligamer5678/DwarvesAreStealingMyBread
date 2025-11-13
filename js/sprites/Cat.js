@@ -18,16 +18,26 @@ export default class Cat {
         this.Draw = Draw;
         this.destroy = new Signal();
         this.color = new Color(1,1,1,1);
-    // physics
-    this.mass = 1; // light creature
-    this.restitution = 1.0; // elastic collisions (conserve energy)
+        // physics
+        this.mass = 1; // light creature
+        this.restitution = 0.35; // less bouncy collisions
+        // jumping state (set by scene ground checks)
+        this.jumpAllowed = false;
+        // ground-check configuration: explicit offset and size vectors
+        // `groundCheckOffset` is the offset (in world pixels) from `this.pos` (top-left)
+        // to the ground-check rect's top-left. `groundCheckSize` is the rect size.
+        // Defaults are set using the sprite size for convenience but can be overridden.
+        this.groundCheckOffset = new Vector(103, this.size.y/2+30);
+        this.groundCheckSize = new Vector(48, 6);
+        this.groundProbeRadius = 3; // probe radius in px (can be tuned)
         // Render-only adjustments (do not affect physics/collision center)
         this.renderScale = 1/2;                 // ~0.6667 shrink (divide by ~1.5)
         this.renderOffset = new Vector(0, -38); // raise sprite a bit so hitbox aligns visually
 
         // input (default for now so we can move freely in CollisionScene)
         this.keys = keys;
-        this.input = new Input(keys, 'default');
+        this.input = new Input(keys, 'platformer');
+        this.input.onJump.connect(()=>{ if (this.jumpAllowed) this.vlos.y = -10; })
         this.facing = 1; // 1 = right, -1 = left
 
         // animation state (copied from TestSprite)
@@ -44,7 +54,11 @@ export default class Cat {
 
         // basic movement params
         this.speed = 100;      // acceleration magnitude (px/s^2)
-        this.friction = 0.001; // exponential friction base
+        // friction is used as an exponential base: v.x *= friction ** delta
+        // smaller values produce stronger damping; default tuned for snappy control
+        this.friction = 0.0002; // exponential friction base (tuned stronger)
+        // additional ground friction multiplier applied when grounded (0..1)
+        this.groundFriction = 0.85;
     }
 
     update(delta){
@@ -60,9 +74,11 @@ export default class Cat {
         } else {
             this.idleTime += 1; // simple frame-based idle timer (matches TestSprite style)
         }
-        // simple friction
+        // simple friction (exponential). Also apply extra ground friction when on ground.
         this.vlos.x *= this.friction ** delta;
-        this.vlos.y *= this.friction ** delta;
+        try {
+            if (this.jumpAllowed) this.vlos.x *= this.groundFriction;
+        } catch (e) {}
 
         // advance animation timer and wrap frames
         this.animTimer.update(delta);
@@ -101,5 +117,50 @@ export default class Cat {
             const drawPos = this.pos.add(levelOffset).add(centerOffset).add(this.renderOffset);
             this.Draw.sheet(this.sheet, drawPos, drawSize, this.anim, this.animFrame, invert, 1, false);
         }
+    }
+
+    /**
+     * Return probe points (world coordinates) and radius for ground testing.
+     * @returns {{points:Vector[], radius:number}}
+     */
+    getGroundProbePoints(){
+        const rect = this.getGroundCheckRect();
+        // choose small horizontal margins for left/right probes (use 10% of rect width or 4px)
+        const margin = Math.max(4, Math.floor(rect.size.x * 0.1));
+        const y = rect.pos.y + (rect.size.y * 0.5);
+        const pts = [
+            new Vector(rect.pos.x + margin, y),
+            new Vector(rect.pos.x + rect.size.x * 0.5, y),
+            new Vector(rect.pos.x + rect.size.x - margin, y)
+        ];
+        return { points: pts, radius: this.groundProbeRadius };
+    }
+
+    /**
+     * Return the small rect used for ground-check visualization (world coords).
+     * @returns {{pos:Vector, size:Vector}}
+     */
+    getGroundCheckRect(){
+        const topLeft = this.pos.clone();
+        const rectPos = topLeft.add(this.groundCheckOffset);
+        const rectSize = this.groundCheckSize.clone();
+        return { pos: rectPos, size: rectSize };
+    }
+
+    /**
+     * Draw the ground-check rect using this.Draw. Pass an optional levelOffset
+     * (same offset passed to draw()).
+     */
+    drawGroundCheck(levelOffset){
+        try {
+            if (!this.Draw) return;
+            const off = levelOffset || new Vector(0,0);
+            const r = this.getGroundCheckRect();
+            const rectPos = r.pos.add(off);
+            const rectSize = r.size;
+            const fill = this.jumpAllowed ? '#00FF0044' : '#FF000044';
+            const outline = this.jumpAllowed ? '#00FF00FF' : '#FF0000FF';
+            this.Draw.rect(rectPos, rectSize, fill, true, true, 1, outline);
+        } catch (e) {}
     }
 }

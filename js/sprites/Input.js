@@ -60,11 +60,14 @@ export default class Input {
         this.onFall = new Signal();
         this.jumpKeys = this.options.jumpKeys || ['w', 'W', 'ArrowUp', ' '];
         this.fallKeys = this.options.fallKeys || ['s','S','ArrowDown']
+        this.jumpCooldown = 0;
+        this.jumpCooldownMax = 5;
     }
 
     // Read the Keys instance and compute direction. Call this each frame (or when input changes).
     update() {
         let x = 0, y = 0;
+        this.jumpCooldown-=1
 
         if (this.external) {
             x = this.external.x || 0;
@@ -97,8 +100,9 @@ export default class Input {
 
         // Platformer: detect jump press events (use Keys.pressed)
         for (const k of this.jumpKeys) {
-            if (this.keys.pressed(k)) {
+            if (this.keys.held(k) && this.jumpCooldown < 0) {
                 this.onJump.emit(k)
+                this.jumpCooldown = this.jumpCooldownMax
             }
         }
         

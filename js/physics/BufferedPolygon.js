@@ -2,8 +2,10 @@ import Vector from '../Vector.js';
 import BufferedSegment from './BufferedSegment.js';
 
 /**
- * BufferedPolygon: edge-only collision using a sequence of BufferedSegments (open polyline).
- * Edges are not connected from last->first; no interior tests — collision is the union of edge capsules.
+ * BufferedPolygon: edge-only collision using a sequence of BufferedSegments.
+ * By default this is an open polyline (edges between consecutive vertices only).
+ * If `closed` is true the polygon will connect the last vertex back to the first
+ * so edge-capsules form a closed loop (useful for boxes/entities).
  */
 export default class BufferedPolygon {
     /**
@@ -11,10 +13,11 @@ export default class BufferedPolygon {
      * @param {number} baseRadius - max buffer radius for each edge
      * @param {{kv?:number, ka?:number, min?:number, minRadius?:number}} [coeffs]
      */
-    constructor(vertices = [], baseRadius = 12, coeffs = {}){
+    constructor(vertices = [], baseRadius = 12, coeffs = {}, closed = false){
         this.vertices = (vertices || []).map(v => v.clone());
         this.baseRadius = baseRadius;
         this.coeffs = coeffs || {};
+        this.closed = !!closed;
         this.edges = [];
         this._buildEdges();
     }
@@ -28,10 +31,11 @@ export default class BufferedPolygon {
         this.edges = [];
         const n = this.vertices.length;
         if (n < 2) return;
-        // Create edges only between consecutive vertices (open polyline). Do NOT connect last->first.
-        for (let i = 0; i < n-1; i++) {
+        // Create edges between consecutive vertices. If closed, also connect last->first.
+        const lastIndex = this.closed ? n : n - 1;
+        for (let i = 0; i < lastIndex; i++) {
             const a = this.vertices[i];
-            const b = this.vertices[i+1];
+            const b = this.vertices[(i+1) % n];
             this.edges.push(new BufferedSegment(a, b, this.baseRadius, this.coeffs));
         }
     }
@@ -49,6 +53,27 @@ export default class BufferedPolygon {
         try {
             for (const e of this.edges) e.drawDebug(Draw);
         } catch (e) {}
+    }
+
+    /**
+     * Collide this polygon (edge-capsules) against another polygon.
+     * Returns the deepest edge-edge penetration found.
+     */
+    collidePolygon(other){
+        try {
+            if (!other || !other.edges || !this.edges) return { collides: false };
+            let best = null; let bestPen = 0; let bestA = -1; let bestB = -1;
+            for (let i=0;i<this.edges.length;i++){
+                for (let j=0;j<other.edges.length;j++){
+                    const hit = this.edges[i].collideSegment(other.edges[j]);
+                    if (hit && hit.collides && hit.penetration > bestPen) {
+                        best = hit; bestPen = hit.penetration; bestA = i; bestB = j;
+                    }
+                }
+            }
+            if (best) return { ...best, edgeA: bestA, edgeB: bestB };
+            return { collides: false };
+        } catch (e) { return { collides: false }; }
     }
 
     /**
