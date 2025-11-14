@@ -1718,8 +1718,9 @@ export class CollisionScene extends Scene {
 
     draw() {
         if (!this.isReady) return;
-        // Background
-        this.Draw.background('#202020');
+        // Background (use black when camera is locked to reduce debug clutter)
+        const hideDebug = (this.camera && this.camera.locked);
+        this.Draw.background(hideDebug ? '#000000' : '#202020');
         this.Draw.useCtx('base');
 
         // World transform container (so zoom/pan affects content)
@@ -1736,8 +1737,10 @@ export class CollisionScene extends Scene {
                 try {
                     const isSelected = (this.editor && this.editor.selected === i);
                     const color = isSelected ? '#4466FFCC' : '#66FFAA55';
-                    if (obj) obj.drawBuffer(this.Draw, color);
-                    if (obj) obj.drawDebug(this.Draw);
+                    if (!hideDebug) {
+                        if (obj) obj.drawBuffer(this.Draw, color);
+                        if (obj) obj.drawDebug(this.Draw);
+                    }
                     // Draw a thin dark-blue outline for the selected polygon so it stands out
                     if (isSelected) {
                         try {
@@ -1757,7 +1760,7 @@ export class CollisionScene extends Scene {
                 } catch (e) {}
             }
         }
-        if (this.segment) { this.segment.drawBuffer(this.Draw, '#44AAFF66'); this.segment.drawDebug(this.Draw); }
+        if (this.segment && !hideDebug) { this.segment.drawBuffer(this.Draw, '#44AAFF66'); this.segment.drawDebug(this.Draw); }
 
         // Draw current editing poly (thin lines and points)
         const cur = this.editor.current || [];
@@ -1796,11 +1799,11 @@ export class CollisionScene extends Scene {
             try {
                 const center = this.cat.pos.add(this.cat.size.mult(0.5));
                 const radius = this.catRadius || Math.min(this.cat.size.x, this.cat.size.y) * 0.2;
-                this.Draw.circle(center, radius, '#00FF00AA', false, 2);
+                if (!hideDebug) this.Draw.circle(center, radius, '#00FF00AA', false, 2);
             } catch (e) {}
             try { this.cat.draw(new Vector(0,0)); } catch (e) { console.warn('CollisionScene: error drawing cat', e); }
             // delegate ground-check visualization to Cat (position/size/drawing belong there)
-            try { if (typeof this.cat.drawGroundCheck === 'function') this.cat.drawGroundCheck(new Vector(0,0)); } catch (e) {}
+            try { if (!hideDebug && typeof this.cat.drawGroundCheck === 'function') this.cat.drawGroundCheck(new Vector(0,0)); } catch (e) {}
         }
 
         // Draw vertex handles when a polygon is selected
@@ -1823,13 +1826,13 @@ export class CollisionScene extends Scene {
             }
         } catch (e) {}
         // Draw spawn/goal boxes (world)
-        if (this.levelData.spawn) {
+        if (this.levelData.spawn && !hideDebug) {
             const p = new Vector(this.levelData.spawn.pos.x, this.levelData.spawn.pos.y);
             const sz = new Vector(this.levelData.spawn.size.x, this.levelData.spawn.size.y);
             // single call: fill + outline
             this.Draw.rect(p, sz, '#FFFF0088', true, true, 2, '#FFFF00FF');
         }
-        if (this.levelData.goal) {
+        if (this.levelData.goal && !hideDebug) {
             const p = new Vector(this.levelData.goal.pos.x, this.levelData.goal.pos.y);
             const sz = new Vector(this.levelData.goal.size.x, this.levelData.goal.size.y);
             // single call: fill + outline
@@ -1858,13 +1861,13 @@ export class CollisionScene extends Scene {
             }
         }
 
-        // Draw entity collision buffers (polygons) for debug/visualization
-        if (Array.isArray(this.entitiesRuntime) && this.entitiesRuntime.length) {
+        // Draw entity collision buffers (polygons) for debug/visualization (skip when hiding debug)
+        if (!hideDebug && Array.isArray(this.entitiesRuntime) && this.entitiesRuntime.length) {
             for (const r of this.entitiesRuntime) {
                 if (!r || !r.sprite) continue;
                 try {
                     if (r.poly) {
-                        //try { r.poly.drawBuffer(this.Draw, '#FF6666AA55'); r.poly.drawDebug(this.Draw); } catch (e) {}
+                        try { r.poly.drawBuffer(this.Draw, '#FF6666AA55'); r.poly.drawDebug(this.Draw); } catch (e) {}
                     } else {
                         const sprite = r.sprite;
                         const center = sprite.pos.add(sprite.size.mult(0.5));

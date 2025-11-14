@@ -100,7 +100,7 @@ export default class Input {
 
         // Platformer: detect jump press events (use Keys.pressed)
         for (const k of this.jumpKeys) {
-            if (this.keys.held(k) && this.jumpCooldown < 0) {
+            if (this.keys.held(k,true)<0.3 && this.jumpCooldown < 0 && this.keys.held(k)) {
                 this.onJump.emit(k)
                 this.jumpCooldown = this.jumpCooldownMax
             }
