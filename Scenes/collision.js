@@ -55,7 +55,7 @@ export class CollisionScene extends Scene {
         this.defaultEntityMass = 5; // boxes heavier than cat
         this.defaultFriction = 0.45; // default Coulomb friction coefficient for entities
         this.gravityEnabled = false;
-        this.gravity = new Vector(0, 50); // px/s^2 downward
+        this.gravity = new Vector(0, 20); // px/s^2 downward
         this.entitiesRuntime = [];
         this.assets = { boxImage: null };
     }
@@ -986,6 +986,46 @@ export class CollisionScene extends Scene {
             const startScale = this.keys && this.keys.pressed && this.keys.pressed('s');
             // Extrude: create new endpoint vertex and auto-start a grab
             const startExtrude = this.keys && this.keys.pressed && this.keys.pressed('e');
+            // Duplicate selected polygon and start grab
+            const startDuplicate = this.keys && this.keys.pressed && this.keys.pressed('c');
+            if (startDuplicate && this.editor && typeof this.editor.selected === 'number' && this.editor.selected >= 0 && !this._grabState.active) {
+                try {
+                    const sel = this.editor.selected;
+                    const poly = (this.editor.polygons && this.editor.polygons[sel]) ? this.editor.polygons[sel] : null;
+                    if (poly && Array.isArray(poly)) {
+                        // clone polygon and insert after selected
+                        const newPoly = poly.map(v => v.clone());
+                        const newIndex = sel + 1;
+                        this.editor.polygons.splice(newIndex, 0, newPoly);
+                        // preserve baseRadius from original polyObject when possible
+                        const base = (this.editor.polyObjects && this.editor.polyObjects[sel] && typeof this.editor.polyObjects[sel].baseRadius === 'number') ? this.editor.polyObjects[sel].baseRadius : this.editor.baseRadius;
+                        try { this.editor.polyObjects.splice(newIndex, 0, new BufferedPolygon(newPoly, base, this.editor.coeffs)); } catch (e) { try { this.editor.polyObjects.splice(newIndex, 0, null); } catch (ee){} }
+                        // select the new polygon
+                        this.editor.selected = newIndex;
+                        this.editor.selectedVertex = -1;
+
+                        // record history (best-effort) so user can see action in history stack
+                        try { const action = { type: 'duplicate', sel: newIndex, before: null, after: newPoly.map(v=>v.clone()), beforeBase: null, afterBase: base }; this._editorHistory.push(action); this._grabState.historyAction = action; } catch (e) {}
+
+                        // start a grab on the new polygon in move mode
+                        const orig = newPoly.map(v => v.clone());
+                        let minX = orig[0].x, minY = orig[0].y, maxX = orig[0].x, maxY = orig[0].y;
+                        for (const p of orig) { if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y; if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y; }
+                        const origin = new Vector((minX + maxX) * 0.5, (minY + maxY) * 0.5);
+                        this._grabState.active = true;
+                        this._grabState.idx = newIndex;
+                        this._grabState.vertexIndex = -1;
+                        this._grabState.originalVerts = orig;
+                        this._grabState.previewReplaced = false;
+                        const polyObj = (this.editor.polyObjects && this.editor.polyObjects[newIndex]) ? this.editor.polyObjects[newIndex] : null;
+                        this._grabState.originalPolyObject = polyObj;
+                        this._grabState.originalBaseRadius = (polyObj && typeof polyObj.baseRadius === 'number') ? polyObj.baseRadius : (this.editor.baseRadius || 12);
+                        this._grabState.origin = origin;
+                        this._grabState.mode = 'move';
+                        try { if (this.mouse && this.mouse.grab) this.mouse.grab(this.mouse.pos); } catch (e) {}
+                    }
+                } catch (e) {}
+            }
             if (startExtrude && this.editor && typeof this.editor.selected === 'number' && this.editor.selected >= 0 && !this._grabState.active) {
                 const sel = this.editor.selected;
                 const poly = (this.editor.polygons && this.editor.polygons[sel]) ? this.editor.polygons[sel] : null;

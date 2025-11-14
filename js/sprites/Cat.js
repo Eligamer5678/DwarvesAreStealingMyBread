@@ -37,7 +37,7 @@ export default class Cat {
         // input (default for now so we can move freely in CollisionScene)
         this.keys = keys;
         this.input = new Input(keys, 'platformer');
-        this.input.onJump.connect(()=>{ if (this.jumpAllowed) this.vlos.y = -10; })
+        this.input.onJump.connect(()=>{ if (this.jumpAllowed) this.vlos.y = -7; })
         this.facing = 1; // 1 = right, -1 = left
 
         // animation state (copied from TestSprite)
