@@ -807,7 +807,7 @@ export class CollisionScene extends Scene {
             } else {
                 // Polygon placement; support Shift to snap to 8 directions from last point.
                 // If shift-click selection handled this click, skip placement.
-                if (!skipPlacement && (this.keys.held('n')|| this.keys.held('N'))) {
+                if (!skipPlacement && (this.keys.held('n') || this.keys.held('N'))) {
                     let newPt = wp;
                     try {
                         const shiftHeld = this.keys && (this.keys.held && this.keys.held('Shift'));
@@ -1631,7 +1631,7 @@ export class CollisionScene extends Scene {
                 const obj = this.editor.polyObjects[i];
                 try {
                     const isSelected = (this.editor && this.editor.selected === i);
-                    const color = isSelected ? '#4466FF66' : '#66FFAA55';
+                    const color = isSelected ? '#4466FFCC' : '#66FFAA55';
                     if (obj) obj.drawBuffer(this.Draw, color);
                     if (obj) obj.drawDebug(this.Draw);
                     // Draw a thin dark-blue outline for the selected polygon so it stands out

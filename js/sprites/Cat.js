@@ -53,7 +53,7 @@ export default class Cat {
         this.animTimer.start();
 
         // basic movement params
-        this.speed = 150;      // acceleration magnitude (px/s^2)
+        this.speed = 90;      // acceleration magnitude (px/s^2)
         // friction is used as an exponential base: v.x *= friction ** delta
         // smaller values produce stronger damping; default tuned for snappy control
         this.friction = 0.0005; // exponential friction base (tuned stronger)

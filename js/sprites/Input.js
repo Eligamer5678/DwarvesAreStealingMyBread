@@ -107,7 +107,7 @@ export default class Input {
         }
         
         for (const f of this.fallKeys) {
-            if (this.keys.pressed(f)) {
+            if (this.keys.released(f)) {
                 this.onFall.emit(f)
             }
         }
