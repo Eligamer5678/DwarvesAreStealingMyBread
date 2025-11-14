@@ -692,6 +692,70 @@ export class CollisionScene extends Scene {
             }
         } catch (e) { console.warn('CollisionScene: error updating cat', e); }
         
+        // Camera lock/follow: when arrow keys are pressed, lock camera onto the cat
+        // uses smooth damp and a horizontal bias so the direction you're moving in has more visual space
+        try {
+            if (!this.camera) this.camera = { locked: false, smooth: 5, bias: 0.25, lastMousePos: this.mouse ? this.mouse.pos.clone() : new Vector(0,0), unlockDistance: 4 };
+            const left = this.keys.held('ArrowLeft') || this.keys.held('Left');
+            const right = this.keys.held('ArrowRight') || this.keys.held('Right');
+            const up = this.keys.held('ArrowUp') || this.keys.held('Up');
+            const down = this.keys.held('ArrowDown') || this.keys.held('Down');
+            const arrowPressed = left || right || up || down;
+            // engage lock when any arrow pressed
+            if (arrowPressed) {this.camera.locked = true;
+                this.zoom.y = 3;
+                this.zoom.x = 3;
+            }
+
+            // detect mouse movement to unlock camera
+            if (this.camera.locked && this.mouse && this.mouse.pos) {
+                const md = this.mouse.pos.sub(this.camera.lastMousePos || this.mouse.pos);
+                if (Math.abs(md.x) > (this.camera.unlockDistance || 4) || Math.abs(md.y) > (this.camera.unlockDistance || 4)) {
+                    this.camera.locked = false;
+                }
+                // update last mouse pos
+                this.camera.lastMousePos = this.mouse.pos.clone();
+            } else if (this.mouse && this.mouse.pos) {
+                this.camera.lastMousePos = this.mouse.pos.clone();
+            }
+
+            // if locked, compute desired offset so the cat appears offset from center
+            if (this.camera.locked && this.cat && this.cat.pos) {
+                const drawCtx = this.Draw && this.Draw.ctx;
+                if (drawCtx && drawCtx.canvas) {
+                    const scaleX = (this.Draw && this.Draw.Scale && typeof this.Draw.Scale.x === 'number') ? this.Draw.Scale.x : 1;
+                    const scaleY = (this.Draw && this.Draw.Scale && typeof this.Draw.Scale.y === 'number') ? this.Draw.Scale.y : scaleX;
+                    const uiW = drawCtx.canvas.width / scaleX;
+                    const uiH = drawCtx.canvas.height / scaleY;
+                    const center = new Vector(uiW / 2-230, uiH / 2-100);
+                    const origin = this.zoomOrigin ? this.zoomOrigin : center;
+
+                    // horizontal bias: position player slightly opposite movement so there's more view ahead
+                    let vx = 0; let vy = 0;
+                    if (this.cat && this.cat.vlos) { vx = this.cat.vlos.x; vy = this.cat.vlos.y; }
+                    const maxSpeed = 300;
+                    const norm = Math.max(-1, Math.min(1, vx / maxSpeed));
+                    const biasPixels = (this.camera.bias || 0.25) * uiW * norm * 30;
+                    const normY = Math.max(-1, Math.min(1, vy / maxSpeed));
+                    const biasPixelsY = (this.camera.bias || 0.25) * uiH * normY * 30 - 150;
+                    
+                    const Sx = center.x - biasPixels - ((this.cat.size && this.cat.size.x) ? (this.cat.size.x / 2) : 0);
+                    const Sy = center.y - biasPixelsY - ((this.cat.size && this.cat.size.y) ? (this.cat.size.y) : 0);
+                    const Sdes = new Vector(Sx, Sy);
+
+                    // desired world offset such that (cat.pos + offset) maps to screen Sdes
+                    // Use direct mapping offset = Sdes / zoom - cat.pos so it remains correct when zoom != 1
+                    const zx = (this.zoom && typeof this.zoom.x === 'number') ? this.zoom.x : 1;
+                    const zy = (this.zoom && typeof this.zoom.y === 'number') ? this.zoom.y : zx;
+                    const desiredOffset = new Vector(Sdes.x / zx - this.cat.pos.x, Sdes.y / zy - this.cat.pos.y);
+
+                    const smooth = this.camera.smooth || 8;
+                    const t = 1 - Math.exp(-smooth * tickDelta);
+                    this.offset = this.offset.add(desiredOffset.sub(this.offset).mult(t));
+                }
+            }
+        } catch (e) { /* ignore camera update errors */ }
+
         // Editor input: add points and finalize polygons
         if (this.mouse && this.mouse.pressed('left')) {
             const wp = this.getWorldPos(this.mouse.pos);
@@ -1806,7 +1870,12 @@ CollisionScene.prototype.exportLevelJSON = function(){
             spawn: this.levelData.spawn,
             goal: this.levelData.goal,
             entities: this.levelData.entities || [],
-            collision: (this.editor.polygons || []).map(poly => poly.map(v => [v.x, v.y]))
+            // Export collision as array of objects so we can preserve per-polygon buffer radii
+            collision: (this.editor.polygons || []).map((poly, idx) => {
+                const verts = (poly || []).map(v => [v.x, v.y]);
+                const base = (this.editor.polyObjects && this.editor.polyObjects[idx] && typeof this.editor.polyObjects[idx].baseRadius === 'number') ? this.editor.polyObjects[idx].baseRadius : this.editor.baseRadius;
+                return { verts, baseRadius: base };
+            })
         };
         const json = JSON.stringify(data, null, 2);
         const blob = new Blob([json], { type: 'application/json' });
@@ -1847,11 +1916,15 @@ CollisionScene.prototype.exportLevelTar = async function(filename = 'level.tar')
 
         // include level JSON
         try {
-            const data = {
+                const data = {
                 spawn: this.levelData.spawn,
                 goal: this.levelData.goal,
                 entities: this.levelData.entities || [],
-                collision: (this.editor.polygons || []).map(poly => poly.map(v => [v.x, v.y]))
+                collision: (this.editor.polygons || []).map((poly, idx) => {
+                    const verts = (poly || []).map(v => [v.x, v.y]);
+                    const base = (this.editor.polyObjects && this.editor.polyObjects[idx] && typeof this.editor.polyObjects[idx].baseRadius === 'number') ? this.editor.polyObjects[idx].baseRadius : this.editor.baseRadius;
+                    return { verts, baseRadius: base };
+                })
             };
             const json = JSON.stringify(data, null, 2);
             entries.push({ name: 'level.json', data: new TextEncoder().encode(json) });
@@ -1917,13 +1990,28 @@ CollisionScene.prototype.loadMapFromPayload = function(payload){
             }
         } catch (e) { console.warn('Failed to rebuild runtime entities', e); }
 
-        // apply collision polygons if provided
+        // apply collision polygons if provided (supports old and new formats)
         try {
             if (payload.collision && Array.isArray(payload.collision)) {
-                this.editor.polygons = payload.collision.map(arr => arr.map(p => new Vector(p[0], p[1])));
+                this.editor.polygons = [];
                 this.editor.polyObjects = [];
-                for (const poly of this.editor.polygons) {
-                    try { this.editor.polyObjects.push(new BufferedPolygon(poly, this.editor.baseRadius, this.editor.coeffs)); } catch (e) {}
+                for (const item of payload.collision) {
+                    try {
+                        if (Array.isArray(item) && Array.isArray(item[0])) {
+                            // old format: array of [x,y] points
+                            const poly = item.map(p => new Vector(p[0], p[1]));
+                            this.editor.polygons.push(poly);
+                            try { this.editor.polyObjects.push(new BufferedPolygon(poly, this.editor.baseRadius, this.editor.coeffs)); } catch (e) { this.editor.polyObjects.push(null); }
+                        } else if (item && Array.isArray(item.verts)) {
+                            // new format: { verts: [[x,y],...], baseRadius: number }
+                            const poly = (item.verts || []).map(p => new Vector(p[0], p[1]));
+                            const base = (typeof item.baseRadius === 'number') ? item.baseRadius : this.editor.baseRadius;
+                            this.editor.polygons.push(poly);
+                            try { this.editor.polyObjects.push(new BufferedPolygon(poly, base, this.editor.coeffs)); } catch (e) { this.editor.polyObjects.push(null); }
+                        } else {
+                            // unexpected entry: skip
+                        }
+                    } catch (e) {}
                 }
             }
         } catch (e) {}
