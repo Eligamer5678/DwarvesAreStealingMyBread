@@ -19,7 +19,7 @@ export default class Cat {
         this.destroy = new Signal();
         this.color = new Color(1,1,1,1);
         // physics
-        this.mass = 1; // light creature
+        this.mass = 3; // light creature
         this.restitution = 0.35; // less bouncy collisions
         // jumping state (set by scene ground checks)
         this.jumpAllowed = false;
@@ -59,6 +59,23 @@ export default class Cat {
         this.friction = 0.0005; // exponential friction base (tuned stronger)
         // additional ground friction multiplier applied when grounded (0..1)
         this.groundFriction = 0.98;
+
+        // Holding / throwing configuration (tweak these to change feel)
+        // Visual position of a held box relative to the cat's top-left
+        this.holdOffset = new Vector(100, 40);
+        // Offset where the box will be spawned when throwing (relative to cat)
+        this.throwOffset = new Vector(100, 40);
+        // Offset where the box will be placed when dropping (relative to cat)
+        this.dropOffset = new Vector(100, 50);
+        // Amount to displace the cat when dropping/throwing (push the cat a bit)
+        this.dropCatOffset = new Vector(0, -100);
+        // Throwing impulse (added to box vlos when thrown). X is along facing (signed by scene)
+        this.throwPower = new Vector(30, -10);
+        // Offset to place a box when dropping while airborne (placed beneath the cat)
+        this.airDropOffset = new Vector(100, 150);
+
+        // Holding state
+        this.heldEntity = null; // index into scene.entitiesRuntime or null when not holding
     }
 
     update(delta){

@@ -1,3 +1,4 @@
+    
 import Scene from './Scene.js';
 import Vector from '../js/Vector.js';
 import Geometry from '../js/Geometry.js';
@@ -56,6 +57,102 @@ export class CollisionScene extends Scene {
         this.gravity = new Vector(0, 50); // px/s^2 downward
         this.entitiesRuntime = [];
         this.assets = { boxImage: null };
+    }
+    // Handle cat picking up, dropping, and throwing boxes.
+    _handleCatPickDrop() {
+        try {
+            if (!this.cat || !Array.isArray(this.entitiesRuntime)) return;
+            const cat = this.cat;
+            // If currently holding an entity, drop or throw it
+            if (typeof cat.heldEntity === 'number' && cat.heldEntity >= 0) {
+                const idx = cat.heldEntity;
+                const ent = this.entitiesRuntime[idx];
+                if (!ent) { cat.heldEntity = null; return; }
+                // Determine if we're moving: if moving horizontally, treat as throw
+                const moving = Math.abs(cat.vlos.x) > 1.0;
+                try {
+                    if (moving) {
+                        // Throw: spawn slightly in front, give velocity impulse
+                        // Use the configured throwOffset as-is (do not mirror it). Only flip the velocity X by facing.
+                        const throwOff = cat.throwOffset ? cat.throwOffset.clone() : new Vector(48, -12);
+                        try { ent.sprite.pos = cat.pos.clone().add(throwOff); } catch (e) {}
+                        try { ent.sprite.vlos = (cat.vlos && cat.vlos.clone) ? cat.vlos.clone() : new Vector(0,0); } catch (e) { ent.sprite.vlos = new Vector(0,0); }
+                        try { ent.sprite.vlos.addS(new Vector(cat.throwPower.x * cat.facing, cat.throwPower.y)); } catch (e) {}
+                        // Temporarily ignore collisions between the thrown box and the cat
+                        // Use a timer (seconds) driven by tickDelta instead of Date.now()
+                        try { ent._ignoreCat = true; ent._ignoreCatTimer = 1.0; } catch (e) {}
+                    } else {
+                        // Drop: place at dropOffset relative to cat.
+                        // If dropping mid-air, preserve the cat's velocity so the box continues moving/falling.
+                        // Choose different offsets when dropping mid-air so the box lands beneath the cat
+                        const dropOff = (!cat.jumpAllowed && cat.airDropOffset) ? cat.airDropOffset.clone() : (cat.dropOffset ? cat.dropOffset.clone() : new Vector(48, 8));
+                        try { ent.sprite.pos = cat.pos.clone().add(dropOff); } catch (e) {}
+                        try {
+                            if (cat.jumpAllowed) {
+                                // standing on ground: drop in place
+                                ent.sprite.vlos = new Vector(0,0);
+                            } else {
+                                // in air: give the box the cat's current velocity so it moves/falls naturally
+                                ent.sprite.vlos = (cat.vlos && cat.vlos.clone) ? cat.vlos.clone() : new Vector(0,0);
+                                // Temporarily ignore collisions between the dropped box and the cat
+                                // so it doesn't immediately overlap the cat while both are airborne.
+                                try { ent._ignoreCat = true; ent._ignoreCatTimer = 0.5; } catch (e) {}
+                            }
+                        } catch (e) { ent.sprite.vlos = new Vector(0,0); }
+                    }
+                } catch (e) {}
+                // Re-enable physics/collision for the entity and rebuild its poly if localVerts available
+                try {
+                    ent.held = false;
+                    ent._heldBy = null;
+                    if (Array.isArray(ent.localVerts) && ent.sprite) {
+                        const worldVerts = ent.localVerts.map(v => v.add(ent.sprite.pos));
+                        try { ent.poly = new BufferedPolygon(worldVerts, ent.cornerRadius || this.editor.baseRadius, this.editor.coeffs); } catch (e) { ent.poly = null; }
+                    }
+                } catch (e) {}
+                // Move cat a bit when dropping so it doesn't overlap the placed box.
+                // Only apply this displacement for drops (not throws) and only when the cat is on the ground.
+                try {
+                    if (!moving) {
+                        // only nudge the cat when it's on the ground (placing beneath you), not while airborne
+                        if (cat.jumpAllowed) {
+                            try { cat.pos.addS(new Vector((cat.dropCatOffset?.x || -12) * (cat.facing || 1), (cat.dropCatOffset?.y || 0))); } catch (e) {}
+                        }
+                    }
+                } catch (e) {}
+                cat.heldEntity = null;
+                return;
+            }
+
+            // Otherwise attempt to pick up the nearest box within range
+            const catCenter = this.cat.pos.add(this.cat.size.mult(0.5));
+            let bestIdx = -1; let bestDist = Infinity;
+            const PICK_RANGE = 96; // world pixels
+            for (let i = 0; i < this.entitiesRuntime.length; i++) {
+                const ent = this.entitiesRuntime[i];
+                try {
+                    if (!ent || ent.held) continue;
+                    if (ent.type !== 'box' || !ent.sprite) continue;
+                    const center = ent.sprite.pos.add(ent.sprite.size.mult(0.5));
+                    const d = center.sub(catCenter).mag();
+                    if (d < bestDist && d <= PICK_RANGE) { bestDist = d; bestIdx = i; }
+                } catch (e) {}
+            }
+            if (bestIdx >= 0) {
+                try {
+                    const ent = this.entitiesRuntime[bestIdx];
+                    ent.held = true;
+                    ent._heldBy = cat;
+                    // remove world-collider while held (store original if needed)
+                    try { ent._origPoly = ent.poly; } catch (e) {}
+                    ent.poly = null;
+                    // zero velocity and snap to hold offset
+                    try { ent.sprite.vlos = new Vector(0,0); } catch (e) {}
+                    try { ent.sprite.pos = cat.pos.clone().add(cat.holdOffset || new Vector(40, -20)); } catch (e) {}
+                    cat.heldEntity = bestIdx;
+                } catch (e) {}
+            }
+        } catch (e) { /* ignore handler errors */ }
     }
 
     onReady() {
@@ -150,6 +247,12 @@ export class CollisionScene extends Scene {
                 this.catRadius = 24; // collision radius for the cat, independent of draw size
                 try { this._initialCatPos = this.cat.pos.clone(); } catch (e) {}
                 console.log('CollisionScene: cat spritesheet loaded and Cat created');
+                // Wire up platformer "fall" (down) event to pickup/drop/throw boxes
+                try {
+                    this.cat.input.onFall.connect(() => {
+                        try { this._handleCatPickDrop(); } catch (e) { console.warn('pick/drop handler failed', e); }
+                    });
+                } catch (e) {}
             } catch (e) { console.warn('Failed to build cat sheet', e); }
         };
         img.onerror = () => {
@@ -158,6 +261,9 @@ export class CollisionScene extends Scene {
                 this.cat = new Cat(this.keys, this.Draw, new Vector(628,328), new Vector(256,256), null);
                 this.catRadius = 24;
                     try { this._initialCatPos = this.cat.pos.clone(); } catch (e) {}
+                try {
+                    this.cat.input.onFall.connect(() => { try { this._handleCatPickDrop(); } catch (e) {} });
+                } catch (e) {}
             } catch (e) { console.warn('Failed to create fallback Cat', e); }
         };
         img.src = 'Assets/Sprites/cat.png';
@@ -1093,13 +1199,15 @@ export class CollisionScene extends Scene {
             // Resolve collision for any placed runtime entities (use a circle approx for consistency)
             if (Array.isArray(this.entitiesRuntime) && this.entitiesRuntime.length) {
                 for (const ent of this.entitiesRuntime) {
-                    if (!ent || !ent.sprite) continue;
+                                if (!ent || !ent.sprite) continue;
+                                if (ent.held) continue;
                     const sprite = ent.sprite;
                     // iterate a couple times to avoid deep tunneling
                     for (let iter = 0; iter < 2; iter++) {
                         let resolved = false;
                         // If entity has a polygon collider, test polygon-vs-segment and polygon-vs-editor-polys
-                        if (ent.poly) {
+                                if (ent.held) continue;
+                                if (ent.poly) {
                             try {
                                 // Test against demo segment by wrapping it as a 2-vertex BufferedPolygon
                                 if (this.segment) {
@@ -1118,7 +1226,7 @@ export class CollisionScene extends Scene {
                                 // Then against editor polygons (deepest collision first)
                                 if (!resolved && this.editor && this.editor.polyObjects && this.editor.polyObjects.length) {
                                     let best = null; let bestPen = 0;
-                                    for (const obj of this.editor.polyObjects) {
+                                        for (const obj of this.editor.polyObjects) {
                                         const hit = ent.poly.collidePolygon(obj);
                                         if (hit && hit.collides && hit.penetration > bestPen) { best = hit; bestPen = hit.penetration; }
                                     }
@@ -1231,21 +1339,34 @@ export class CollisionScene extends Scene {
 
                     // Update entity sprites (use their own update method instead of manual integration)
                     try {
-                        for (const ent of this.entitiesRuntime) {
-                            if (ent && ent.sprite && typeof ent.sprite.update === 'function') {
-                                try { ent.sprite.update(dt); } catch (e) {}
-                            }
-                            // Update polygon collider world vertices to follow sprite position
-                            try {
-                                if (ent && ent.sprite && ent.poly && Array.isArray(ent.localVerts)) {
-                                    const worldVerts = ent.localVerts.map(v => v.add(ent.sprite.pos));
-                                    try { ent.poly.setVertices(worldVerts); } catch (e) {}
-                                }
-                            } catch (e) {}
-                        }
+                                    for (const ent of this.entitiesRuntime) {
+                                        if (!ent) continue;
+                                        // Skip entities that are currently held by the cat
+                                        if (ent.held) continue;
+                                        if (ent && ent.sprite && typeof ent.sprite.update === 'function') {
+                                            try { ent.sprite.update(dt); } catch (e) {}
+                                        }
+                                        // Update polygon collider world vertices to follow sprite position
+                                        try {
+                                            if (ent && ent.sprite && ent.poly && Array.isArray(ent.localVerts)) {
+                                                const worldVerts = ent.localVerts.map(v => v.add(ent.sprite.pos));
+                                                try { ent.poly.setVertices(worldVerts); } catch (e) {}
+                                            }
+                                        } catch (e) {}
+                                    }
                     } catch (e) {}
 
                     // Pairwise collisions between cat (circle) and entity polygons, and box-box poly-poly
+
+                    // Decrement per-entity ignore timers (driven by tickDelta) so we avoid Date.now() usage
+                    try {
+                        for (const ent of this.entitiesRuntime) {
+                            if (!ent) continue;
+                            if (typeof ent._ignoreCatTimer === 'number' && ent._ignoreCatTimer > 0) {
+                                ent._ignoreCatTimer = Math.max(0, ent._ignoreCatTimer - (tickDelta || 0));
+                            }
+                        }
+                    } catch (e) {}
 
                     const collidables = [];
                     // add cat if present (circle)
@@ -1260,6 +1381,8 @@ export class CollisionScene extends Scene {
                     // tests we will prefer the inner circle collision if it intersects.
                     for (let i = 0; i < this.entitiesRuntime.length; i++) {
                         const e = this.entitiesRuntime[i];
+                        if (!e) continue;
+                        if (e.held) continue;
                         if (!e || !e.sprite) continue;
                         const s = e.sprite;
                         // compute an inner circle (centered on sprite) — stable, used preferentially
@@ -1294,6 +1417,41 @@ export class CollisionScene extends Scene {
                                     for (let j = i + 1; j < collidables.length; j++) {
                                         const A = collidables[i];
                                         const B = collidables[j];
+                                        // Universal cat-vs-entity ignore handling (works for circle/poly pairs)
+                                        try {
+                                            const isACat = (A.id === 'cat');
+                                            const isBCat = (B.id === 'cat');
+                                            let entIdx = -1;
+                                            if (isACat && typeof B.ownerIndex === 'number') entIdx = B.ownerIndex;
+                                            if (isBCat && typeof A.ownerIndex === 'number') entIdx = A.ownerIndex;
+                                            if (entIdx >= 0) {
+                                                const ent = (this.entitiesRuntime && this.entitiesRuntime[entIdx]) ? this.entitiesRuntime[entIdx] : null;
+                                                if (ent && ent._ignoreCat) {
+                                                    // If timer is still positive, skip collision pairs immediately
+                                                    if (typeof ent._ignoreCatTimer === 'number' && ent._ignoreCatTimer > 0) {
+                                                        continue;
+                                                    } else {
+                                                        // Timer expired: test whether they are still overlapping now.
+                                                        let stillColliding = false;
+                                                        try {
+                                                            const catCenter = (isACat && A.center && A.center.clone) ? A.center.clone() : (isBCat && B.center && B.center.clone) ? B.center.clone() : (this.cat ? this.cat.pos.add(this.cat.size.mult(0.5)) : null);
+                                                            const catRadius = (isACat && A.radius) ? A.radius : (isBCat && B.radius) ? B.radius : (this.cat ? (this.catRadius || Math.min(this.cat.size.x, this.cat.size.y) * 0.2) : 0);
+                                                            if (ent && ent.poly && catCenter) {
+                                                                const h = ent.poly.collideCircle(catCenter, catRadius);
+                                                                if (h && h.collides) stillColliding = true;
+                                                            } else if (catCenter && ent && ent.sprite) {
+                                                                const cent = ent.sprite.pos.add(ent.sprite.size.mult(0.5));
+                                                                const er = Math.min(ent.sprite.size.x, ent.sprite.size.y) * 0.35;
+                                                                const d = cent.sub(catCenter).mag();
+                                                                if (d < (er + catRadius)) stillColliding = true;
+                                                            }
+                                                        } catch (e) {}
+                                                        if (stillColliding) continue; // still overlapping -> keep ignoring
+                                                        else { try { delete ent._ignoreCat; delete ent._ignoreCatTimer; } catch (e) {} }
+                                                    }
+                                                }
+                                            }
+                                        } catch (e) {}
                                         try {
                                             let hit = null; let n = null; let penetration = 0;
                                             if (A.kind === 'poly' && B.kind === 'poly') {
@@ -1549,7 +1707,14 @@ export class CollisionScene extends Scene {
         // Draw entities in world (use sprites if available)
         if (Array.isArray(this.entitiesRuntime) && this.entitiesRuntime.length) {
             for (const r of this.entitiesRuntime) {
-                if (r && r.type === 'box' && r.sprite) r.sprite.draw(new Vector(0,0));
+                if (!r || !r.sprite) continue;
+                try {
+                    // If held, position it relative to the holder (cat) instead of its own pos
+                    if (r.held && r._heldBy) {
+                        try { r.sprite.pos = r._heldBy.pos.clone().add(r._heldBy.holdOffset || new Vector(0,0)); } catch (e) {}
+                    }
+                    if (r.type === 'box' && r.sprite) r.sprite.draw(new Vector(0,0));
+                } catch (e) {}
             }
         } else if (Array.isArray(this.levelData.entities)) {
             // Fallback if runtime not built yet
