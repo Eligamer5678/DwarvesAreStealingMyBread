@@ -83,6 +83,7 @@ export default class Cat {
         const dir = this.input.update();
         // accelerate in input direction
         this.vlos.addS(dir.mult(delta).multS(this.speed));
+        if(this.keys.held('Shift')) this.vlos.x *= 0.8;
         if (Math.sign(dir.x)) {
             this.facing = Math.sign(dir.x);
             this.idleTime = 0;

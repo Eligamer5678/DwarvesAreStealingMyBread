@@ -53,6 +53,7 @@ export class CollisionScene extends Scene {
         this.entitiesUI = null;
         this.defaultEntitySize = new Vector(64, 64);
         this.defaultEntityMass = 5; // boxes heavier than cat
+        this.defaultFriction = 0.45; // default Coulomb friction coefficient for entities
         this.gravityEnabled = false;
         this.gravity = new Vector(0, 50); // px/s^2 downward
         this.entitiesRuntime = [];
@@ -806,7 +807,7 @@ export class CollisionScene extends Scene {
             } else {
                 // Polygon placement; support Shift to snap to 8 directions from last point.
                 // If shift-click selection handled this click, skip placement.
-                if (!skipPlacement ) {
+                if (!skipPlacement && (this.keys.held('n')|| this.keys.held('N'))) {
                     let newPt = wp;
                     try {
                         const shiftHeld = this.keys && (this.keys.held && this.keys.held('Shift'));
@@ -1199,15 +1200,15 @@ export class CollisionScene extends Scene {
             // Resolve collision for any placed runtime entities (use a circle approx for consistency)
             if (Array.isArray(this.entitiesRuntime) && this.entitiesRuntime.length) {
                 for (const ent of this.entitiesRuntime) {
-                                if (!ent || !ent.sprite) continue;
-                                if (ent.held) continue;
+                    if (!ent || !ent.sprite) continue;
+                    if (ent.held) continue;
                     const sprite = ent.sprite;
                     // iterate a couple times to avoid deep tunneling
                     for (let iter = 0; iter < 2; iter++) {
                         let resolved = false;
                         // If entity has a polygon collider, test polygon-vs-segment and polygon-vs-editor-polys
-                                if (ent.held) continue;
-                                if (ent.poly) {
+                        if (ent.held) continue;
+                        if (ent.poly) {
                             try {
                                 // Test against demo segment by wrapping it as a 2-vertex BufferedPolygon
                                 if (this.segment) {
@@ -1274,295 +1275,321 @@ export class CollisionScene extends Scene {
                     }
                 }
             }
-                // Apply gravity (if enabled) then run pairwise circle-circle collisions between cat and boxes, and box-box
+            // Apply gravity (if enabled) then run pairwise circle-circle collisions between cat and boxes, and box-box
+            try {
+                // Ground-check for jumping: sample a small rect below the cat using
+                // three small circle probes (left, center, right). If any probe
+                // intersects world geometry, allow jumping for this tick.
                 try {
-                    // Ground-check for jumping: sample a small rect below the cat using
-                    // three small circle probes (left, center, right). If any probe
-                    // intersects world geometry, allow jumping for this tick.
-                    try {
-                        const probeInfo = this.cat.getGroundProbePoints();
-                        const probes = probeInfo.points;
-                        const probeRadius = probeInfo.radius;
-                        let groundHit = false;
-                        const testProbe = (p) => {
-                            // test against demo segment
-                            try { if (this.segment) { const h = this.segment.collideCircle(p, probeRadius); if (h && h.collides) return true; } } catch (e) {}
-                            // test against editor collision polygons
-                            try {
-                                if (this.editor && this.editor.polyObjects) {
-                                    for (const obj of this.editor.polyObjects) {
-                                        try { const h = obj.collideCircle(p, probeRadius); if (h && h.collides) return true; } catch(e){}
-                                    }
-                                }
-                            } catch (e) {}
-                            // test against placed entities (poly or circle approx)
-                            try {
-                                if (Array.isArray(this.entitiesRuntime)) {
-                                    for (const ent of this.entitiesRuntime) {
-                                        if (!ent || !ent.sprite) continue;
-                                        try {
-                                            if (ent.poly) {
-                                                const h = ent.poly.collideCircle(p, probeRadius);
-                                                if (h && h.collides) return true;
-                                            } else {
-                                                const s = ent.sprite;
-                                                const cent = s.pos.add(s.size.mult(0.5));
-                                                const er = Math.min(s.size.x, s.size.y) * 0.35;
-                                                const d = cent.sub(p).mag();
-                                                if (d < (er + probeRadius)) return true;
-                                            }
-                                        } catch (e) {}
-                                    }
-                                }
-                            } catch (e) {}
-                            return false;
-                        };
-                        for (const p of probes) {
-                            if (testProbe(p)) { groundHit = true; break; }
-                        }
-                        try { this.cat.jumpAllowed = !!groundHit; } catch (e) {}
-                    } catch (e) {}
-                    const dt = tickDelta;
-                    if (this.gravityEnabled && dt > 0) {
+                    const probeInfo = this.cat.getGroundProbePoints();
+                    const probes = probeInfo.points;
+                    const probeRadius = probeInfo.radius;
+                    let groundHit = false;
+                    const testProbe = (p) => {
+                        // test against demo segment
+                        try { if (this.segment) { const h = this.segment.collideCircle(p, probeRadius); if (h && h.collides) return true; } } catch (e) {}
+                        // test against editor collision polygons
                         try {
-                            // apply gravity acceleration to cat
-                            this.cat.vlos.addS(this.gravity.mult(dt));
-                        } catch (e) {}
-                        try {
-                            for (const ent of this.entitiesRuntime) {
-                                if (ent && ent.sprite && ent.sprite.vlos) {
-                                    ent.sprite.vlos.addS(this.gravity.mult(dt));
+                            if (this.editor && this.editor.polyObjects) {
+                                for (const obj of this.editor.polyObjects) {
+                                    try { const h = obj.collideCircle(p, probeRadius); if (h && h.collides) return true; } catch(e){}
                                 }
                             }
                         } catch (e) {}
-                    }
-
-                    // Update entity sprites (use their own update method instead of manual integration)
-                    try {
-                                    for (const ent of this.entitiesRuntime) {
-                                        if (!ent) continue;
-                                        // Skip entities that are currently held by the cat
-                                        if (ent.held) continue;
-                                        if (ent && ent.sprite && typeof ent.sprite.update === 'function') {
-                                            try { ent.sprite.update(dt); } catch (e) {}
+                        // test against placed entities (poly or circle approx)
+                        try {
+                            if (Array.isArray(this.entitiesRuntime)) {
+                                for (const ent of this.entitiesRuntime) {
+                                    if (!ent || !ent.sprite) continue;
+                                    try {
+                                        if (ent.poly) {
+                                            const h = ent.poly.collideCircle(p, probeRadius);
+                                            if (h && h.collides) return true;
+                                        } else {
+                                            const s = ent.sprite;
+                                            const cent = s.pos.add(s.size.mult(0.5));
+                                            const er = Math.min(s.size.x, s.size.y) * 0.35;
+                                            const d = cent.sub(p).mag();
+                                            if (d < (er + probeRadius)) return true;
                                         }
-                                        // Update polygon collider world vertices to follow sprite position
-                                        try {
-                                            if (ent && ent.sprite && ent.poly && Array.isArray(ent.localVerts)) {
-                                                const worldVerts = ent.localVerts.map(v => v.add(ent.sprite.pos));
-                                                try { ent.poly.setVertices(worldVerts); } catch (e) {}
-                                            }
-                                        } catch (e) {}
-                                    }
+                                    } catch (e) {}
+                                }
+                            }
+                        } catch (e) {}
+                        return false;
+                    };
+                    for (const p of probes) {
+                        if (testProbe(p)) { groundHit = true; break; }
+                    }
+                    try { this.cat.jumpAllowed = !!groundHit; } catch (e) {}
+                } catch (e) {}
+                const dt = tickDelta;
+                if (this.gravityEnabled && dt > 0) {
+                    try {
+                        // apply gravity acceleration to cat
+                        this.cat.vlos.addS(this.gravity.mult(dt));
                     } catch (e) {}
-
-                    // Pairwise collisions between cat (circle) and entity polygons, and box-box poly-poly
-
-                    // Decrement per-entity ignore timers (driven by tickDelta) so we avoid Date.now() usage
                     try {
                         for (const ent of this.entitiesRuntime) {
-                            if (!ent) continue;
-                            if (typeof ent._ignoreCatTimer === 'number' && ent._ignoreCatTimer > 0) {
-                                ent._ignoreCatTimer = Math.max(0, ent._ignoreCatTimer - (tickDelta || 0));
+                            if (ent && ent.sprite && ent.sprite.vlos) {
+                                ent.sprite.vlos.addS(this.gravity.mult(dt));
+                            }
+                        }
+                    } catch (e) {}
+                }
+
+                // Update entity sprites (use their own update method instead of manual integration)
+                try {
+                    for (const ent of this.entitiesRuntime) {
+                        if (!ent) continue;
+                        // Skip entities that are currently held by the cat
+                        if (ent.held) continue;
+                        if (ent && ent.sprite && typeof ent.sprite.update === 'function') {
+                            try { ent.sprite.update(dt); } catch (e) {}
+                        }
+                        // Update polygon collider world vertices to follow sprite position
+                        try {
+                            if (ent && ent.sprite && ent.poly && Array.isArray(ent.localVerts)) {
+                                const worldVerts = ent.localVerts.map(v => v.add(ent.sprite.pos));
+                                try { ent.poly.setVertices(worldVerts); } catch (e) {}
+                            }
+                        } catch (e) {}
+                    }
+                } catch (e) {}
+
+                // Pairwise collisions between cat (circle) and entity polygons, and box-box poly-poly
+
+                // Decrement per-entity ignore timers (driven by tickDelta) so we avoid Date.now() usage
+                try {
+                    for (const ent of this.entitiesRuntime) {
+                        if (!ent) continue;
+                        if (typeof ent._ignoreCatTimer === 'number' && ent._ignoreCatTimer > 0) {
+                            ent._ignoreCatTimer = Math.max(0, ent._ignoreCatTimer - (tickDelta || 0));
+                        }
+                    }
+                } catch (e) {}
+
+                const collidables = [];
+                // add cat if present (circle)
+                if (this.cat) {
+                    const ccenter = this.cat.pos.add(this.cat.size.mult(0.5));
+                    const cradius = this.catRadius || Math.min(this.cat.size.x, this.cat.size.y) * 0.2;
+                    collidables.push({ kind: 'circle', id: 'cat', sprite: this.cat, center: ccenter, radius: cradius, mass: 0.5, restitution: 0.2 });
+                }
+
+                // add entities: always expose an inner circle collider (more stable),
+                // and also expose the polygon collider when present. During pairwise
+                // tests we will prefer the inner circle collision if it intersects.
+                for (let i = 0; i < this.entitiesRuntime.length; i++) {
+                    const e = this.entitiesRuntime[i];
+                    if (!e) continue;
+                    if (e.held) continue;
+                    if (!e || !e.sprite) continue;
+                    const s = e.sprite;
+                    // compute an inner circle (centered on sprite) — stable, used preferentially
+                    const innerCenter = s.pos.add(s.size.mult(0.5));
+                    const innerRadius = Math.min(s.size.x, s.size.y) * 0.35;
+                    // always push the inner circle entry (marked with ownerIndex)
+                    collidables.push({ kind: 'circle', id: 'ent' + i + '_inner', ownerIndex: i, sprite: s, center: innerCenter, radius: innerRadius, mass: (s.mass || this.defaultEntityMass || 5), restitution: (s.restitution || 1.0) });
+
+                    // also push polygon collider when available (for more precise contacts)
+                    if (e.poly) {
+                        collidables.push({ kind: 'poly', id: 'ent' + i, ownerIndex: i, sprite: s, poly: e.poly, innerCenter, innerRadius, mass: (s.mass || this.defaultEntityMass || 5), restitution: (s.restitution || 1.0) });
+                    }
+                }
+
+                // resolve each unordered pair once using accumulation/averaging
+                // to avoid sequential pair updates that can cause jitter.
+                const ITERATIONS = 2;
+                for (let it = 0; it < ITERATIONS; it++) {
+                    const posAcc = new Map(); // sprite -> { sum: Vector, count: number }
+                    const velAcc = new Map(); // sprite -> { sum: Vector, count: number }
+
+                    const addPos = (spr, vec) => {
+                        if (!posAcc.has(spr)) posAcc.set(spr, { sum: new Vector(0,0), count: 0 });
+                        const entry = posAcc.get(spr); entry.sum.addS(vec); entry.count += 1;
+                    };
+                    const addVel = (spr, vec) => {
+                        if (!velAcc.has(spr)) velAcc.set(spr, { sum: new Vector(0,0), count: 0 });
+                        const entry = velAcc.get(spr); entry.sum.addS(vec); entry.count += 1;
+                    };
+
+                    for (let i = 0; i < collidables.length; i++) {
+                        for (let j = i + 1; j < collidables.length; j++) {
+                            const A = collidables[i];
+                            const B = collidables[j];
+                            // Universal cat-vs-entity ignore handling (works for circle/poly pairs)
+                            try {
+                                const isACat = (A.id === 'cat');
+                                const isBCat = (B.id === 'cat');
+                                let entIdx = -1;
+                                if (isACat && typeof B.ownerIndex === 'number') entIdx = B.ownerIndex;
+                                if (isBCat && typeof A.ownerIndex === 'number') entIdx = A.ownerIndex;
+                                if (entIdx >= 0) {
+                                    const ent = (this.entitiesRuntime && this.entitiesRuntime[entIdx]) ? this.entitiesRuntime[entIdx] : null;
+                                    if (ent && ent._ignoreCat) {
+                                        // If timer is still positive, skip collision pairs immediately
+                                        if (typeof ent._ignoreCatTimer === 'number' && ent._ignoreCatTimer > 0) {
+                                            continue;
+                                        } else {
+                                            // Timer expired: test whether they are still overlapping now.
+                                            let stillColliding = false;
+                                            try {
+                                                const catCenter = (isACat && A.center && A.center.clone) ? A.center.clone() : (isBCat && B.center && B.center.clone) ? B.center.clone() : (this.cat ? this.cat.pos.add(this.cat.size.mult(0.5)) : null);
+                                                const catRadius = (isACat && A.radius) ? A.radius : (isBCat && B.radius) ? B.radius : (this.cat ? (this.catRadius || Math.min(this.cat.size.x, this.cat.size.y) * 0.2) : 0);
+                                                if (ent && ent.poly && catCenter) {
+                                                    const h = ent.poly.collideCircle(catCenter, catRadius);
+                                                    if (h && h.collides) stillColliding = true;
+                                                } else if (catCenter && ent && ent.sprite) {
+                                                    const cent = ent.sprite.pos.add(ent.sprite.size.mult(0.5));
+                                                    const er = Math.min(ent.sprite.size.x, ent.sprite.size.y) * 0.35;
+                                                    const d = cent.sub(catCenter).mag();
+                                                    if (d < (er + catRadius)) stillColliding = true;
+                                                }
+                                            } catch (e) {}
+                                            if (stillColliding) continue; // still overlapping -> keep ignoring
+                                            else { try { delete ent._ignoreCat; delete ent._ignoreCatTimer; } catch (e) {} }
+                                        }
+                                    }
+                                }
+                            } catch (e) {}
+                            try {
+                                let hit = null; let n = null; let penetration = 0;
+                                if (A.kind === 'poly' && B.kind === 'poly') {
+                                    hit = A.poly.collidePolygon(B.poly);
+                                    if (hit && hit.collides) { n = hit.normal; penetration = hit.penetration; }
+                                } else if (A.kind === 'poly' && B.kind === 'circle') {
+                                    hit = A.poly.collideCircle(B.center, B.radius);
+                                    if (hit && hit.collides) { n = hit.normal.mult(-1); penetration = hit.penetration; }
+                                } else if (A.kind === 'circle' && B.kind === 'poly') {
+                                    hit = B.poly.collideCircle(A.center, A.radius);
+                                    if (hit && hit.collides) { n = hit.normal; penetration = hit.penetration; }
+                                } else if (A.kind === 'circle' && B.kind === 'circle') {
+                                    // prefer explicit centers when available (inner circle entries provide them)
+                                    const cA = (A.center && A.center.clone) ? A.center.clone() : (A.sprite ? A.sprite.pos.add(A.sprite.size.mult(0.5)) : new Vector(0,0));
+                                    const cB = (B.center && B.center.clone) ? B.center.clone() : (B.sprite ? B.sprite.pos.add(B.sprite.size.mult(0.5)) : new Vector(0,0));
+                                    const delta = cA.sub(cB);
+                                    const dist = delta.mag();
+                                    const totalR = (A.radius || 0) + (B.radius || 0);
+                                    if (dist > 1e-6 && dist < totalR) { penetration = totalR - dist; n = delta.div(dist); }
+                                }
+                                // If one side is a polygon and the other is a circle, prefer the polygon's
+                                // inner circle collision (if provided) — it's more stable than poly-edge tests.
+                                else if (A.kind === 'poly' && B.kind === 'circle') {
+                                    // If the polygon has an inner circle, test that first
+                                    if (A.innerRadius && A.innerCenter) {
+                                        const cA = A.innerCenter.clone();
+                                        const cB = (B.center && B.center.clone) ? B.center.clone() : (B.sprite ? B.sprite.pos.add(B.sprite.size.mult(0.5)) : new Vector(0,0));
+                                        const delta = cA.sub(cB);
+                                        const dist = delta.mag();
+                                        const totalR = (A.innerRadius || 0) + (B.radius || 0);
+                                        if (dist > 1e-6 && dist < totalR) { penetration = totalR - dist; n = delta.div(dist); }
+                                        else {
+                                            const hit = A.poly.collideCircle(B.center, B.radius);
+                                            if (hit && hit.collides) { n = hit.normal.mult(-1); penetration = hit.penetration; }
+                                        }
+                                    } else {
+                                        const hit = A.poly.collideCircle(B.center, B.radius);
+                                        if (hit && hit.collides) { n = hit.normal.mult(-1); penetration = hit.penetration; }
+                                    }
+                                } else if (A.kind === 'circle' && B.kind === 'poly') {
+                                    // mirror of above: prefer B's inner circle
+                                    if (B.innerRadius && B.innerCenter) {
+                                        const cA = (A.center && A.center.clone) ? A.center.clone() : (A.sprite ? A.sprite.pos.add(A.sprite.size.mult(0.5)) : new Vector(0,0));
+                                        const cB = B.innerCenter.clone();
+                                        const delta = cA.sub(cB);
+                                        const dist = delta.mag();
+                                        const totalR = (A.radius || 0) + (B.innerRadius || 0);
+                                        if (dist > 1e-6 && dist < totalR) { penetration = totalR - dist; n = delta.div(dist); }
+                                        else {
+                                            const hit = B.poly.collideCircle(A.center, A.radius);
+                                            if (hit && hit.collides) { n = hit.normal; penetration = hit.penetration; }
+                                        }
+                                    } else {
+                                        const hit = B.poly.collideCircle(A.center, A.radius);
+                                        if (hit && hit.collides) { n = hit.normal; penetration = hit.penetration; }
+                                    }
+                                }
+                                if (!n || penetration <= 0) continue;
+
+                                const mA = A.mass || 1; const mB = B.mass || 1;
+                                const invA = (mA > 0) ? 1 / mA : 0;
+                                const invB = (mB > 0) ? 1 / mB : 0;
+                                const invSum = invA + invB || 1;
+
+                                // accumulate positional corrections (A += corrA, B -= corrB)
+                                const corrA = n.mult(penetration * (invA / invSum));
+                                const corrB = n.mult(penetration * (invB / invSum));
+                                try { addPos(A.sprite, corrA); addPos(B.sprite, corrB.mult(-1)); } catch (e) {}
+
+                                // compute velocity impulse based on current velocities
+                                const vA = A.sprite.vlos ? A.sprite.vlos.clone() : new Vector(0,0);
+                                const vB = B.sprite.vlos ? B.sprite.vlos.clone() : new Vector(0,0);
+                                const rel = vA.sub(vB);
+                                const relN = rel.dot(n);
+                                if (relN < 0) {
+                                    const eRest = Math.min(A.restitution || 1.0, B.restitution || 1.0);
+                                    const j = -(1 + eRest) * relN / invSum;
+                                    const impulse = n.mult(j);
+                                    try { addVel(A.sprite, impulse.mult(invA)); addVel(B.sprite, impulse.mult(-invB)); } catch (e) {}
+                                    // Coulomb friction: compute tangential relative velocity and apply
+                                    try {
+                                        // friction coefficients: prefer sprite-level, fall back to scene default
+                                        const muA = (A.sprite && typeof A.sprite.friction === 'number') ? A.sprite.friction : (this.defaultFriction || 0.0);
+                                        const muB = (B.sprite && typeof B.sprite.friction === 'number') ? B.sprite.friction : (this.defaultFriction || 0.0);
+                                        // conservative combined mu (min) to avoid sticky behavior
+                                        const mu = Math.min(muA, muB);
+                                        // tangential relative velocity (remove normal component)
+                                        const tang = rel.sub(n.mult(relN));
+                                        const tangMag = tang.mag();
+                                        if (tangMag > 1e-6) {
+                                            const tDir = tang.div(tangMag); // unit tangent
+                                            const relT = rel.dot(tDir);
+                                            // friction impulse magnitude (uncapped)
+                                            const jt = -relT / invSum;
+                                            // clamp by Coulomb limit: |jt| <= mu * j
+                                            const maxJt = Math.abs(mu * j);
+                                            let jtC = jt;
+                                            if (jtC > maxJt) jtC = maxJt;
+                                            if (jtC < -maxJt) jtC = -maxJt;
+                                            if (Math.abs(jtC) > 0) {
+                                                const tangImpulse = tDir.mult(jtC);
+                                                try { addVel(A.sprite, tangImpulse.mult(invA)); addVel(B.sprite, tangImpulse.mult(-invB)); } catch (e) {}
+                                            }
+                                        }
+                                    } catch (e) {}
+                                }
+                            } catch (e) { /* ignore pair collision errors */ }
+                        }
+                    }
+
+                    // Apply averaged positional corrections
+                    for (const [spr, entry] of posAcc.entries()) {
+                        try {
+                            const avg = entry.sum.clone().divS(Math.max(1, entry.count));
+                            spr.pos.addS(avg);
+                        } catch (e) {}
+                    }
+
+                    // Update entity polygons positions after positional corrections
+                    try {
+                        for (const ent of this.entitiesRuntime) {
+                            if (ent && ent.sprite && ent.poly && Array.isArray(ent.localVerts)) {
+                                const worldVerts = ent.localVerts.map(v => v.add(ent.sprite.pos));
+                                try { ent.poly.setVertices(worldVerts); } catch (e) {}
                             }
                         }
                     } catch (e) {}
 
-                    const collidables = [];
-                    // add cat if present (circle)
-                    if (this.cat) {
-                        const ccenter = this.cat.pos.add(this.cat.size.mult(0.5));
-                        const cradius = this.catRadius || Math.min(this.cat.size.x, this.cat.size.y) * 0.2;
-                        collidables.push({ kind: 'circle', id: 'cat', sprite: this.cat, center: ccenter, radius: cradius, mass: 0.5, restitution: 0.2 });
+                    // Apply averaged velocity impulses
+                    for (const [spr, entry] of velAcc.entries()) {
+                        try {
+                            const avg = entry.sum.clone().divS(Math.max(1, entry.count));
+                            if (spr.vlos) spr.vlos.addS(avg);
+                        } catch (e) {}
                     }
-
-                    // add entities: always expose an inner circle collider (more stable),
-                    // and also expose the polygon collider when present. During pairwise
-                    // tests we will prefer the inner circle collision if it intersects.
-                    for (let i = 0; i < this.entitiesRuntime.length; i++) {
-                        const e = this.entitiesRuntime[i];
-                        if (!e) continue;
-                        if (e.held) continue;
-                        if (!e || !e.sprite) continue;
-                        const s = e.sprite;
-                        // compute an inner circle (centered on sprite) — stable, used preferentially
-                        const innerCenter = s.pos.add(s.size.mult(0.5));
-                        const innerRadius = Math.min(s.size.x, s.size.y) * 0.35;
-                        // always push the inner circle entry (marked with ownerIndex)
-                        collidables.push({ kind: 'circle', id: 'ent' + i + '_inner', ownerIndex: i, sprite: s, center: innerCenter, radius: innerRadius, mass: (s.mass || this.defaultEntityMass || 5), restitution: (s.restitution || 1.0) });
-
-                        // also push polygon collider when available (for more precise contacts)
-                        if (e.poly) {
-                            collidables.push({ kind: 'poly', id: 'ent' + i, ownerIndex: i, sprite: s, poly: e.poly, innerCenter, innerRadius, mass: (s.mass || this.defaultEntityMass || 5), restitution: (s.restitution || 1.0) });
-                        }
-                    }
-
-                            // resolve each unordered pair once using accumulation/averaging
-                            // to avoid sequential pair updates that can cause jitter.
-                            const ITERATIONS = 2;
-                            for (let it = 0; it < ITERATIONS; it++) {
-                                const posAcc = new Map(); // sprite -> { sum: Vector, count: number }
-                                const velAcc = new Map(); // sprite -> { sum: Vector, count: number }
-
-                                const addPos = (spr, vec) => {
-                                    if (!posAcc.has(spr)) posAcc.set(spr, { sum: new Vector(0,0), count: 0 });
-                                    const entry = posAcc.get(spr); entry.sum.addS(vec); entry.count += 1;
-                                };
-                                const addVel = (spr, vec) => {
-                                    if (!velAcc.has(spr)) velAcc.set(spr, { sum: new Vector(0,0), count: 0 });
-                                    const entry = velAcc.get(spr); entry.sum.addS(vec); entry.count += 1;
-                                };
-
-                                for (let i = 0; i < collidables.length; i++) {
-                                    for (let j = i + 1; j < collidables.length; j++) {
-                                        const A = collidables[i];
-                                        const B = collidables[j];
-                                        // Universal cat-vs-entity ignore handling (works for circle/poly pairs)
-                                        try {
-                                            const isACat = (A.id === 'cat');
-                                            const isBCat = (B.id === 'cat');
-                                            let entIdx = -1;
-                                            if (isACat && typeof B.ownerIndex === 'number') entIdx = B.ownerIndex;
-                                            if (isBCat && typeof A.ownerIndex === 'number') entIdx = A.ownerIndex;
-                                            if (entIdx >= 0) {
-                                                const ent = (this.entitiesRuntime && this.entitiesRuntime[entIdx]) ? this.entitiesRuntime[entIdx] : null;
-                                                if (ent && ent._ignoreCat) {
-                                                    // If timer is still positive, skip collision pairs immediately
-                                                    if (typeof ent._ignoreCatTimer === 'number' && ent._ignoreCatTimer > 0) {
-                                                        continue;
-                                                    } else {
-                                                        // Timer expired: test whether they are still overlapping now.
-                                                        let stillColliding = false;
-                                                        try {
-                                                            const catCenter = (isACat && A.center && A.center.clone) ? A.center.clone() : (isBCat && B.center && B.center.clone) ? B.center.clone() : (this.cat ? this.cat.pos.add(this.cat.size.mult(0.5)) : null);
-                                                            const catRadius = (isACat && A.radius) ? A.radius : (isBCat && B.radius) ? B.radius : (this.cat ? (this.catRadius || Math.min(this.cat.size.x, this.cat.size.y) * 0.2) : 0);
-                                                            if (ent && ent.poly && catCenter) {
-                                                                const h = ent.poly.collideCircle(catCenter, catRadius);
-                                                                if (h && h.collides) stillColliding = true;
-                                                            } else if (catCenter && ent && ent.sprite) {
-                                                                const cent = ent.sprite.pos.add(ent.sprite.size.mult(0.5));
-                                                                const er = Math.min(ent.sprite.size.x, ent.sprite.size.y) * 0.35;
-                                                                const d = cent.sub(catCenter).mag();
-                                                                if (d < (er + catRadius)) stillColliding = true;
-                                                            }
-                                                        } catch (e) {}
-                                                        if (stillColliding) continue; // still overlapping -> keep ignoring
-                                                        else { try { delete ent._ignoreCat; delete ent._ignoreCatTimer; } catch (e) {} }
-                                                    }
-                                                }
-                                            }
-                                        } catch (e) {}
-                                        try {
-                                            let hit = null; let n = null; let penetration = 0;
-                                            if (A.kind === 'poly' && B.kind === 'poly') {
-                                                hit = A.poly.collidePolygon(B.poly);
-                                                if (hit && hit.collides) { n = hit.normal; penetration = hit.penetration; }
-                                            } else if (A.kind === 'poly' && B.kind === 'circle') {
-                                                hit = A.poly.collideCircle(B.center, B.radius);
-                                                if (hit && hit.collides) { n = hit.normal.mult(-1); penetration = hit.penetration; }
-                                            } else if (A.kind === 'circle' && B.kind === 'poly') {
-                                                hit = B.poly.collideCircle(A.center, A.radius);
-                                                if (hit && hit.collides) { n = hit.normal; penetration = hit.penetration; }
-                                            } else if (A.kind === 'circle' && B.kind === 'circle') {
-                                                // prefer explicit centers when available (inner circle entries provide them)
-                                                const cA = (A.center && A.center.clone) ? A.center.clone() : (A.sprite ? A.sprite.pos.add(A.sprite.size.mult(0.5)) : new Vector(0,0));
-                                                const cB = (B.center && B.center.clone) ? B.center.clone() : (B.sprite ? B.sprite.pos.add(B.sprite.size.mult(0.5)) : new Vector(0,0));
-                                                const delta = cA.sub(cB);
-                                                const dist = delta.mag();
-                                                const totalR = (A.radius || 0) + (B.radius || 0);
-                                                if (dist > 1e-6 && dist < totalR) { penetration = totalR - dist; n = delta.div(dist); }
-                                            }
-                                            // If one side is a polygon and the other is a circle, prefer the polygon's
-                                            // inner circle collision (if provided) — it's more stable than poly-edge tests.
-                                            else if (A.kind === 'poly' && B.kind === 'circle') {
-                                                // If the polygon has an inner circle, test that first
-                                                if (A.innerRadius && A.innerCenter) {
-                                                    const cA = A.innerCenter.clone();
-                                                    const cB = (B.center && B.center.clone) ? B.center.clone() : (B.sprite ? B.sprite.pos.add(B.sprite.size.mult(0.5)) : new Vector(0,0));
-                                                    const delta = cA.sub(cB);
-                                                    const dist = delta.mag();
-                                                    const totalR = (A.innerRadius || 0) + (B.radius || 0);
-                                                    if (dist > 1e-6 && dist < totalR) { penetration = totalR - dist; n = delta.div(dist); }
-                                                    else {
-                                                        const hit = A.poly.collideCircle(B.center, B.radius);
-                                                        if (hit && hit.collides) { n = hit.normal.mult(-1); penetration = hit.penetration; }
-                                                    }
-                                                } else {
-                                                    const hit = A.poly.collideCircle(B.center, B.radius);
-                                                    if (hit && hit.collides) { n = hit.normal.mult(-1); penetration = hit.penetration; }
-                                                }
-                                            } else if (A.kind === 'circle' && B.kind === 'poly') {
-                                                // mirror of above: prefer B's inner circle
-                                                if (B.innerRadius && B.innerCenter) {
-                                                    const cA = (A.center && A.center.clone) ? A.center.clone() : (A.sprite ? A.sprite.pos.add(A.sprite.size.mult(0.5)) : new Vector(0,0));
-                                                    const cB = B.innerCenter.clone();
-                                                    const delta = cA.sub(cB);
-                                                    const dist = delta.mag();
-                                                    const totalR = (A.radius || 0) + (B.innerRadius || 0);
-                                                    if (dist > 1e-6 && dist < totalR) { penetration = totalR - dist; n = delta.div(dist); }
-                                                    else {
-                                                        const hit = B.poly.collideCircle(A.center, A.radius);
-                                                        if (hit && hit.collides) { n = hit.normal; penetration = hit.penetration; }
-                                                    }
-                                                } else {
-                                                    const hit = B.poly.collideCircle(A.center, A.radius);
-                                                    if (hit && hit.collides) { n = hit.normal; penetration = hit.penetration; }
-                                                }
-                                            }
-                                            if (!n || penetration <= 0) continue;
-
-                                            const mA = A.mass || 1; const mB = B.mass || 1;
-                                            const invA = (mA > 0) ? 1 / mA : 0;
-                                            const invB = (mB > 0) ? 1 / mB : 0;
-                                            const invSum = invA + invB || 1;
-
-                                            // accumulate positional corrections (A += corrA, B -= corrB)
-                                            const corrA = n.mult(penetration * (invA / invSum));
-                                            const corrB = n.mult(penetration * (invB / invSum));
-                                            try { addPos(A.sprite, corrA); addPos(B.sprite, corrB.mult(-1)); } catch (e) {}
-
-                                            // compute velocity impulse based on current velocities
-                                            const vA = A.sprite.vlos ? A.sprite.vlos.clone() : new Vector(0,0);
-                                            const vB = B.sprite.vlos ? B.sprite.vlos.clone() : new Vector(0,0);
-                                            const rel = vA.sub(vB);
-                                            const relN = rel.dot(n);
-                                            if (relN < 0) {
-                                                const eRest = Math.min(A.restitution || 1.0, B.restitution || 1.0);
-                                                const j = -(1 + eRest) * relN / invSum;
-                                                const impulse = n.mult(j);
-                                                try { addVel(A.sprite, impulse.mult(invA)); addVel(B.sprite, impulse.mult(-invB)); } catch (e) {}
-                                            }
-                                        } catch (e) { /* ignore pair collision errors */ }
-                                    }
-                                }
-
-                                // Apply averaged positional corrections
-                                for (const [spr, entry] of posAcc.entries()) {
-                                    try {
-                                        const avg = entry.sum.clone().divS(Math.max(1, entry.count));
-                                        spr.pos.addS(avg);
-                                    } catch (e) {}
-                                }
-
-                                // Update entity polygons positions after positional corrections
-                                try {
-                                    for (const ent of this.entitiesRuntime) {
-                                        if (ent && ent.sprite && ent.poly && Array.isArray(ent.localVerts)) {
-                                            const worldVerts = ent.localVerts.map(v => v.add(ent.sprite.pos));
-                                            try { ent.poly.setVertices(worldVerts); } catch (e) {}
-                                        }
-                                    }
-                                } catch (e) {}
-
-                                // Apply averaged velocity impulses
-                                for (const [spr, entry] of velAcc.entries()) {
-                                    try {
-                                        const avg = entry.sum.clone().divS(Math.max(1, entry.count));
-                                        if (spr.vlos) spr.vlos.addS(avg);
-                                    } catch (e) {}
-                                }
-                            }
-                } catch (e) { /* ignore pairwise collision errors */ }
+                }
+            } catch (e) { /* ignore pairwise collision errors */ }
         } catch (e) { /* ignore collision errors */ }
         
     }
