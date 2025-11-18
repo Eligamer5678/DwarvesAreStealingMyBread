@@ -1,5 +1,5 @@
 import Vector from '../Vector.js';
-import BufferedSegment from './BufferedSegment.js';
+import BufferedSegment from './SegmentCollider.js';
 
 /**
  * BufferedPolygon: edge-only collision using a sequence of BufferedSegments.

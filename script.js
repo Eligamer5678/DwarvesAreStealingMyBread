@@ -134,8 +134,8 @@ class Game {
     }
 
     async init() {
-        await this.loadScene('title');
-        this.switchScene('title');
+        await this.loadScene('main');
+        this.switchScene('main');
         // Only create the multiplayer UI if the server (firebase) was initialized.
 
         // De-comment to enable server-side features.
@@ -603,8 +603,6 @@ class Program {
         let delta = (time - this.lastTime) / 1000;
         if (delta > 0.1) delta = 0.1;
         this.lastTime = time;
-        this.mouse.update(delta);
-        this.keys.update(delta);
         this.update(delta);
         this.draw();
 

@@ -1,6 +1,33 @@
 import Timer from '../js/Timer.js';
 
+/**
+ * JSDoc typedefs for editor tooling and autocomplete.
+ *
+ * @typedef {import('../js/Draw.js').default} Draw
+ * @typedef {import('../js/Mouse.js').default} Mouse
+ * @typedef {import('../js/Keys.js').default} Keys
+ * @typedef {import('../js/Saver.js').default} Saver
+ * @typedef {import('../Server/ServerManager.js').default} ServerManager
+ */
+
 export default class Scene {
+    /**
+     * 
+     * @param {string} name 
+     * @param {Draw} Draw 
+     * @param {Draw} UIDraw 
+     * @param {Mouse} mouse 
+     * @param {Keys} keys 
+     * @param {Saver} saver 
+     * @param {Function} switchScene 
+     * @param {Function} loadScene 
+     * @param {Function} preloadScene 
+     * @param {Function} removeScene 
+     * @param {Signal} RSS 
+     * @param {Signal} EM 
+     * @param {ServerManager} server 
+     * @param {number} playerCount 
+     */
     constructor(name, Draw, UIDraw, mouse, keys, saver, switchScene, loadScene, preloadScene, removeScene, RSS, EM, server, playerCount=1) { // RSS: remoteStateSignal, EM: enableMultiplayer (signal)
         this.name = name;
         this.isReady = false;
