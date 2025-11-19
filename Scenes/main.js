@@ -96,6 +96,8 @@ export class MainScene extends Scene {
         this._miningActive = false;
         this._prevMiningHeld = false;
         this.miningTarget = null;
+        this.miningProgress = 0;
+        this.baseMiningTime = 2.0; // seconds to mine with speed=1.0
 
         // Make noise tiles match the player's size so one tile == one dwarf
         this.noiseTileSize = (this.player && this.player.size && this.player.size.x) ? this.player.size.x*1.1 : 8;
@@ -129,11 +131,11 @@ export class MainScene extends Scene {
         // keep highlighting the same tile to avoid flicker when player input/pos changes.
         const miningHeld = !!this.keys.held(' ');
         if (miningHeld && !this._prevMiningHeld) {
-            // mining started this frame: capture current highlight as mining target and mine it
+            // mining started this frame: capture current highlight as mining target and start progress
             if (this.highlightTile) {
                 this._miningActive = true;
                 this.miningTarget = { sx: this.highlightTile.sx, sy: this.highlightTile.sy };
-                this._mineTile(this.miningTarget.sx, this.miningTarget.sy);
+                this.miningProgress = 0;
             }
         } else if (!miningHeld && this._prevMiningHeld) {
             // mining released this frame: clear target
@@ -141,6 +143,46 @@ export class MainScene extends Scene {
             this.miningTarget = null;
         }
         this._prevMiningHeld = miningHeld;
+
+        // If currently mining (holding), validate target and advance progress; cancel if invalid or too far
+        if (this._miningActive && miningHeld && this.miningTarget && this.player) {
+            // validate that the target still exists and is solid
+            const tv = this._getTileValue(this.miningTarget.sx, this.miningTarget.sy);
+            const targetSolid = (typeof tv === 'number' && tv < 0.999);
+            // cancel if target no longer solid
+            if (!targetSolid) {
+                this._miningActive = false;
+                this.miningTarget = null;
+                this.miningProgress = 0;
+            } else {
+                // cancel if player moved too far away (more than 2 tiles)
+                const px = (this.player.pos.x || 0) + (this.player.size.x || 0) * 0.5;
+                const py = (this.player.pos.y || 0) + (this.player.size.y || 0) * 0.5;
+                const tx = (this.miningTarget.sx * this.noiseTileSize) + (this.noiseTileSize * 0.5);
+                const ty = (this.miningTarget.sy * this.noiseTileSize) + (this.noiseTileSize * 0.5);
+                const dist = Math.hypot(px - tx, py - ty) / (this.noiseTileSize || 1);
+                if (dist > 2.0) {
+                    this._miningActive = false;
+                    this.miningTarget = null;
+                    this.miningProgress = 0;
+                } else {
+                    const speed = (this.player.currentTool && typeof this.player.currentTool.speed === 'number') ? this.player.currentTool.speed : 1.0;
+                    const required = (this.baseMiningTime || 2.0) / Math.max(0.0001, speed);
+                    this.miningProgress += tickDelta;
+                    if (this.miningProgress >= required) {
+                        // complete mining
+                        this._mineTile(this.miningTarget.sx, this.miningTarget.sy);
+                        // reset mining state (require re-press to mine again)
+                        this._miningActive = false;
+                        this.miningTarget = null;
+                        this.miningProgress = 0;
+                    }
+                }
+            }
+        } else if (!miningHeld) {
+            // ensure progress resets when not holding
+            this.miningProgress = 0;
+        }
 
         this._collideTiles();
         this._generateChunks();
@@ -180,7 +222,11 @@ export class MainScene extends Scene {
             sx = Math.floor(frontX / this.noiseTileSize);
             sy = Math.floor(centerY / this.noiseTileSize);
         }
-        this.highlightTile = { sx, sy };
+        // Only show the selector highlight when there is an actual solid block at that sample
+        const val = this._getTileValue(sx, sy);
+        const isSolid = (typeof val === 'number' && val < 0.999);
+        if (isSolid) this.highlightTile = { sx, sy };
+        else this.highlightTile = null;
     }
 
     _tryMineInFront(){
@@ -388,6 +434,24 @@ export class MainScene extends Scene {
             const hy = this.highlightTile.sy * ts;
             // translucent yellow fill + stroke
             this.Draw.rect(new Vector(hx, hy), new Vector(ts, ts), 'rgba(255,255,0,0.25)', true, true, 2, '#FFFF00');
+        }
+        // Loading / mining UI: circular progress over locked mining target
+        if (this._miningActive && this.miningTarget && this.player) {
+            const sx = this.miningTarget.sx, sy = this.miningTarget.sy;
+            const cx = sx * ts + ts * 0.5;
+            const cy = sy * ts + ts * 0.5;
+            const speed = (this.player.currentTool && typeof this.player.currentTool.speed === 'number') ? this.player.currentTool.speed : 1.0;
+            const required = (this.baseMiningTime || 2.0) / Math.max(0.0001, speed);
+            const frac = Math.max(0, Math.min(1, (this.miningProgress || 0) / required));
+            const size = new Vector(ts * 0.8, ts * 0.8);
+            // subtle dark background circle
+            this.Draw.circle(new Vector(cx, cy), ts * 0.4, 'rgba(0,0,0,0.5)', true);
+            // progress arc from -90deg clockwise
+            const start = -Math.PI / 2;
+            const end = start + frac * Math.PI * 2;
+            this.Draw.arc(new Vector(cx, cy), size, start, end, 'rgba(255,220,80,0.95)', true, false);
+            // outline
+            this.Draw.circle(new Vector(cx, cy), ts * 0.4, 'rgba(255,255,255,0.25)', false, 2);
         }
         // draw player on top of chunks (inside world transform)
         try { if (this.player && typeof this.player.draw === 'function') this.player.draw(new Vector(0,0)); } catch (e) {}

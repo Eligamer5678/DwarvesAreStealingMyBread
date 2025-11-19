@@ -55,6 +55,9 @@ export default class Dwarf extends Sprite {
         this.jumpSpeed = 7; // initial jump impulse (px/s)
         this.onGround = false; // set by scene collision resolution
 
+        // Tool state (can be changed at runtime). `speed` scales mining time (1.0 = normal).
+        this.currentTool = { type: 'pickaxe', speed: 1.0 };
+
         // Wire jump input (Input.onJump emits when jump key pressed)
         if (this.input && this.input.onJump && typeof this.input.onJump.connect === 'function') {
             this.input.onJump.connect((k) => {
