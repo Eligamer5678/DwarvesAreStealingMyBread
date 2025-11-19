@@ -60,6 +60,8 @@ export default class Sprite {
         // or an options object to construct one when `keys` was provided.
         this.input = null;
         this.inputDir = new Vector(0,0); // last-read input direction (Vector)
+        this.envInput = null; // secondary input manager for environment controls (climb/swim)
+        this.envInputDir = new Vector(0,0);
         if (this.keys && inputSettings !== undefined && inputSettings !== null) {
             if (typeof inputSettings.update === 'function') {
                 // already an Input-like object
@@ -82,6 +84,16 @@ export default class Sprite {
             this.inputDir = (dir && typeof dir.clone === 'function') ? dir.clone() : new Vector(dir.x||0, dir.y||0);
             // accelerate in input direction
             this.vlos.addS(dir.mult(delta).multS(this.speed));
+        }
+
+        // Secondary environment input (not used for physics directly but available
+        // for things like climbing or swimming). Create lazily when keys are present.
+        if (this.keys && !this.envInput) {
+            try { this.envInput = new Input(this.keys, 'default', { normalizeDiagonal: false }); } catch (e) { this.envInput = null; }
+        }
+        if (this.envInput && typeof this.envInput.update === 'function') {
+            const edir = this.envInput.update();
+            this.envInputDir = (edir && typeof edir.clone === 'function') ? edir.clone() : new Vector(edir.x||0, edir.y||0);
         }
 
         // simple friction

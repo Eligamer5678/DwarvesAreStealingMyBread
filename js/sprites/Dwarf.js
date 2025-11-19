@@ -54,6 +54,8 @@ export default class Dwarf extends Sprite {
         this.terminal = 100; // max fall speed (px/s)
         this.jumpSpeed = 7; // initial jump impulse (px/s)
         this.onGround = false; // set by scene collision resolution
+        this.onLadder = false; // set by scene when overlapping ladder
+        this.climbSpeed = 4; // px/s climb speed when on ladder (slower)
 
         // Tool state (can be changed at runtime). `speed` scales mining time (1.0 = normal).
         this.currentTool = { type: 'pickaxe', speed: 1.0 };
@@ -73,9 +75,20 @@ export default class Dwarf extends Sprite {
         // base sprite update handles horizontal input and friction
         super.update(delta);
 
-        // apply gravity (downwards positive)
-        this.vlos.y += this.gravity * delta;
-        if (this.vlos.y > this.terminal) this.vlos.y = this.terminal;
+        // Ladder climbing: when on a ladder, gravity is suspended and vertical
+        // movement is controlled by input.y (this.inputDir.y). Otherwise, apply gravity.
+        if (this.onLadder) {
+            // prefer environment input for vertical control when on ladder
+            const env = (this.envInputDir && typeof this.envInputDir.y === 'number') ? this.envInputDir.y : (this.inputDir && typeof this.inputDir.y === 'number' ? this.inputDir.y : 0);
+            // input: -1 up, +1 down
+            this.vlos.y = env * this.climbSpeed;
+            // while on a ladder, consider the sprite not on ground
+            this.onGround = false;
+        } else {
+            // apply gravity (downwards positive)
+            this.vlos.y += this.gravity * delta;
+            if (this.vlos.y > this.terminal) this.vlos.y = this.terminal;
+        }
 
         // Animation & facing: switch to 'walk' when moving horizontally,
         // otherwise 'idle'. Reset frame when animation changes.

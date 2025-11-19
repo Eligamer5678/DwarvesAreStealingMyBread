@@ -96,6 +96,9 @@ export class MainScene extends Scene {
         this._miningActive = false;
         this._prevMiningHeld = false;
         this.miningTarget = null;
+        // blockMap stores explicit block types placed/generated in the world:
+        // key: "sx,sy" -> { type: 'solid'|'ladder' } or null for empty
+        this.blockMap = new Map();
         this.miningProgress = 0;
         this.baseMiningTime = 2.0; // seconds to mine with speed=1.0
 
@@ -106,7 +109,7 @@ export class MainScene extends Scene {
             offset: new Vector(0, -8),      // lift player slightly above center
             panSmooth: 12,                  // override pan smoothing while tracking
             zoomSmooth: 10,                  // override zoom smoothing while tracking
-            zoom: 5
+            zoom: 0.5
         });
         this.isReady = true;
     }
@@ -146,11 +149,11 @@ export class MainScene extends Scene {
 
         // If currently mining (holding), validate target and advance progress; cancel if invalid or too far
         if (this._miningActive && miningHeld && this.miningTarget && this.player) {
-            // validate that the target still exists and is solid
+            // validate that the target still exists (solid or ladder)
             const tv = this._getTileValue(this.miningTarget.sx, this.miningTarget.sy);
-            const targetSolid = (typeof tv === 'number' && tv < 0.999);
-            // cancel if target no longer solid
-            if (!targetSolid) {
+            const targetExists = (tv && (tv.type === 'solid' || tv.type === 'ladder'));
+            // cancel if target no longer exists
+            if (!targetExists) {
                 this._miningActive = false;
                 this.miningTarget = null;
                 this.miningProgress = 0;
@@ -222,10 +225,10 @@ export class MainScene extends Scene {
             sx = Math.floor(frontX / this.noiseTileSize);
             sy = Math.floor(centerY / this.noiseTileSize);
         }
-        // Only show the selector highlight when there is an actual solid block at that sample
+        // Only show the selector highlight when there is an actual block (solid or ladder)
         const val = this._getTileValue(sx, sy);
-        const isSolid = (typeof val === 'number' && val < 0.999);
-        if (isSolid) this.highlightTile = { sx, sy };
+        const hasBlock = (val && (val.type === 'solid' || val.type === 'ladder'));
+        if (hasBlock) this.highlightTile = { sx, sy };
         else this.highlightTile = null;
     }
 
@@ -269,8 +272,11 @@ export class MainScene extends Scene {
 
     _mineTile(sx, sy){
         const key = `${sx},${sy}`;
-        // treat mining as setting the tile to empty (1.0) — matches render check (v >= 0.999)
-        this.modifiedTiles.set(key, 1.0);
+        // treat mining as setting the tile to empty (override with `null`)
+        // this.modifiedTiles can hold structured entries; `null` means explicitly empty
+        this.modifiedTiles.set(key, null);
+        // also remove any generated block (like ladders) at this location
+        if (this.blockMap && this.blockMap.has(key)) this.blockMap.delete(key);
         // If the chunk containing this sample is already generated, update it for immediate effect
         const cx = Math.floor(sx / this.chunkSize);
         const cy = Math.floor(sy / this.chunkSize);
@@ -300,14 +306,38 @@ export class MainScene extends Scene {
         
         const tileSizeVec = new Vector(this.noiseTileSize, this.noiseTileSize);
         let collidedBottom = false;
+
+        // Ladder detection: only detect ladders close to the player's horizontal center
+        // Use Geometry.spriteToTile for intersection tests but do NOT apply resolution
+        this.player.onLadder = false;
+        const playerCenterX = this.player.pos.x + this.player.size.x * 0.5;
+        const tolerance = (this.noiseTileSize || 1) * 0.35; // only detect ladders near the center
+        const minSx = Math.floor((playerCenterX - tolerance) / this.noiseTileSize);
+        const maxSx = Math.floor((playerCenterX + tolerance) / this.noiseTileSize);
+        const topSample = Math.floor(this.player.pos.y / this.noiseTileSize) - 1;
+        const bottomSample = Math.floor((this.player.pos.y + this.player.size.y) / this.noiseTileSize) + 1;
+        ladder_scan: for (let sy = topSample; sy <= bottomSample; sy++){
+            for (let sx = minSx; sx <= maxSx; sx++){
+                const t = this._getTileValue(sx, sy);
+                if (!t || t.type !== 'ladder') continue;
+                const tileWorld = new Vector(sx * this.noiseTileSize, sy * this.noiseTileSize);
+                const pPos = this.player.pos.clone();
+                const pV = this.player.vlos.clone();
+                const res = Geometry.spriteToTile(pPos, pV, size, tileWorld, tileSizeVec, 0);
+                if (res && res.collided) {
+                    this.player.onLadder = true;
+                    break ladder_scan;
+                }
+            }
+        }
         
         for (let dy = -radius; dy <= radius; dy++){
             for (let dx = -radius; dx <= radius; dx++){
                 const sx = sampleX + dx;
                 const sy = sampleY + dy;
                 const val = this._getTileValue(sx, sy);
-                // Treat solid tiles as numeric values less than 0.999 (empty threshold)
-                const isSolid = (typeof val === 'number' && val < 0.999);
+                // Treat tiles with type 'solid' as collidable
+                const isSolid = (val && val.type === 'solid');
                 if (!isSolid) continue;
                 
                 const tileWorld = new Vector(sx * this.noiseTileSize, sy * this.noiseTileSize);
@@ -372,7 +402,20 @@ export class MainScene extends Scene {
     _getTileValue(sx, sy){
         if (!Number.isFinite(sx) || !Number.isFinite(sy)) return null;
         const mkey = `${sx},${sy}`;
-        if (this.modifiedTiles && this.modifiedTiles.has(mkey)) return this.modifiedTiles.get(mkey);
+        // If the player or code has modified this sample explicitly, prefer that
+        if (this.modifiedTiles && this.modifiedTiles.has(mkey)) {
+            // modifiedTiles entries may be primitives (legacy) or structured (null => empty, {type:...})
+            const v = this.modifiedTiles.get(mkey);
+            if (v === null) return null;
+            if (typeof v === 'object') return v;
+            // legacy numeric: treat <0.999 as solid, else empty
+            if (typeof v === 'number') return (v < 0.999) ? { type: 'solid' } : null;
+            return null;
+        }
+        // next prefer explicit generated/placed blocks
+        if (this.blockMap && this.blockMap.has(mkey)) {
+            return this.blockMap.get(mkey);
+        }
         const cx = Math.floor(sx / this.chunkSize);
         const cy = Math.floor(sy / this.chunkSize);
         const key = this._chunkKey(cx, cy);
@@ -382,7 +425,10 @@ export class MainScene extends Scene {
         const lx = sx - cx * this.chunkSize;
         const ly = sy - cy * this.chunkSize;
         if (lx < 0 || ly < 0 || lx >= chunk.width || ly >= chunk.height) return null;
-        return chunk.data[ly * chunk.width + lx];
+        const raw = chunk.data[ly * chunk.width + lx];
+        // interpret raw noise value: <0.999 => solid, >=0.999 => empty
+        if (typeof raw === 'number' && raw < 0.999) return { type: 'solid' };
+        return null;
     }
 
     _generateChunk(cx, cy){
@@ -396,6 +442,53 @@ export class MainScene extends Scene {
         opts.offsetX = startX;
         opts.offsetY = startY;
         const map = perlinNoise(this.chunkSize, this.chunkSize, opts);
+        // Simpler seeded ladder columns: pick columns deterministically using global x
+        // and place ladder tiles for the whole column within this chunk (skipping player-modified tiles).
+        try {
+            if (!this.blockMap) this.blockMap = new Map();
+            const raw = map.data;
+            const w = map.width, h = map.height;
+            const seed = (this.noiseOptions && Number.isFinite(this.noiseOptions.seed)) ? Number(this.noiseOptions.seed) : 1337;
+            const columnChance = (this.noiseOptions && Number.isFinite(this.noiseOptions.ladderChance)) ? Number(this.noiseOptions.ladderChance) : 0.02;
+
+            // Deterministic per-x pseudo-random: use a simple fract(sin()) hash which
+            // behaves well for sparsity and avoids bitwise edge cases across JS engines.
+            const pseudo = (s, n) => {
+                const x = n * 12.9898 + s * 78.233;
+                const v = Math.sin(x) * 43758.5453123;
+                return v - Math.floor(v);
+            };
+
+            for (let xx = 0; xx < w; xx++) {
+                const globalSx = startX + xx;
+                const r = pseudo(seed, globalSx);
+                if (r >= columnChance) continue;
+                // mark entire column within this chunk as ladder (replace chunk content visually)
+                for (let y = 0; y < h; y++) {
+                    const globalSy = startY + y;
+                    const key = `${globalSx},${globalSy}`;
+                    if (this.modifiedTiles.has(key)) continue; // do not overwrite player edits
+                    this.blockMap.set(key, { type: 'ladder' });
+                }
+            }
+            // After seeding ladders, remove any ladder where the noise map contains a solid block
+            // (normal blocks override ladders). Respect player edits in `modifiedTiles`.
+            for (let y = 0; y < h; y++) {
+                for (let xx = 0; xx < w; xx++) {
+                    const v = raw[y * w + xx];
+                    if (typeof v === 'number' && v < 0.999) {
+                        const sx = startX + xx;
+                        const sy = startY + y;
+                        const key = `${sx},${sy}`;
+                        if (this.modifiedTiles && this.modifiedTiles.has(key)) continue;
+                        if (this.blockMap && this.blockMap.has(key)) this.blockMap.delete(key);
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('Chunk ladder generation failed', e);
+        }
+
         return { x: cx, y: cy, width: map.width, height: map.height, data: map.data };
     }
 
@@ -420,11 +513,22 @@ export class MainScene extends Scene {
             const baseY = cy * this.chunkSize * ts;
             for (let yy = 0; yy < h; yy++){
                 for (let xx = 0; xx < w; xx++){
-                    const v = data[yy * w + xx];
-                    const c = Math.max(0, Math.min(255, Math.floor(v * 255)));
-                    // Skip tiles that are '1' (treated as empty/transparent).
-                    if (c >= 0.999) continue;
-                    this.Draw.rect(new Vector(baseX + xx * ts, baseY + yy * ts), new Vector(ts, ts), '#555555');
+                    const sx = cx * this.chunkSize + xx;
+                    const sy = cy * this.chunkSize + yy;
+                    const tile = this._getTileValue(sx, sy);
+                    if (!tile) continue;
+                    const pos = new Vector(baseX + xx * ts, baseY + yy * ts);
+                    if (tile.type === 'solid') {
+                        this.Draw.rect(pos, new Vector(ts, ts), '#555555');
+                    } else if (tile.type === 'ladder') {
+                        // draw ladder: vertical brown strip + rungs
+                        this.Draw.rect(pos, new Vector(ts, ts), '#6b4f2b');
+                        const rungCount = Math.max(2, Math.floor(ts / 6));
+                        for (let r = 0; r < rungCount; r++) {
+                            const ry = pos.y + (r + 1) * (ts / (rungCount + 1));
+                            this.Draw.line(new Vector(pos.x + ts * 0.15, ry), new Vector(pos.x + ts * 0.85, ry), '#caa97a', 1);
+                        }
+                    }
                 }
             }
         }
