@@ -143,22 +143,34 @@ function perlin2(perm, x, y){
  * @param {number} width - width of the generated field (samples)
  * @param {number} height - height of the generated field (samples)
  * @param {object} [options]
- * @param {number} [options.scale=50] - feature scale (larger -> larger features)
+ * @param {number} [options.scale=5] - feature scale (larger -> larger features)
  * @param {number} [options.octaves=1] - number of fractal octaves
  * @param {number} [options.persistence=0.5] - amplitude multiplier per octave
  * @param {number} [options.lacunarity=2.0] - frequency multiplier per octave
  * @param {number} [options.seed] - integer seed (default random)
  * @param {boolean} [options.normalize=true] - normalize output to [0,1]
+ * @param {number} [options.split=0.5] - optional threshold in [0,1]; set to a value >= 0 to
+ *                                       produce a binary map (values >= split -> 1, else 0).
+ * @param {boolean} [options.connect=true] - when `split >= 0` and `connect` is true,
+ *                                            post-process the binary map to connect
+ *                                            separated components by drawing straight
+ *                                            bridges to the largest component.
+ * @param {number} [options.bridgeWidth=3] - thickness (in pixels) of the connecting bridge.
+ * @param {number} [options.offsetX=0] - horizontal sample offset (in sample units). Use
+ *                                       this to shift the noise pattern horizontally.
+ * @param {number} [options.offsetY=0] - vertical sample offset (in sample units). Use
+ *                                       this to shift the noise pattern vertically.
  * @returns {{width:number,height:number,data:Float32Array}}
  */
-export function perlinNoise(width, height, options = {}){
+export function perlinNoise(width=64, height=64, options = {}){
     const opts = Object.assign({
         scale: 50,
         octaves: 1,
         persistence: 0.5,
         lacunarity: 2.0,
         seed: Math.floor(Math.random() * 65536),
-        normalize: true
+        normalize: true,
+        split: -1
     }, options || {});
 
     const scale = (opts.scale <= 0) ? 1 : opts.scale;
@@ -167,14 +179,17 @@ export function perlinNoise(width, height, options = {}){
 
     let min = Infinity, max = -Infinity;
 
+    const ox = parseFloat(opts.offsetX || 0) || 0;
+    const oy = parseFloat(opts.offsetY || 0) || 0;
+
     for(let j=0;j<height;j++){
         for(let i=0;i<width;i++){
             let amplitude = 1.0;
             let frequency = 1.0;
             let noiseValue = 0.0;
             for(let o=0;o<opts.octaves;o++){
-                const sampleX = (i / scale) * frequency;
-                const sampleY = (j / scale) * frequency;
+                const sampleX = ((i + ox) / scale) * frequency;
+                const sampleY = ((j + oy) / scale) * frequency;
                 noiseValue += perlin2(perm, sampleX, sampleY) * amplitude;
                 amplitude *= opts.persistence;
                 frequency *= opts.lacunarity;
@@ -190,6 +205,109 @@ export function perlinNoise(width, height, options = {}){
         // Normalize to 0..1
         const range = max - min || 1;
         for(let k=0;k<data.length;k++) data[k] = (data[k] - min) / range;
+    }
+
+    // Optional split threshold: convert to binary map where values >= split => 1, else 0
+    if (opts.split >= 0) {
+        const s = opts.split;
+        for (let k = 0; k < data.length; k++) data[k] = (data[k] >= s) ? 1 : 0;
+    }
+
+    // Optional connectivity post-process for binary maps: connect islands to the
+    // largest component by drawing straight-line bridges (Bresenham) between
+    // nearest border cells. Useful to ensure continuous caves when `split` is used.
+    if (opts.split >= 0 && opts.connect) {
+        const w = width, h = height;
+        // label components (4-neighbor)
+        const labels = new Int32Array(w * h);
+        let curLabel = 0;
+        const stack = [];
+        const comps = [];
+
+        const idxAt = (x,y) => (y * w + x);
+
+        for (let y = 0; y < h; y++){
+            for (let x = 0; x < w; x++){
+                const i = idxAt(x,y);
+                if (data[i] !== 1 || labels[i] !== 0) continue;
+                curLabel++;
+                labels[i] = curLabel;
+                stack.length = 0;
+                stack.push(i);
+                const comp = { id: curLabel, cells: [], border: [] };
+                while (stack.length){
+                    const ci = stack.pop();
+                    comp.cells.push(ci);
+                    const cx = ci % w, cy = Math.floor(ci / w);
+                    // check 4 neighbors
+                    const neigh = [ [cx-1,cy],[cx+1,cy],[cx,cy-1],[cx,cy+1] ];
+                    let isBorder = false;
+                    for (let ni=0; ni<neigh.length; ni++){
+                        const nx = neigh[ni][0], ny = neigh[ni][1];
+                        if (nx < 0 || nx >= w || ny < 0 || ny >= h) { isBorder = true; continue; }
+                        const niidx = idxAt(nx,ny);
+                        if (data[niidx] !== 1) { isBorder = true; continue; }
+                        if (labels[niidx] === 0){ labels[niidx] = curLabel; stack.push(niidx); }
+                    }
+                    if (isBorder) comp.border.push(ci);
+                }
+                comps.push(comp);
+            }
+        }
+
+        if (comps.length > 1){
+            // find largest component (by cells length)
+            comps.sort((a,b) => b.cells.length - a.cells.length);
+            const main = comps[0];
+            const others = comps.slice(1);
+            const bridgeW = Math.max(1, Math.floor(opts.bridgeWidth || 1));
+
+            // helper to draw a pixel/filled square of size bridgeW
+            const setPixel = (px, py) => {
+                for (let yy = -Math.floor(bridgeW/2); yy <= Math.floor((bridgeW-1)/2); yy++){
+                    for (let xx = -Math.floor(bridgeW/2); xx <= Math.floor((bridgeW-1)/2); xx++){
+                        const nx = px + xx, ny = py + yy;
+                        if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+                        data[idxAt(nx,ny)] = 1;
+                    }
+                }
+            };
+
+            // Bresenham line drawing between two points
+            const drawLine = (x0, y0, x1, y1) => {
+                let dx = Math.abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+                let dy = -Math.abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+                let err = dx + dy;
+                let x = x0, y = y0;
+                while (true){
+                    setPixel(x,y);
+                    if (x === x1 && y === y1) break;
+                    const e2 = 2 * err;
+                    if (e2 >= dy) { err += dy; x += sx; }
+                    if (e2 <= dx) { err += dx; y += sy; }
+                }
+            };
+
+            // For each other component, find the nearest border pixel to any main border pixel
+            // and draw a bridge.
+            // Build array of main border coords
+            const mainBorders = main.border.map(ci => [ci % w, Math.floor(ci / w)]);
+
+            for (const comp of others){
+                let best = { d2: Infinity, a: null, b: null };
+                for (const ci of comp.border){
+                    const bx = ci % w, by = Math.floor(ci / w);
+                    for (const mb of mainBorders){
+                        const dx = bx - mb[0], dy = by - mb[1];
+                        const d2 = dx*dx + dy*dy;
+                        if (d2 < best.d2){ best = { d2, a: [bx,by], b: [mb[0],mb[1]] }; }
+                    }
+                }
+                if (best.a && best.b){
+                    drawLine(best.a[0], best.a[1], best.b[0], best.b[1]);
+                }
+            }
+        }
     }
 
     return { width, height, data };
