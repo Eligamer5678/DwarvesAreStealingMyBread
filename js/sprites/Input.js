@@ -58,7 +58,7 @@ export default class Input {
         // Platformer-specific signals
         this.onJump = new Signal(); // emits when jump is pressed (pressed, not held)
         this.onFall = new Signal();
-        this.jumpKeys = this.options.jumpKeys || ['w', 'W', 'ArrowUp', ' '];
+        this.jumpKeys = this.options.jumpKeys || ['w', 'W', 'ArrowUp'];
         this.fallKeys = this.options.fallKeys || ['s','S','ArrowDown']
         this.jumpCooldown = 0;
         this.jumpCooldownMax = 5;

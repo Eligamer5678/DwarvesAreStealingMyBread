@@ -52,13 +52,14 @@ export default class Sprite {
         this.animTimer.start();
 
         // basic movement params
-        this.invert = 1
+        this.invert = new Vector(0,0)
         this.speed = 100;      // acceleration magnitude (px/s^2)
         this.friction = 0.001; // exponential friction base
 
         // Optional input controller: accept either a pre-built Input instance
         // or an options object to construct one when `keys` was provided.
         this.input = null;
+        this.inputDir = new Vector(0,0); // last-read input direction (Vector)
         if (this.keys && inputSettings !== undefined && inputSettings !== null) {
             if (typeof inputSettings.update === 'function') {
                 // already an Input-like object
@@ -77,13 +78,14 @@ export default class Sprite {
         // Otherwise treat this as a passive entity and don't call input.
         if (this.input && typeof this.input.update === 'function') {
             const dir = this.input.update();
+            // store the input direction so other systems can inspect it
+            this.inputDir = (dir && typeof dir.clone === 'function') ? dir.clone() : new Vector(dir.x||0, dir.y||0);
             // accelerate in input direction
             this.vlos.addS(dir.mult(delta).multS(this.speed));
         }
 
         // simple friction
         this.vlos.x *= this.friction ** delta;
-        this.vlos.y *= this.friction ** delta;
 
         // advance animation timer and wrap frames
         this.animTimer.update(delta);

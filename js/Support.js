@@ -50,3 +50,30 @@ export function copyToClipboard(text) {
     });
 }
 
+/**
+ * Merge missing defaults into `obj` in-place and return `obj`.
+ * If a default value exposes a `.clone()` method it will be cloned when
+ * assigned to avoid sharing mutable instances across callers.
+ * @param {object} obj - target object to receive defaults (may be mutated)
+ * @param {object} defaults - defaults to apply when keys are missing
+ * @returns {object}
+ */
+export function mergeObjects(obj, defaults) {
+    if (!obj || typeof obj !== 'object') obj = {};
+    if (!defaults || typeof defaults !== 'object') return obj;
+    for (const k of Object.keys(defaults)) {
+        if (obj[k] === undefined) {
+            const v = defaults[k];
+            if (v && typeof v === 'object' && typeof v.clone === 'function') {
+                obj[k] = v.clone();
+            } else if (v && typeof v === 'object') {
+                // shallow copy for plain objects/arrays
+                obj[k] = Array.isArray(v) ? v.slice() : Object.assign({}, v);
+            } else {
+                obj[k] = v;
+            }
+        }
+    }
+    return obj;
+}
+

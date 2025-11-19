@@ -1,5 +1,8 @@
 import Vector from './Vector.js';
-
+import { mergeObjects } from './Support.js';
+/**
+ * @typedef {import('../sprites/Sprite.js').default} SpriteType
+ */
 /**
  * Simple Camera class handling zoom, offset and input-driven movement.
  * Accepts a `Draw` instance and a `Mouse` instance and exposes helper
@@ -26,15 +29,27 @@ export default class Camera {
         this.targetZoom = new Vector(1,1);
         this.targetOffset = new Vector(0,0);
 
-        // defaults, can be overridden by opts
-        this.minZoom = opts.minZoom || 0.25;
-        this.maxZoom = opts.maxZoom || 16;
-        this.zoomSmooth = opts.zoomSmooth || 8;
-        this.zoomImpulse = opts.zoomImpulse || 12;
-        this.zoomStep = (typeof opts.zoomStep === 'number') ? opts.zoomStep : -0.001;
+        // defaults, can be overridden by opts — use mergeObjects to avoid
+        // repetitive typeof/default checks and keep behavior predictable.
+        const _defaults = {
+            minZoom: 0.25,
+            maxZoom: 16,
+            zoomSmooth: 8,
+            zoomImpulse: 12,
+            zoomStep: -0.001,
+            panSmooth: 8,
+            panImpulse: 1.0
+        };
+        const cfg = mergeObjects(opts || {}, _defaults);
 
-        this.panSmooth = opts.panSmooth || 8;
-        this.panImpulse = opts.panImpulse || 1.0;
+        this.minZoom = cfg.minZoom;
+        this.maxZoom = cfg.maxZoom;
+        this.zoomSmooth = cfg.zoomSmooth;
+        this.zoomImpulse = cfg.zoomImpulse;
+        this.zoomStep = cfg.zoomStep;
+
+        this.panSmooth = cfg.panSmooth;
+        this.panImpulse = cfg.panImpulse;
 
         // keyframe stack
         this.keyframes = [];
@@ -78,7 +93,7 @@ export default class Camera {
         if (!this._kf) return;
         this._kf.t += dt;
         const p = Math.min(1, this._kf.t / this._kf.duration);
-        // linear ease for now
+        // linear ease for now, should be replaced with exponental later
         const t = p;
         // interp zoom (component-wise)
         this.zoom.x = this._kf.start.zoom.x + (this._kf.end.zoom.x - this._kf.start.zoom.x) * t;
@@ -139,41 +154,26 @@ export default class Camera {
      * @param {number} dt
      */
     update(dt){
-        if (!dt) dt = 0;
-        // start keyframe if any
         this._startNextKeyframe();
-        if (this._kf) {
+        if (this._kf !== null) {
             this._updateKeyframe(dt);
             // While keyframing, do not apply smoothing towards targets
             return;
         }
 
         // Exponential smoothing (equivalent to lerp with frame-independent factor)
-        let zSmooth = Math.max(0, this.zoomSmooth || 0);
-        let pSmooth = Math.max(0, this.panSmooth || 0);
+        let zSmooth = Math.max(0, this.zoomSmooth);
+        let pSmooth = Math.max(0, this.panSmooth);
         const zFactor = 1 - Math.exp(-zSmooth * dt);
-        const pFactor = 1 - Math.exp(-pSmooth * dt);
 
         // For zoom, interpolate component-wise toward targetZoom
-        const prevZoomX = this.zoom.x;
-        const prevZoomY = this.zoom.y;
         this.zoom.x = this.zoom.x + (this.targetZoom.x - this.zoom.x) * zFactor;
         this.zoom.y = this.zoom.y + (this.targetZoom.y - this.zoom.y) * zFactor;
 
-        // When zoom changes, apply an exact correction to the offset so the world
-        // point under the mouse stays fixed: offset += mousePos * (1/newZoom - 1/oldZoom)
-        const mpos = (this.mouse && this.mouse.pos) ? this.mouse.pos : new Vector(0,0);
-        if (prevZoomX > 1e-9 && this.zoom.x !== prevZoomX) {
-            this.offset.x += mpos.x * (1 / this.zoom.x - 1 / prevZoomX);
-        }
-        if (prevZoomY > 1e-9 && this.zoom.y !== prevZoomY) {
-            this.offset.y += mpos.y * (1 / this.zoom.y - 1 / prevZoomY);
-        }
-
         // Allow per-track overrides for smoothing while actively tracking
         if (this._tracking && this._trackOptions) {
-            if (typeof this._trackOptions.zoomSmooth === 'number') zSmooth = this._trackOptions.zoomSmooth;
-            if (typeof this._trackOptions.panSmooth === 'number') pSmooth = this._trackOptions.panSmooth;
+            if (this._trackOptions.zoomSmooth !== undefined) zSmooth = this._trackOptions.zoomSmooth;
+            if (this._trackOptions.panSmooth !== undefined) pSmooth = this._trackOptions.panSmooth;
         }
         // recompute pFactor if overrides changed
         const pFactorFinal = 1 - Math.exp(-pSmooth * dt);
@@ -181,66 +181,63 @@ export default class Camera {
         this.offset.y = this.offset.y + (this.targetOffset.y - this.offset.y) * pFactorFinal;
 
         // If tracking a sprite, update targetOffset to center that sprite.
-        if (this._trackedSprite && this._trackedSprite.pos && this._tracking) {
-            try {
-                const drawCtx = (this.Draw && this.Draw.ctx) ? this.Draw.ctx : null;
-                if (drawCtx && drawCtx.canvas) {
-                    const scaleX = (this.Draw && this.Draw.Scale && typeof this.Draw.Scale.x === 'number') ? this.Draw.Scale.x : 1;
-                    const uiW = drawCtx.canvas.width / scaleX;
-                    const uiH = drawCtx.canvas.height / scaleX;
-                    const center = new Vector(uiW / 2, uiH / 2);
-                    const zx = (this.targetZoom && this.targetZoom.x) ? this.targetZoom.x : ((this.zoom && this.zoom.x) ? this.zoom.x : 1);
-                    const zy = (this.targetZoom && this.targetZoom.y) ? this.targetZoom.y : ((this.zoom && this.zoom.y) ? this.zoom.y : zx);
-                    // desired is the world-offset that will place the sprite at screen center
-                    const desired = new Vector(center.x / zx - this._trackedSprite.pos.x, center.y / zy - this._trackedSprite.pos.y);
+        if (this._trackedSprite && this._tracking) {
+            const drawCtx = this.Draw.ctx;
+            const scaleX = this.Draw.Scale.x;
+            const uiW = drawCtx.canvas.width / scaleX;
+            const uiH = drawCtx.canvas.height / scaleX;
+            const center = new Vector(uiW / 2, uiH / 2);
+            const zx = this.targetZoom.x;
+            const zy = this.targetZoom.y;
+            // desired is the world-offset that will place the sprite at screen center
+            const desired = new Vector(center.x / zx - this._trackedSprite.pos.x, center.y / zy - this._trackedSprite.pos.y);
 
-                    // track option helpers
-                    const opts = this._trackOptions || {};
-                    const boundingRadius = (typeof opts.boundingRadius === 'number') ? opts.boundingRadius : 0; // in screen px
-                    const stopVel = (typeof opts.stopVel === 'number') ? opts.stopVel : 0;
+            // track option helpers
+            const opts = this._trackOptions || {};
+            const boundingRadius = opts.boundingRadius || 0; // in screen px
+            const stopVel = opts.stopVel || 0;
 
-                    // compute sprite velocity magnitude (if available)
-                    const vel = (this._trackedSprite.vel && typeof this._trackedSprite.vel.x === 'number') ? this._trackedSprite.vel : null;
-                    const velMag = vel ? Math.hypot(vel.x || 0, vel.y || 0) : 0;
+            // compute sprite velocity magnitude (if available)
+            const vel = this._trackedSprite.vel || Vector.zero();
+            const velMag = Math.hypot(vel.x || 0, vel.y || 0);
 
-                    // convert bounding radius from screen px -> world units (approx using zx)
-                    const boundingWorld = (boundingRadius > 0) ? (boundingRadius / zx) : 0;
-                    const distanceWorld = Math.hypot(desired.x, desired.y);
+            // convert bounding radius from screen px -> world units (approx using zx)
+            const boundingWorld = (boundingRadius > 0) ? (boundingRadius / zx) : 0;
+            const distanceWorld = Math.hypot(desired.x, desired.y);
 
-                    // compute desired offset with any configured trackOffset
-                    const desiredWithOffset = desired.add ? desired.add(this.trackOffset) : new Vector(desired.x + (this.trackOffset.x||0), desired.y + (this.trackOffset.y||0));
+            // compute desired offset with any configured trackOffset
+            const desiredWithOffset = desired.add(this.trackOffset);
 
-                    // Behavior:
-                    // - If stopVel > 0 and sprite velocity drops below stopVel, center camera
-                    //   and hold it centered until sprite moves outside boundingRadius.
-                    // - Otherwise, if boundingRadius > 0 the camera will only recenter when
-                    //   the sprite exits the radius; if within radius, leave targetOffset unchanged.
-                    if (stopVel > 0 && velMag < stopVel) {
-                        this._trackingCentered = true;
-                        this.targetOffset = desiredWithOffset;
-                    } else if (this._trackingCentered) {
-                        // if we were centered due to low velocity, keep centering until sprite leaves radius
-                        if (boundingRadius > 0 && distanceWorld > boundingWorld) {
-                            this._trackingCentered = false;
-                            this.targetOffset = desiredWithOffset;
-                        } else {
-                            this.targetOffset = desiredWithOffset;
-                        }
-                    } else {
-                        // not currently forced-centered
-                        if (boundingRadius > 0) {
-                            if (distanceWorld > boundingWorld) {
-                                this.targetOffset = desiredWithOffset;
-                            }
-                            // else: sprite inside radius -> don't update targetOffset
-                        } else {
-                            // no bounding radius -> always update target offset (normal tracking)
-                            this.targetOffset = desiredWithOffset;
-                        }
-                    }
+            // Behavior:
+            // - If stopVel > 0 and sprite velocity drops below stopVel, center camera
+            //   and hold it centered until sprite moves outside boundingRadius.
+            // - Otherwise, if boundingRadius > 0 the camera will only recenter when
+            //   the sprite exits the radius; if within radius, leave targetOffset unchanged.
+            if (stopVel > 0 && velMag < stopVel) {
+                this._trackingCentered = true;
+                this.targetOffset = desiredWithOffset;
+            } else if (this._trackingCentered) {
+                // if we were centered due to low velocity, keep centering until sprite leaves radius
+                if (boundingRadius > 0 && distanceWorld > boundingWorld) {
+                    this._trackingCentered = false;
+                    this.targetOffset = desiredWithOffset;
+                } else {
+                    this.targetOffset = desiredWithOffset;
                 }
-            } catch (e) { /* ignore tracking errors */ }
+            } else {
+                // not currently forced-centered
+                if (boundingRadius > 0) {
+                    if (distanceWorld > boundingWorld) {
+                        this.targetOffset = desiredWithOffset;
+                    }
+                    // else: sprite inside radius -> don't update targetOffset
+                } else {
+                    // no bounding radius -> always update target offset (normal tracking)
+                    this.targetOffset = desiredWithOffset;
+                }
+            }
         }
+        
     }
 
     /**
@@ -255,22 +252,34 @@ export default class Camera {
      * - `stopVel` (number): when sprite velocity magnitude falls below this
      *    value (world units/sec) the camera will center and stay centered until
      *    the sprite exits the `boundingRadius`.
-     * @param {object|null} sprite
+     * @param { SpriteType } sprite
      * @param {{offset?:Vector,panSmooth?:number,zoomSmooth?:number,boundingRadius?:number,stopVel?:number}} [options]
      */
     track(sprite, options = {}){
-        this._trackedSprite = sprite || null;
+        this._trackedSprite = sprite;
         this._tracking = !!sprite;
         this._pausedTracking = false;
         // Store a shallow copy of options for use during update. Clone offset
         // separately so we don't hold a reference to the caller's object.
         this._trackOptions = Object.assign({}, options || {});
-        if (options && options.offset) {
+        if (options.offset) {
             this.trackOffset = options.offset.clone ? options.offset.clone() : options.offset;
             // do not keep the offset object inside _trackOptions (avoid dup refs)
             this._trackOptions.offset = undefined;
         } else {
             this.trackOffset = new Vector(0,0);
+        }
+        // If a zoom value is supplied, apply it to the target zoom. Accepts a
+        // scalar or a Vector-like object with x/y or a Vector instance.
+        if (options.zoom) {
+            const z = options.zoom;
+            if (z && typeof z.clone === 'function') {
+                this.targetZoom = z.clone();
+            } else if (typeof z === 'number') {
+                this.targetZoom = new Vector(z, z);
+            } else if (z && typeof z.x === 'number' && typeof z.y === 'number') {
+                this.targetZoom = new Vector(z.x, z.y);
+            }
         }
     }
 
