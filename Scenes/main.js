@@ -113,7 +113,7 @@ export class MainScene extends Scene {
             offset: new Vector(0, -8),      // lift player slightly above center
             panSmooth: 12,                  // override pan smoothing while tracking
             zoomSmooth: 10,                  // override zoom smoothing while tracking
-            zoom: 5
+            zoom: 3
         });
         this.isReady = true;
     }
@@ -127,15 +127,17 @@ export class MainScene extends Scene {
         this.mouse.setMask(0)
         // Do UI here
         this.mouse.setPower(0)
-        
         this.camera.handleInput(tickDelta);
         this.camera.update(tickDelta);
-
         this.player.update(tickDelta);
-        // update target highlight for mining based on held input/facing
         this._updateHighlight();
-        // Mining state: lock the target on press start and mine once; while held,
-        // keep highlighting the same tile to avoid flicker when player input/pos changes.
+        this._updateMining(tickDelta);
+
+        this._collideTiles();
+        this._generateChunks();
+    }
+
+    _updateMining(tickDelta){
         const miningHeld = !!this.keys.held(' ');
         if (miningHeld && !this._prevMiningHeld) {
             // mining started this frame: capture current highlight as mining target and start progress
@@ -214,9 +216,6 @@ export class MainScene extends Scene {
             // ensure progress resets when not holding
             this.miningProgress = 0;
         }
-
-        this._collideTiles();
-        this._generateChunks();
     }
 
     _updateHighlight(){
@@ -310,6 +309,8 @@ export class MainScene extends Scene {
             this.torches.delete(key);
             this._lightsDirty = true;
         }
+        // Ensure lighting is recomputed because removing a block can change light propagation
+        this._lightsDirty = true;
         // If the chunk containing this sample is already generated, update it for immediate effect
         const cx = Math.floor(sx / this.chunkSize);
         const cy = Math.floor(sy / this.chunkSize);
