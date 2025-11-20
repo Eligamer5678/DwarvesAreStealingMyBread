@@ -99,8 +99,12 @@ export class MainScene extends Scene {
         // blockMap stores explicit block types placed/generated in the world:
         // key: "sx,sy" -> { type: 'solid'|'ladder' } or null for empty
         this.blockMap = new Map();
+        this.torches = new Map(); // key: "sx,sy" -> {intensity:255, range:6}
+        this.lightMap = new Map(); // key: "sx,sy" -> numeric level 0..255
+        this._lightsDirty = true;
         this.miningProgress = 0;
         this.baseMiningTime = 2.0; // seconds to mine with speed=1.0
+        this.maxLight = 12; // max light level (integer steps)
 
         // Make noise tiles match the player's size so one tile == one dwarf
         this.noiseTileSize = (this.player && this.player.size && this.player.size.x) ? this.player.size.x*1.1 : 8;
@@ -109,7 +113,7 @@ export class MainScene extends Scene {
             offset: new Vector(0, -8),      // lift player slightly above center
             panSmooth: 12,                  // override pan smoothing while tracking
             zoomSmooth: 10,                  // override zoom smoothing while tracking
-            zoom: 0.5
+            zoom: 5
         });
         this.isReady = true;
     }
@@ -146,6 +150,30 @@ export class MainScene extends Scene {
             this.miningTarget = null;
         }
         this._prevMiningHeld = miningHeld;
+
+        // Torch toggle: press 't' to toggle a torch at the dwarf's current tile (not the highlight)
+        if (this.keys.pressed && this.keys.pressed('t')) {
+            if (this.player && this.noiseTileSize) {
+                const px = (this.player.pos.x || 0) + (this.player.size.x || 0) * 0.5;
+                const py = (this.player.pos.y || 0) + (this.player.size.y || 0) * 0.5;
+                const tsz = this.noiseTileSize || 1;
+                const sx = Math.floor(px / tsz);
+                const sy = Math.floor(py / tsz);
+                const key = `${sx},${sy}`;
+                if (this.torches.has(key)) {
+                    // always allow removal
+                    this.torches.delete(key);
+                    this._lightsDirty = true;
+                } else {
+                    // only place a torch if the tile is empty (no solid/ladder)
+                    const existing = this._getTileValue(sx, sy);
+                    if (!existing) {
+                        this.torches.set(key, { level: this.maxLight });
+                        this._lightsDirty = true;
+                    }
+                }
+            }
+        }
 
         // If currently mining (holding), validate target and advance progress; cancel if invalid or too far
         if (this._miningActive && miningHeld && this.miningTarget && this.player) {
@@ -277,6 +305,11 @@ export class MainScene extends Scene {
         this.modifiedTiles.set(key, null);
         // also remove any generated block (like ladders) at this location
         if (this.blockMap && this.blockMap.has(key)) this.blockMap.delete(key);
+        // remove any torch placed on this tile and mark lights dirty
+        if (this.torches && this.torches.has(key)) {
+            this.torches.delete(key);
+            this._lightsDirty = true;
+        }
         // If the chunk containing this sample is already generated, update it for immediate effect
         const cx = Math.floor(sx / this.chunkSize);
         const cy = Math.floor(sy / this.chunkSize);
@@ -353,6 +386,58 @@ export class MainScene extends Scene {
             }
         }
 
+    }
+    // Recompute lighting using multi-source BFS propagation.
+    // This is not the bitshift optimization yet, but it's a correct baseline
+    // that supports many torches and can be optimized later.
+    _recomputeLighting(){
+        // integer light propagation like Minecraft: each torch seeds `maxLight` and
+        // light decreases by 1 per tile; solids block propagation.
+        this.lightMap.clear();
+        if (!this.torches || this.torches.size === 0) return;
+
+        const q = [];
+        const push = (sx, sy, level) => {
+            const k = `${sx},${sy}`;
+            const cur = this.lightMap.get(k) || 0;
+            if (level <= cur) return;
+            this.lightMap.set(k, level);
+            q.push({sx, sy, level});
+        };
+
+        // seed with torches (use integer `level` field)
+        for (const [k, t] of this.torches) {
+            const parts = k.split(',');
+            if (parts.length < 2) continue;
+            const sx = parseInt(parts[0], 10);
+            const sy = parseInt(parts[1], 10);
+            if (!Number.isFinite(sx) || !Number.isFinite(sy)) continue;
+            const lvl = (t && Number.isFinite(t.level)) ? Math.min(this.maxLight, Math.max(0, Math.floor(t.level))) : this.maxLight;
+            push(sx, sy, lvl);
+        }
+
+        // BFS propagate with 4-neighborhood, decrease by 1 each step
+        while (q.length) {
+            const cur = q.shift();
+            const nextLevel = cur.level - 1;
+            if (nextLevel <= 0) continue;
+            const neighbors = [ [cur.sx+1,cur.sy], [cur.sx-1,cur.sy], [cur.sx,cur.sy+1], [cur.sx,cur.sy-1] ];
+            for (const [nx, ny] of neighbors) {
+                // solids should RECEIVE light but still BLOCK propagation beyond them.
+                const tile = this._getTileValue(nx, ny);
+                const isSolid = (tile && tile.type === 'solid');
+                const key = `${nx},${ny}`;
+                const curVal = this.lightMap.get(key) || 0;
+                if (nextLevel > curVal) {
+                    // set light level on this neighbor
+                    this.lightMap.set(key, nextLevel);
+                    // propagate further only if the neighbor is not solid
+                    if (!isSolid) {
+                        q.push({ sx: nx, sy: ny, level: nextLevel });
+                    }
+                }
+            }
+        }
     }
     _generateChunks(){
         // prefer player world position; fall back to mouse if player missing
@@ -503,7 +588,13 @@ export class MainScene extends Scene {
         // World transform (use camera)
         this.camera.applyTransform();
 
-        // Render chunked noise as grayscale tiles
+        // Ensure light map is up-to-date before drawing tiles
+        if (this._lightsDirty) {
+            this._recomputeLighting();
+            this._lightsDirty = false;
+        }
+
+        // Render chunked noise as tiles modulated by per-tile lighting
         const ts = this.noiseTileSize || 4;
         for (const [k, chunk] of this.chunks) {
             const cx = chunk.x, cy = chunk.y;
@@ -518,20 +609,57 @@ export class MainScene extends Scene {
                     const tile = this._getTileValue(sx, sy);
                     if (!tile) continue;
                     const pos = new Vector(baseX + xx * ts, baseY + yy * ts);
+                    // compute light level (0..maxLight) for this tile
+                    const lkey = `${sx},${sy}`;
+                    const lvl = (this.lightMap && this.lightMap.has(lkey)) ? this.lightMap.get(lkey) : 0;
+                    const ambientMin = 0.12; // minimum ambient brightness
+                    const bright = ambientMin + (Math.max(0, Math.min(this.maxLight || 1, lvl)) / Math.max(1, (this.maxLight || 1))) * (1 - ambientMin);
+
+                    // helper: modulate a hex color by brightness and return rgba string
+                    const modColor = (hex, b) => {
+                        if (!hex) return `rgba(0,0,0,${b})`;
+                        let h = hex.replace('#','');
+                        if (h.length === 3) h = h.split('').map(c=>c+c).join('');
+                        const n = parseInt(h, 16);
+                        const r = Math.max(0, Math.min(255, Math.round(((n >> 16) & 255) * b)));
+                        const g = Math.max(0, Math.min(255, Math.round(((n >> 8) & 255) * b)));
+                        const bl = Math.max(0, Math.min(255, Math.round((n & 255) * b)));
+                        return `rgba(${r},${g},${bl},1.0)`;
+                    };
+
                     if (tile.type === 'solid') {
-                        this.Draw.rect(pos, new Vector(ts, ts), '#555555');
+                        this.Draw.rect(pos, new Vector(ts, ts), modColor('#555555', bright));
                     } else if (tile.type === 'ladder') {
-                        // draw ladder: vertical brown strip + rungs
-                        this.Draw.rect(pos, new Vector(ts, ts), '#6b4f2b');
+                        // draw ladder: vertical brown strip + rungs, modulated by light
+                        this.Draw.rect(pos, new Vector(ts, ts), modColor('#6b4f2b', bright));
                         const rungCount = Math.max(2, Math.floor(ts / 6));
                         for (let r = 0; r < rungCount; r++) {
                             const ry = pos.y + (r + 1) * (ts / (rungCount + 1));
-                            this.Draw.line(new Vector(pos.x + ts * 0.15, ry), new Vector(pos.x + ts * 0.85, ry), '#caa97a', 1);
+                            this.Draw.line(new Vector(pos.x + ts * 0.15, ry), new Vector(pos.x + ts * 0.85, ry), modColor('#caa97a', bright), 1);
                         }
                     }
                 }
             }
         }
+        // Draw torches markers (flame + subtle glow)
+        if (this.torches && this.torches.size > 0) {
+            for (const [k, t] of this.torches) {
+                const parts = k.split(',');
+                if (parts.length < 2) continue;
+                const sx = parseInt(parts[0], 10);
+                const sy = parseInt(parts[1], 10);
+                if (!Number.isFinite(sx) || !Number.isFinite(sy)) continue;
+                const cx = sx * ts + ts * 0.5;
+                const cy = sy * ts + ts * 0.5;
+                // outer glow
+                this.Draw.circle(new Vector(cx, cy), ts * 0.45, 'rgba(255,180,80,0.12)', true);
+                // inner flame
+                this.Draw.circle(new Vector(cx, cy), ts * 0.22, 'rgba(255,220,100,1.0)', true);
+                // core
+                this.Draw.circle(new Vector(cx, cy), ts * 0.08, 'rgba(255,255,255,0.9)', true);
+            }
+        }
+
         // Highlight targeted tile (mining) if present
         if (this.highlightTile && Number.isFinite(this.highlightTile.sx) && Number.isFinite(this.highlightTile.sy)) {
             const hx = this.highlightTile.sx * ts;
@@ -539,6 +667,7 @@ export class MainScene extends Scene {
             // translucent yellow fill + stroke
             this.Draw.rect(new Vector(hx, hy), new Vector(ts, ts), 'rgba(255,255,0,0.25)', true, true, 2, '#FFFF00');
         }
+        
         // Loading / mining UI: circular progress over locked mining target
         if (this._miningActive && this.miningTarget && this.player) {
             const sx = this.miningTarget.sx, sy = this.miningTarget.sy;
