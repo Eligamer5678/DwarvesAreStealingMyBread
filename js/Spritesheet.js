@@ -8,18 +8,18 @@ export default class SpriteSheet{
         this.sheet = sheet;
         this.slicePx = slicePx;
         this._frames = new Map(); // animationName -> [canvas, ...]
-    // materialization queue for incremental lazy-loading to avoid blocking
-    // weak CPUs. Each entry: {animation, index}
-    this._materializeQueue = [];
-    this._materializeScheduled = false;
-    // choose batch size based on hardwareConcurrency when available
-    try { this._materializeBatch = Math.max(1, (navigator.hardwareConcurrency ? Math.max(1, Math.floor(navigator.hardwareConcurrency/2)) : 2)); } catch(e){ this._materializeBatch = 2; }
-        if(animations){
-            this.animations = animations;
-        } else {
-            this.animations = new Map();
+        // materialization queue for incremental lazy-loading to avoid blocking
+        // weak CPUs. Each entry: {animation, index}
+        this._materializeQueue = [];
+        this._materializeScheduled = false;
+        // choose batch size based on hardwareConcurrency when available
+        try { this._materializeBatch = Math.max(1, (navigator.hardwareConcurrency ? Math.max(1, Math.floor(navigator.hardwareConcurrency/2)) : 2)); } catch(e){ this._materializeBatch = 2; }
+            if(animations){
+                this.animations = animations;
+            } else {
+                this.animations = new Map();
+            }
         }
-    }
     addAnimation(name,row,frameCount){
         // Only record the animation metadata (name/row/frameCount).
         // Do not create or modify any frame image data here; frame arrays

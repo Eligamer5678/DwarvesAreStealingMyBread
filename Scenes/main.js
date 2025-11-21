@@ -8,6 +8,7 @@ import Camera from '../js/Camera.js';
 import SpriteSheet from '../js/Spritesheet.js';
 import Dwarf from '../js/sprites/Dwarf.js';
 import Sprite from '../js/sprites/Sprite.js';
+import Slime from '../js/sprites/Slime.js';
 
 export class MainScene extends Scene {
     constructor(...args) {
@@ -62,6 +63,24 @@ export class MainScene extends Scene {
                 sheet.addAnimation('walk', 3, 5);
             }
             this.SpriteImages.set('dwarf', sheet);
+            // load slime spritesheet
+            try {
+                const sImg = await new Promise((resolve, reject) => {
+                    const i = new Image();
+                    i.onload = () => resolve(i);
+                    i.onerror = () => reject(new Error('Failed to load slime image'));
+                    i.src = 'Assets/Sprites/slime.png';
+                });
+                const slimeSheet = new SpriteSheet(sImg, 16);
+                // assume layout rows: idle(2), walk(2), defeat(6), attack(8)
+                slimeSheet.addAnimation('idle', 0, 2);
+                slimeSheet.addAnimation('walk', 1, 2);
+                slimeSheet.addAnimation('defeat', 2, 6);
+                slimeSheet.addAnimation('attack', 3, 8);
+                this.SpriteImages.set('slime', slimeSheet);
+            } catch (e) {
+                console.warn('Failed to load slime spritesheet', e);
+            }
             this.player = new Dwarf(this.keys, this.Draw, new Vector(150, 220), new Vector(48, 48), sheet, { type: 'platformer' });
             this.isPreloaded = true;
             return true;
@@ -116,6 +135,21 @@ export class MainScene extends Scene {
             zoom: 3
         });
         this.isReady = true;
+        // monster group: store active enemy sprites
+        this.monsterGroup = [];
+        // spawn a few slimes for testing
+        try {
+            const spawnCount = 50;
+            for (let i = 0; i < spawnCount; i++) {
+                const sx = (this.player.pos.x || 0) + (Math.random() * 200 - 100);
+                const sy = (this.player.pos.y || 0) + (Math.random() * 120 - 60);
+                const sz = Math.max(12, Math.min(48, Math.random() * 32 + 12));
+                const s = new Slime(this.Draw, new Vector(sx, sy), new Vector(sz, sz), { scene: this, sheet: this.SpriteImages.get('slime') });
+                this.monsterGroup.push(s);
+            }
+        } catch (e) {
+            console.warn('Failed to spawn slimes', e);
+        }
     }
 
     
@@ -130,6 +164,25 @@ export class MainScene extends Scene {
         this.camera.handleInput(tickDelta);
         this.camera.update(tickDelta);
         this.player.update(tickDelta);
+        // update monsters (only if within active radius)
+        if (this.monsterGroup && this.monsterGroup.length) {
+            const activeTiles = 32; // monsters beyond this many tiles are frozen
+            const maxDist = (this.noiseTileSize || 1) * activeTiles;
+            const px = (this.player && this.player.pos) ? (this.player.pos.x + (this.player.size.x || 0) * 0.5) : 0;
+            const py = (this.player && this.player.pos) ? (this.player.pos.y + (this.player.size.y || 0) * 0.5) : 0;
+            for (const m of this.monsterGroup) {
+                try {
+                    const mx = (m.pos.x || 0) + (m.size.x || 0) * 0.5;
+                    const my = (m.pos.y || 0) + (m.size.y || 0) * 0.5;
+                    const d = Math.hypot(px - mx, py - my);
+                    if (d <= maxDist) {
+                        m.update(tickDelta);
+                        // resolve collisions for the monster using same logic as player
+                        try { this._resolveSpriteCollisions(m); } catch (e) { /* ignore per-monster errors */ }
+                    }
+                } catch (e) { console.warn('Monster update failed', e); }
+            }
+        }
         this._updateHighlight();
         this._updateMining(tickDelta);
 
@@ -387,6 +440,37 @@ export class MainScene extends Scene {
             }
         }
 
+    }
+
+    // Generic collision resolver for any sprite using tile-based collision.
+    // Mirrors the player's collision logic so monsters use the same physics.
+    _resolveSpriteCollisions(sprite){
+        if(!sprite || !sprite.pos || !this.noiseTileSize) return;
+        const prevPos = sprite.pos.clone();
+        const size = sprite.size.clone();
+        const radius = 3;
+        const sampleX = Math.floor(prevPos.x / this.noiseTileSize);
+        const sampleY = Math.floor(prevPos.y / this.noiseTileSize);
+        const tileSizeVec = new Vector(this.noiseTileSize, this.noiseTileSize);
+        let collidedBottom = false;
+
+        for (let dy = -radius; dy <= radius; dy++){
+            for (let dx = -radius; dx <= radius; dx++){
+                const sx = sampleX + dx;
+                const sy = sampleY + dy;
+                const val = this._getTileValue(sx, sy);
+                const isSolid = (val && val.type === 'solid');
+                if (!isSolid) continue;
+                const tileWorld = new Vector(sx * this.noiseTileSize, sy * this.noiseTileSize);
+                const res = Geometry.spriteToTile(sprite.pos, sprite.vlos, size, tileWorld, tileSizeVec, 5);
+                if (res) {
+                    if (res.collided && res.collided.bottom) collidedBottom = true;
+                    sprite.vlos = res.vlos;
+                    sprite.pos = res.pos;
+                    sprite.onGround = collidedBottom;
+                }
+            }
+        }
     }
     // Recompute lighting using multi-source BFS propagation.
     // This is not the bitshift optimization yet, but it's a correct baseline
@@ -686,6 +770,23 @@ export class MainScene extends Scene {
             this.Draw.arc(new Vector(cx, cy), size, start, end, 'rgba(255,220,80,0.95)', true, false);
             // outline
             this.Draw.circle(new Vector(cx, cy), ts * 0.4, 'rgba(255,255,255,0.25)', false, 2);
+        }
+        // draw monsters (below player)
+        if (this.monsterGroup && this.monsterGroup.length) {
+            const activeTiles = 32;
+            const maxDist = (this.noiseTileSize || 1) * activeTiles;
+            const px = (this.player && this.player.pos) ? (this.player.pos.x + (this.player.size.x || 0) * 0.5) : 0;
+            const py = (this.player && this.player.pos) ? (this.player.pos.y + (this.player.size.y || 0) * 0.5) : 0;
+            for (const m of this.monsterGroup) {
+                try {
+                    const mx = (m.pos.x || 0) + (m.size.x || 0) * 0.5;
+                    const my = (m.pos.y || 0) + (m.size.y || 0) * 0.5;
+                    const d = Math.hypot(px - mx, py - my);
+                    if (d <= maxDist) {
+                        if (typeof m.draw === 'function') m.draw(new Vector(0,0));
+                    }
+                } catch (e) { console.warn('Monster draw failed', e); }
+            }
         }
         // draw player on top of chunks (inside world transform)
         try { if (this.player && typeof this.player.draw === 'function') this.player.draw(new Vector(0,0)); } catch (e) {}
