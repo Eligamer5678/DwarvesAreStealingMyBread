@@ -76,6 +76,14 @@ export default class Vector {
         this.y = Math.floor(this.y)
         return this;
     }
+    abs(){
+        return new Vector(Math.abs(this.x),Math.abs(this.y))
+    }
+    absS(){
+        this.x = Math.abs(this.x)
+        this.y = Math.abs(this.y)
+        return this;
+    }
     max(scalar){
         return new Vector(Math.max(this.x,scalar),Math.max(this.y,scalar))
     }

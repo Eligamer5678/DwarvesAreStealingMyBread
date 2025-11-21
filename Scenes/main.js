@@ -74,9 +74,9 @@ export class MainScene extends Scene {
                 const slimeSheet = new SpriteSheet(sImg, 16);
                 // assume layout rows: idle(2), walk(2), defeat(6), attack(8)
                 slimeSheet.addAnimation('idle', 0, 2);
-                slimeSheet.addAnimation('walk', 1, 2);
-                slimeSheet.addAnimation('defeat', 2, 6);
-                slimeSheet.addAnimation('attack', 3, 8);
+                slimeSheet.addAnimation('walk', 0, 2);
+                slimeSheet.addAnimation('defeat', 1, 6);
+                slimeSheet.addAnimation('attack', 2, 8);
                 this.SpriteImages.set('slime', slimeSheet);
             } catch (e) {
                 console.warn('Failed to load slime spritesheet', e);
@@ -137,15 +137,21 @@ export class MainScene extends Scene {
         this.isReady = true;
         // monster group: store active enemy sprites
         this.monsterGroup = [];
-        // spawn a few slimes for testing
+        // spawn a few slimes for testing - require a slime spritesheet
         try {
-            const spawnCount = 50;
-            for (let i = 0; i < spawnCount; i++) {
-                const sx = (this.player.pos.x || 0) + (Math.random() * 200 - 100);
-                const sy = (this.player.pos.y || 0) + (Math.random() * 120 - 60);
-                const sz = Math.max(12, Math.min(48, Math.random() * 32 + 12));
-                const s = new Slime(this.Draw, new Vector(sx, sy), new Vector(sz, sz), { scene: this, sheet: this.SpriteImages.get('slime') });
-                this.monsterGroup.push(s);
+            const slimeSheet = this.SpriteImages.get('slime');
+            if (!slimeSheet) {
+                console.warn('No slime spritesheet available; skipping slime spawn.');
+            } else {
+                const spawnCount = 50;
+                for (let i = 0; i < spawnCount; i++) {
+                    const sx = (this.player.pos.x || 0) + (Math.random() * 200 - 100);
+                    const sy = (this.player.pos.y || 0) + (Math.random() * 120 - 60);
+                    const sz = Math.max(12, Math.min(48, Math.random() * 32 + 12));
+                    // pass `sheet` as its own parameter (required)
+                    const s = new Slime(this.Draw, new Vector(sx, sy), new Vector(sz, sz), slimeSheet, { scene: this });
+                    this.monsterGroup.push(s);
+                }
             }
         } catch (e) {
             console.warn('Failed to spawn slimes', e);
