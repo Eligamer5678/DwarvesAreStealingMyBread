@@ -11,6 +11,7 @@ import MiningSystem from '../js/MiningSystem.js';
 import TileHighlight from '../js/TileHighlight.js';
 import EntityManager from '../js/EntityManager.js';
 import CollisionSystem from '../js/CollisionSystem.js';
+import MainUI from '../js/UI/MainUI.js';
 
 export class MainScene extends Scene {
     constructor(...args) {
@@ -131,6 +132,9 @@ export class MainScene extends Scene {
         this._initializeCollisionSystem();
         this._initializeEntitySystem();
         this._initializeCamera();
+
+        // Create Main UI
+        try { this.mainUI = new MainUI(this); } catch (e) { console.warn('Failed to create MainUI', e); }
 
         this.isReady = true;
     }
@@ -301,7 +305,7 @@ export class MainScene extends Scene {
                 return;
             }
 
-            const spawnCount = 50;
+            const spawnCount = 10;
             const ts = this.noiseTileSize || 8;
             const playerCenter = this.player.pos.add(this.player.size.mult(0.5));
             for (let i = 0; i < spawnCount; i++) {
@@ -352,7 +356,7 @@ export class MainScene extends Scene {
                 return;
             }
 
-            const spawnCount = 1000;
+            const spawnCount = 10;
             const ts = this.noiseTileSize || 8;
             const playerCenter = this.player.pos.add(this.player.size.mult(0.5));
             for (let i = 0; i < spawnCount; i++) {
@@ -389,8 +393,12 @@ export class MainScene extends Scene {
         // Update input systems
         this.mouse.update(tickDelta);
         this.keys.update(tickDelta);
+        // Reset mouse mask and set default input power for this tick.
+        // Per UI input rules: always call setMask(0) and setPower(1) at start of input handling
+        // so UI layers can addMask(1) when hovered and the mouse._allowed() check works as
+        // "power >= mask" (penetration depth semantics).
         this.mouse.setMask(0);
-        this.mouse.setPower(0);
+        this.mouse.setPower(1);
 
         // Update camera
         this.camera.handleInput(tickDelta);
@@ -419,6 +427,9 @@ export class MainScene extends Scene {
         const worldX = this.player.pos.x;
         const worldY = this.player.pos.y;
         this.chunkManager.generateChunksAround(worldX, worldY, 1);
+
+        // Update UI
+        try { if (this.mainUI && typeof this.mainUI.update === 'function') this.mainUI.update(tickDelta); } catch (e) {}
     }
 
     _handleTorchInput() {
@@ -467,6 +478,23 @@ export class MainScene extends Scene {
         }
 
         this.camera.popTransform();
+
+        // Draw screen-space UI
+        try {
+            if (this.UIDraw && this.mainUI && typeof this.mainUI.draw === 'function') {
+                this.UIDraw.clear();
+                this.mainUI.draw();
+                // Debug overlay: show mouse mask/power and current tool
+                try {
+                    this.UIDraw.useCtx('UI');
+                    const m = this.mouse || { mask: 0, power: 0, pos: { x: 0, y: 0 } };
+                    const tool = (this.player && this.player.currentTool) ? this.player.currentTool.type : 'none';
+                    this.UIDraw.text(`mask:${m.mask} power:${m.power}`, new Vector(12, 64), '#FFFFFFFF', 0, 14, { align: 'left', baseline: 'top' });
+                    this.UIDraw.text(`tool:${tool}`, new Vector(12, 82), '#FFFFFFFF', 0, 14, { align: 'left', baseline: 'top' });
+                    this.UIDraw.text(`mouse: ${Math.round(this.mouse.pos.x)}, ${Math.round(this.mouse.pos.y)}`, new Vector(12, 100), '#FFFFFFFF', 0, 14, { align: 'left', baseline: 'top' });
+                } catch (e) {}
+            }
+        } catch (e) {}
     }
 
     _drawTiles() {

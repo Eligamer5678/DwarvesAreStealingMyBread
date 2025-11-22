@@ -599,10 +599,11 @@ export class CollisionScene extends Scene {
 
     // Called by base Scene.tick() at fixed rate
     sceneTick(tickDelta) {
+        // Reset mouse mask and set default input power before UI handling
         this.mouse.setMask(0)
+        this.mouse.setPower(1)
         // Update Entities UI
         try { if (this.entitiesUI && this.entitiesUI.menu) this.entitiesUI.menu.update(tickDelta); } catch (e) {}
-        this.mouse.setPower(0)
         // If mouse is over the general UI area, pause mouse input briefly to prevent bleed-through
         const inTopLeft = (this.mouse.pos.x < 700 && this.mouse.pos.y < 200);
         const inTopRight = (this.mouse.pos.x > (1920 - 300) && this.mouse.pos.y < 200);

@@ -16,11 +16,12 @@ export default class Menu{
         for (let [key,element] of this.elements){
             element.update(delta);
         }
-        this.mouse.setPower(this.layer)
+        // The scene resets mouse power each tick (mouse.setPower(1)).
+        // Menu itself should contribute one mask stack when hovered so that
+        // deeper UI elements can increment the mask and prevent clicks from
+        // penetrating to elements beneath.
         if (Geometry.pointInRect(this.mouse.pos,this.pos,this.size)){
-            if(this.layer > this.mouse.mask){
-                this.mouse.setMask(this.layer);
-            }
+            try { this.mouse.addMask(1); } catch (e) {}
         }
     }
     draw(Draw){

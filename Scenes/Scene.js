@@ -322,8 +322,10 @@ export default class Scene {
     update(delta) {
         if (!this.isReady) return;
         this.tickAccumulator += delta * 1000; // convert to ms
-        // Mouse mask reset (corrects layered UI input issues)
-        this.mouse.setMask(0);
+    // Mouse mask & power reset (corrects layered UI input issues)
+    // Always reset mask to 0 and power to 1 before UI/input handling each frame
+    this.mouse.setMask(0);
+    this.mouse.setPower(1);
         // Update UI elements
         let sortedElements = [...this.elements.values()].sort((a, b) => b.layer - a.layer);
         for (const elm of sortedElements) {

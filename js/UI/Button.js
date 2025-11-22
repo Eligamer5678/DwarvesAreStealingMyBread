@@ -1,15 +1,25 @@
 import Vector from '../Vector.js';
 import Signal from '../Signal.js';
 import Geometry from '../Geometry.js';
+import Color from '../Color.js';
 
 export default class UIButton {
     constructor(mouse, keys,pos,size,layer,keybind=null,baseColor='#444',hoverColor='#555',pressedColor='#222'){
         this.pos = pos;
         this.size = size;
-        this.baseColor = baseColor ? baseColor : '#444';
-        this.hoverColor = hoverColor ? hoverColor : '#555';
-        this.pressedColor = pressedColor ? pressedColor : '#222';
-        this.color = this.baseColor;
+        // Convert color inputs to Color instances for more robust drawing
+        try {
+            this.baseColor = baseColor ? Color.convertColor(baseColor) : Color.convertColor('#444');
+            this.hoverColor = hoverColor ? Color.convertColor(hoverColor) : Color.convertColor('#555');
+            this.pressedColor = pressedColor ? Color.convertColor(pressedColor) : Color.convertColor('#222');
+            this.color = this.baseColor;
+        } catch (e) {
+            // fallback to raw strings if Color conversion fails
+            this.baseColor = baseColor ? baseColor : '#444';
+            this.hoverColor = hoverColor ? hoverColor : '#555';
+            this.pressedColor = pressedColor ? pressedColor : '#222';
+            this.color = this.baseColor;
+        }
         this.keybind = keybind;
         this.layer = layer;
         this.mouse = mouse;
@@ -72,14 +82,16 @@ export default class UIButton {
         if(!this.visible){
             return;
         }
-        this.heldTime += delta;
-        this.color = this.baseColor;
-        this.mouse.setPower(this.layer)
+    this.heldTime += delta;
+    this.color = this.baseColor;
+    // Do NOT set mouse power here; the scene should reset power each tick (mouse.setPower(1)).
+    // Instead, when hovered, add a mask stack so penetration depth semantics work correctly.
         // Use current mouse position for hit detection so clicks/releases are handled where the cursor actually is
         if (Geometry.pointInRect(this.mouse.pos,this.pos.add(this.offset),this.size)){
-            if(this.layer > this.mouse.mask){
-                this.mouse.setMask(this.layer);
-            }
+            // Add one mask stack for this hovered element. The scene should have called
+            // mouse.setMask(0) and mouse.setPower(1) at the start of the tick.
+            // Using addMask keeps mask as a cumulative penetration depth across UI elements.
+            try { this.mouse.addMask(1); } catch (e) {}
             this.color = this.hoverColor;
             this.hoverTime += delta;
             this.onHover.emit(this.hoverTime);
