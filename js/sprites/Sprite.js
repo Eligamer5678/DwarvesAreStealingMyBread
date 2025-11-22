@@ -2,32 +2,25 @@ import Vector from "../Vector.js";
 import Signal from "../Signal.js";
 import Timer from "../Timer.js";
 import Input from './Input.js';
-
-// Simple static sprite for editor/runtime entities with a single image
 /**
- * Sprite
- * Basic drawable sprite used for simple world entities. The constructor is
- * backwards-compatible and accepts either of these signatures:
- *  - `new Sprite(Draw, pos, size, spriteSheet)`
- *  - `new Sprite(keys, Draw, pos, size, spriteSheet, inputSettings)`
- *
- * If `keys` and `inputSettings` are provided, an `Input` controller will be
- * created and assigned to `this.input`. `inputSettings` may be either an
- * `Input` instance (in which case it is used directly) or an options object
- * passed to `new Input(keys, type, options)`.
+ * @typedef {import('../Spritesheet.js').default} SpriteSheetType
+ * @typedef {import('../Input.js').default} InputType
+ * @typedef {import('../Vector.js').default} VectorType
+ * @typedef {import('../Keys.js').default} KeysType
+ * @typedef {import('../Draw.js').default} DrawType
  */
-export default class Sprite {
-    constructor(...args){
-        // detect signature: (keys, Draw, pos, size, sheet, inputSettings)
-        let keys = null; let Draw = null; let pos = null; let size = null; let spriteSheet = null; let inputSettings = null;
-        if (args && args.length && args[0] && (typeof args[0].held === 'function' || typeof args[0].pressed === 'function')) {
-            // keys-present form
-            keys = args[0]; Draw = args[1]; pos = args[2]; size = args[3]; spriteSheet = args[4]; inputSettings = args[5] || null;
-        } else {
-            // Draw-first form
-            Draw = args[0]; pos = args[1]; size = args[2]; spriteSheet = args[3]; inputSettings = null;
-        }
 
+export default class Sprite {
+    /**
+     * 
+     * @param {KeysType} keys 
+     * @param {DrawType} Draw 
+     * @param {VectorType} pos 
+     * @param {VectorType} size 
+     * @param {SpriteSheetType} spriteSheet 
+     * @param {InputType|Object} inputSettings 
+     */
+    constructor(keys,Draw,pos,size,spriteSheet,inputSettings){
         // basic state
         this.size = size;                   // Vector (dst draw size in pixels)
         this.pos = pos ? pos.clone() : new Vector(0,0); // Vector (top-left in world/local coords)

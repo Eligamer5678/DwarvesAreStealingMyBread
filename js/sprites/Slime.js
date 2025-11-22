@@ -5,7 +5,9 @@ import { mergeObjects } from '../Support.js';
 
 export default class Slime extends Sprite {
     constructor(Draw, pos = new Vector(0,0), size = new Vector(24,24), sheet = null, options = {}){
-        super(Draw, pos, size, sheet, null);
+        // Sprite expects (keys, Draw, pos, size, spriteSheet, inputSettings)
+        // Slime doesn't use keys for input, so pass null
+        super(null, Draw, pos, size, sheet, null);
         const defaultSettings = {
             scene:null,
             color:'#55cc55',

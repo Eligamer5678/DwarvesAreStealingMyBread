@@ -1,20 +1,20 @@
     
-import Scene from './Scene.js';
-import Vector from '../js/Vector.js';
-import Geometry from '../js/Geometry.js';
-import createHButton from '../js/htmlElements/createHButton.js';
-import createHDiv from '../js/htmlElements/createHDiv.js';
-import createHLabel from '../js/htmlElements/createHLabel.js';
-import SpriteSheet from '../js/Spritesheet.js';
-import Cat from '../js/sprites/Cat.js';
-import PackageManager from '../js/PackageManager.js';
+import Scene from '../Scenes/Scene.js';
+import Vector from './Vector.js';
+import Geometry from './Geometry.js';
+import createHButton from './htmlElements/createHButton.js';
+import createHDiv from './htmlElements/createHDiv.js';
+import createHLabel from './htmlElements/createHLabel.js';
+import SpriteSheet from './Spritesheet.js';
+import Cat from './sprites/Cat.js';
+import PackageManager from './PackageManager.js';
 import BufferedSegment from '../js/physics/BufferedSegment.js';
 import BufferedPolygon from '../js/physics/BufferedPolygon.js';
-import Menu from '../js/UI/Menu.js';
-import UIButton from '../js/UI/Button.js';
-import UIRect from '../js/UI/Rect.js';
-import UISlider from '../js/UI/Slider.js';
-import Sprite from '../js/sprites/Sprite.js';
+import Menu from './UI/Menu.js';
+import UIButton from './UI/Button.js';
+import UIRect from './UI/Rect.js';
+import UISlider from './UI/Slider.js';
+import Sprite from './sprites/Sprite.js';
 
 export class CollisionScene extends Scene {
     constructor(...args) {
