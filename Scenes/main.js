@@ -5,6 +5,7 @@ import SpriteSheet from '../js/Spritesheet.js';
 import Dwarf from '../js/sprites/Dwarf.js';
 import Slime from '../js/sprites/Slime.js';
 import Moth from '../js/sprites/Moth.js';
+import Bat from '../js/sprites/Bat.js';
 import ChunkManager from '../js/ChunkManager.js';
 import LightingSystem from '../js/LightingSystem.js';
 import MiningSystem from '../js/MiningSystem.js';
@@ -79,6 +80,16 @@ export class MainScene extends Scene {
             } catch (e) {
                 console.warn('Failed to load moth spritesheet', e);
             }
+            try {
+                const batImg = await this._loadImage('Assets/Sprites/bat.png', 'bat');
+                const batSheet = new SpriteSheet(batImg, 16);
+                // row0: fly (6 frames), row1: defeat (8 frames)
+                batSheet.addAnimation('fly', 0, 7);
+                batSheet.addAnimation('defeat', 1, 11);
+                this.SpriteImages.set('bat', batSheet);
+            } catch (e) {
+                console.warn('Failed to load bat spritesheet', e);
+            }
 
             // Create player
             this.player = new Dwarf(
@@ -121,6 +132,7 @@ export class MainScene extends Scene {
 
         // Enable moth path debugging visualization
         this.debugMothPaths = true;
+        this.debugBatPaths = true;
 
         // Initialize systems
         this._initializeChunkSystem();
@@ -134,7 +146,7 @@ export class MainScene extends Scene {
         this._initializeCamera();
 
         // Create Main UI
-        try { this.mainUI = new MainUI(this); } catch (e) { console.warn('Failed to create MainUI', e); }
+        this.mainUI = new MainUI(this.Draw,this.mouse,this.keys,this.player); 
 
         this.isReady = true;
     }
@@ -276,6 +288,8 @@ export class MainScene extends Scene {
         this._spawnSlimes();
         // Spawn moths
         this._spawnMoths();
+        // Spawn bats
+        this._spawnBats();
     }
 
     _initializeCamera() {
@@ -356,7 +370,7 @@ export class MainScene extends Scene {
                 return;
             }
 
-            const spawnCount = 10;
+            const spawnCount = 3;
             const ts = this.noiseTileSize || 8;
             const playerCenter = this.player.pos.add(this.player.size.mult(0.5));
             for (let i = 0; i < spawnCount; i++) {
@@ -386,6 +400,46 @@ export class MainScene extends Scene {
             }
         } catch (e) {
             console.warn('Failed to spawn moths', e);
+        }
+    }
+    _spawnBats() {
+        try {
+            const batSheet = this.SpriteImages.get('bat');
+            if (!batSheet) {
+                console.warn('No bat spritesheet available; skipping bat spawn.');
+                return;
+            }
+
+            const spawnCount = 3;
+            const ts = this.noiseTileSize || 8;
+            const playerCenter = this.player.pos.add(this.player.size.mult(0.5));
+            for (let i = 0; i < spawnCount; i++) {
+                let placed = false;
+                for (let attempt = 0; attempt < 16; attempt++) {
+                    const sx = (this.player.pos.x || 0) + (Math.random() * 400 - 200);
+                    const sy = (this.player.pos.y || 0) + (Math.random() * 240 - 120);
+                    const tx = Math.floor(sx / ts);
+                    const ty = Math.floor(sy / ts);
+                    const tile = this._getTileValue(tx, ty);
+                    const dist = Math.hypot(sx - playerCenter.x, sy - playerCenter.y);
+                    if (tile && tile.type === 'solid') continue;
+                    if (dist < ts * 1.5) continue;
+                    const sz = Math.max(12, Math.min(24, Math.random() * 10 + 14));
+                    const bat = new Bat(this.Draw, new Vector(sx, sy), new Vector(sz, sz), batSheet, { scene: this });
+                    this.entityManager.addEntity(bat);
+                    placed = true;
+                    break;
+                }
+                if (!placed) {
+                    const sx = playerCenter.x + (Math.random()*60-30);
+                    const sy = playerCenter.y - (ts * 3 + Math.random()*40);
+                    const sz = Math.max(12, Math.min(24, Math.random() * 10 + 14));
+                    const bat = new Bat(this.Draw, new Vector(sx, sy), new Vector(sz, sz), batSheet, { scene: this });
+                    this.entityManager.addEntity(bat);
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to spawn bats', e);
         }
     }
 
@@ -429,7 +483,7 @@ export class MainScene extends Scene {
         this.chunkManager.generateChunksAround(worldX, worldY, 1);
 
         // Update UI
-        try { if (this.mainUI && typeof this.mainUI.update === 'function') this.mainUI.update(tickDelta); } catch (e) {}
+        this.mainUI.update(tickDelta);
     }
 
     _handleTorchInput() {
@@ -480,21 +534,8 @@ export class MainScene extends Scene {
         this.camera.popTransform();
 
         // Draw screen-space UI
-        try {
-            if (this.UIDraw && this.mainUI && typeof this.mainUI.draw === 'function') {
-                this.UIDraw.clear();
-                this.mainUI.draw();
-                // Debug overlay: show mouse mask/power and current tool
-                try {
-                    this.UIDraw.useCtx('UI');
-                    const m = this.mouse || { mask: 0, power: 0, pos: { x: 0, y: 0 } };
-                    const tool = (this.player && this.player.currentTool) ? this.player.currentTool.type : 'none';
-                    this.UIDraw.text(`mask:${m.mask} power:${m.power}`, new Vector(12, 64), '#FFFFFFFF', 0, 14, { align: 'left', baseline: 'top' });
-                    this.UIDraw.text(`tool:${tool}`, new Vector(12, 82), '#FFFFFFFF', 0, 14, { align: 'left', baseline: 'top' });
-                    this.UIDraw.text(`mouse: ${Math.round(this.mouse.pos.x)}, ${Math.round(this.mouse.pos.y)}`, new Vector(12, 100), '#FFFFFFFF', 0, 14, { align: 'left', baseline: 'top' });
-                } catch (e) {}
-            }
-        } catch (e) {}
+        this.UIDraw.clear();
+        this.mainUI.draw();
     }
 
     _drawTiles() {

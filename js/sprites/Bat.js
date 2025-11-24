@@ -9,17 +9,18 @@ function heuristic(ax, ay, bx, by) {
     return Math.hypot(dx, dy);
 }
 
-export default class Moth extends Sprite {
+export default class Bat extends Sprite {
     constructor(Draw, pos = new Vector(0,0), size = new Vector(16,16), sheet = null, options = {}){
         // Sprite expects (keys, Draw, pos, size, spriteSheet, inputSettings)
         super(null, Draw, pos, size, sheet, null);
         const defaults = {
             scene: null,
             animFps: 32,
-            flightSpeed: 10,
+            flightSpeed: 5,
             pathRecalc: 0.6,
             attackRange: 30,
-            attackCooldown: 2.0
+            attackCooldown: 2.0,
+            lungeSpeed: 1
         };
         mergeObjects(options, defaults);
 
@@ -29,6 +30,7 @@ export default class Moth extends Sprite {
         this.pathRecalc = options.pathRecalc;
         this.attackRange = options.attackRange;
         this.attackCooldownTime = options.attackCooldown;
+        this.lungeSpeed = options.lungeSpeed
 
         this.path = null; // array of tile nodes [ {x,y}, ... ]
         this.pathIdx = 0;
@@ -43,7 +45,7 @@ export default class Moth extends Sprite {
         this.roamRadius = 3; // tiles (smaller radius for reachable targets)
         this.roamAttempts = 24;
 
-        // desynchronize initial attack timers so moths don't all swoop together
+        // desynchronize initial attack timers so bats don't all swoop together
         this.attackCooldown = Math.random() * this.attackCooldownTime;
 
         this.anim = 'fly';
@@ -288,9 +290,9 @@ export default class Moth extends Sprite {
             this.attackCooldown = this.attackCooldownTime;
             // set quick lunge towards player
             const dir = pCenter.sub(meCenter).div(Math.max(1, dist));
-            this.vlos.x = dir.x * this.speed * 1.6;
-            this.vlos.y = dir.y * this.speed * 1.4 - Math.abs(this.speed*0.4);
-            // after attacking, pick a new roam target so moths desync
+            this.vlos.x = dir.x * this.speed * this.lungeSpeed;
+            this.vlos.y = dir.y * this.speed * this.lungeSpeed - Math.abs(this.speed*0.4);
+            // after attacking, pick a new roam target so bats desync
             this.chooseRoamTarget();
         }
 
@@ -365,7 +367,7 @@ export default class Moth extends Sprite {
 
         // Optional debug: draw computed path and roam target if scene requests it
         try {
-            if (this.scene && this.scene.debugMothPaths) {
+            if (this.scene && this.scene.debugBatPaths) {
                 const ts = this.scene.noiseTileSize || 16;
                 // draw path nodes as connected lines
                 if (this.path && this.path.length) {
@@ -375,7 +377,7 @@ export default class Moth extends Sprite {
                         const nx = node.x * ts + ts * 0.5;
                         const ny = node.y * ts + ts * 0.5;
                         const next = new Vector(nx, ny);
-                        this.Draw.line(prev, next, 'rgba(0,200,0,0.6)', 2);
+                        this.Draw.line(prev, next, 'rgba(255, 179, 0, 0.6)', 2);
                         prev = next;
                     }
                 }
