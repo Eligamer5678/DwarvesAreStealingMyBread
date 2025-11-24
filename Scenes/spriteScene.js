@@ -339,9 +339,10 @@ export class SpriteScene extends Scene {
 
     // tick handler: called by Scene.tick() via sceneTick
     sceneTick(tickDelta){
+        // Reset mouse mask and default power before processing UI/input
         this.mouse.setMask(0)
+        this.mouse.setPower(1)
         this.FrameSelect.update()
-        this.mouse.setPower(0)
         try {
             // handle ctrl+wheel zoom (adds velocity impulses)
             this.zoomScreen(tickDelta);

@@ -1,0 +1,338 @@
+import Vector from './Vector.js';
+import { mergeObjects } from './Support.js';
+/**
+ * @typedef {import('../sprites/Sprite.js').default} SpriteType
+ */
+/**
+ * Simple Camera class handling zoom, offset and input-driven movement.
+ * Accepts a `Draw` instance and a `Mouse` instance and exposes helper
+ * methods to apply world transforms and convert between screen/world.
+ *
+ * Keyframe system: push { zoom: Vector, offset: Vector, duration, ease }
+ * and Camera will interpolate automatically. For now easing is linear.
+ */
+export default class Camera {
+    /**
+     * @param {object} Draw - drawing helper with pushMatrix/scale/translate/popMatrix
+     * @param {Mouse} mouse - mouse input instance
+     * @param {object} [opts]
+     */
+    constructor(Draw, mouse, opts = {}){
+        this.Draw = Draw;
+        this.mouse = mouse;
+
+        this.zoom = new Vector(1,1);
+        this.offset = new Vector(0,0);
+        this.zoomPos = new Vector(0,0);
+
+        // smoothing targets (we lerp current values towards these)
+        this.targetZoom = new Vector(1,1);
+        this.targetOffset = new Vector(0,0);
+
+        // defaults, can be overridden by opts — use mergeObjects to avoid
+        // repetitive typeof/default checks and keep behavior predictable.
+        const _defaults = {
+            minZoom: 0.25,
+            maxZoom: 16,
+            zoomSmooth: 8,
+            zoomImpulse: 12,
+            zoomStep: -0.001,
+            panSmooth: 8,
+            panImpulse: 1.0
+        };
+        const cfg = mergeObjects(opts || {}, _defaults);
+
+        this.minZoom = cfg.minZoom;
+        this.maxZoom = cfg.maxZoom;
+        this.zoomSmooth = cfg.zoomSmooth;
+        this.zoomImpulse = cfg.zoomImpulse;
+        this.zoomStep = cfg.zoomStep;
+
+        this.panSmooth = cfg.panSmooth;
+        this.panImpulse = cfg.panImpulse;
+
+        // keyframe stack
+        this.keyframes = [];
+        this._kf = null; // active keyframe {start,end,duration,t}
+        // tracking state
+        this._trackedSprite = null; // sprite being tracked (object with .pos)
+        this.trackOffset = new Vector(0,0); // optional offset applied to tracking
+        this._tracking = false; // whether tracking is enabled
+        this._pausedTracking = false; // temporarily paused while keyframes play
+        this._trackingCentered = false; // when true, camera stays centered until sprite exits radius
+        this._trackOptions = {}; // stored options passed to `track`
+    }
+
+    /**
+     * Push a camera keyframe. `target` may contain `zoom` and/or `offset` (Vectors).
+     * - Ex. addKeyframe({zoom: new Vector(2,2), offset: new Vector(0,0), 0.6})
+     * @param {{zoom?:Vector,offset?:Vector}} target
+     * @param {number} duration seconds
+     */
+    addKeyframe(target, duration = 0.5){
+        // pushing a keyframe sequence should pause active tracking when it begins
+        this.keyframes.push({ target, duration });
+    }
+
+    _startNextKeyframe(){
+        if (this._kf || this.keyframes.length === 0) return;
+        const next = this.keyframes.shift();
+        const start = { zoom: this.zoom.clone(), offset: this.offset.clone() };
+        const end = {
+            zoom: next.target.zoom ? next.target.zoom.clone() : this.zoom.clone(),
+            offset: next.target.offset ? next.target.offset.clone() : this.offset.clone()
+        };
+        // When starting a keyframe, pause tracking but remember previous state so
+        // it can be resumed after the keyframe finishes.
+        this._pausedTracking = this._tracking;
+        this._tracking = false;
+        this._kf = { start, end, duration: Math.max(1e-6, next.duration || 0.001), t: 0 };
+    }
+
+    _updateKeyframe(dt){
+        if (!this._kf) return;
+        this._kf.t += dt;
+        const p = Math.min(1, this._kf.t / this._kf.duration);
+        // linear ease for now, should be replaced with exponental later
+        const t = p;
+        // interp zoom (component-wise)
+        this.zoom.x = this._kf.start.zoom.x + (this._kf.end.zoom.x - this._kf.start.zoom.x) * t;
+        this.zoom.y = this._kf.start.zoom.y + (this._kf.end.zoom.y - this._kf.start.zoom.y) * t;
+        // interp offset
+        this.offset.x = this._kf.start.offset.x + (this._kf.end.offset.x - this._kf.start.offset.x) * t;
+        this.offset.y = this._kf.start.offset.y + (this._kf.end.offset.y - this._kf.start.offset.y) * t;
+
+        if (p >= 1) {
+            this._kf = null;
+            // ensure smoothing targets match final keyframe to avoid jump
+            this.targetZoom = this.zoom.clone();
+            this.targetOffset = this.offset.clone();
+            // restore tracking state if it was paused for the keyframe
+            if (this._pausedTracking) {
+                this._tracking = true;
+                this._pausedTracking = false;
+            }
+        }
+    }
+
+    /**
+     * Handle input-driven impulses (wheel for pan/zoom).
+     * If ctrl+wheel detected, produce zoom impulse; otherwise pan.
+     */
+    handleInput(){
+        if (!this.mouse) return;
+
+        // ctrl+wheel -> zoom (mouse.wheel(requireCtrl=true))
+        const delta = this.mouse.wheel(null, false, true) || 0;
+        if (delta) {
+            const mpos = this.mouse.pos || new Vector(0,0);
+            const zoomStep = this.zoomStep || -0.001;
+            let desiredFactor = Math.exp(zoomStep * delta);
+            // apply multiplicative change to the target zoom and clamp
+            this.targetZoom.x = Math.max(this.minZoom, Math.min(this.maxZoom, this.targetZoom.x * desiredFactor));
+            this.targetZoom.y = Math.max(this.minZoom, Math.min(this.maxZoom, this.targetZoom.y * desiredFactor));
+            if (this.zoomPos && typeof this.zoomPos.clone === 'function'){
+                this.zoomPos.x = mpos.x; this.zoomPos.y = mpos.y;
+            }
+            return; // prefer zoom when ctrl+wheel
+        }
+
+        // otherwise pan (wheel + wheelX)
+        const wheelY = this.mouse.wheel() || 0;
+        const wheelX = this.mouse.wheelX() || 0;
+        const zX = this.targetZoom.x || 1;
+        const zY = this.targetZoom.y || 1;
+        const impulseX = -wheelX * (this.panImpulse) * (1 / zX);
+        const impulseY = -wheelY * (this.panImpulse) * (1 / zY);
+        // modify offset target directly
+        this.targetOffset.x += impulseX;
+        this.targetOffset.y += impulseY;
+    }
+
+    /**
+     * Integrate velocities, keyframes and damping.
+     * @param {number} dt
+     */
+    update(dt){
+        this._startNextKeyframe();
+        if (this._kf !== null) {
+            this._updateKeyframe(dt);
+            // While keyframing, do not apply smoothing towards targets
+            return;
+        }
+
+        // Exponential smoothing (equivalent to lerp with frame-independent factor)
+        let zSmooth = Math.max(0, this.zoomSmooth);
+        let pSmooth = Math.max(0, this.panSmooth);
+        const zFactor = 1 - Math.exp(-zSmooth * dt);
+
+        // For zoom, interpolate component-wise toward targetZoom
+        this.zoom.x = this.zoom.x + (this.targetZoom.x - this.zoom.x) * zFactor;
+        this.zoom.y = this.zoom.y + (this.targetZoom.y - this.zoom.y) * zFactor;
+
+        // Allow per-track overrides for smoothing while actively tracking
+        if (this._tracking && this._trackOptions) {
+            if (this._trackOptions.zoomSmooth !== undefined) zSmooth = this._trackOptions.zoomSmooth;
+            if (this._trackOptions.panSmooth !== undefined) pSmooth = this._trackOptions.panSmooth;
+        }
+        // recompute pFactor if overrides changed
+        const pFactorFinal = 1 - Math.exp(-pSmooth * dt);
+        this.offset.x = this.offset.x + (this.targetOffset.x - this.offset.x) * pFactorFinal;
+        this.offset.y = this.offset.y + (this.targetOffset.y - this.offset.y) * pFactorFinal;
+
+        // If tracking a sprite, update targetOffset to center that sprite.
+        if (this._trackedSprite && this._tracking) {
+            const drawCtx = this.Draw.ctx;
+            const scaleX = this.Draw.Scale.x;
+            const uiW = drawCtx.canvas.width / scaleX;
+            const uiH = drawCtx.canvas.height / scaleX;
+            const center = new Vector(uiW / 2, uiH / 2);
+            const zx = this.targetZoom.x;
+            const zy = this.targetZoom.y;
+            // desired is the world-offset that will place the sprite at screen center
+            const desired = new Vector(center.x / zx - this._trackedSprite.pos.x, center.y / zy - this._trackedSprite.pos.y);
+
+            // track option helpers
+            const opts = this._trackOptions || {};
+            const boundingRadius = opts.boundingRadius || 0; // in screen px
+            const stopVel = opts.stopVel || 0;
+
+            // compute sprite velocity magnitude (if available)
+            const vel = this._trackedSprite.vel || Vector.zero();
+            const velMag = Math.hypot(vel.x || 0, vel.y || 0);
+
+            // convert bounding radius from screen px -> world units (approx using zx)
+            const boundingWorld = (boundingRadius > 0) ? (boundingRadius / zx) : 0;
+            const distanceWorld = Math.hypot(desired.x, desired.y);
+
+            // compute desired offset with any configured trackOffset
+            const desiredWithOffset = desired.add(this.trackOffset);
+
+            // Behavior:
+            // - If stopVel > 0 and sprite velocity drops below stopVel, center camera
+            //   and hold it centered until sprite moves outside boundingRadius.
+            // - Otherwise, if boundingRadius > 0 the camera will only recenter when
+            //   the sprite exits the radius; if within radius, leave targetOffset unchanged.
+            if (stopVel > 0 && velMag < stopVel) {
+                this._trackingCentered = true;
+                this.targetOffset = desiredWithOffset;
+            } else if (this._trackingCentered) {
+                // if we were centered due to low velocity, keep centering until sprite leaves radius
+                if (boundingRadius > 0 && distanceWorld > boundingWorld) {
+                    this._trackingCentered = false;
+                    this.targetOffset = desiredWithOffset;
+                } else {
+                    this.targetOffset = desiredWithOffset;
+                }
+            } else {
+                // not currently forced-centered
+                if (boundingRadius > 0) {
+                    if (distanceWorld > boundingWorld) {
+                        this.targetOffset = desiredWithOffset;
+                    }
+                    // else: sprite inside radius -> don't update targetOffset
+                } else {
+                    // no bounding radius -> always update target offset (normal tracking)
+                    this.targetOffset = desiredWithOffset;
+                }
+            }
+        }
+        
+    }
+
+    /**
+     * Start tracking a sprite (object with `.pos` Vector). `options.offset` may
+     * specify an additional Vector offset applied to the tracked world point.
+     * Options supported:
+     * - `offset` (Vector): additional world offset applied after centering.
+     * - `panSmooth` (number): override pan smoothing while tracking.
+     * - `zoomSmooth` (number): override zoom smoothing while tracking.
+     * - `boundingRadius` (number): screen pixels radius around center where the
+     *    camera will not recenter while the sprite remains inside it.
+     * - `stopVel` (number): when sprite velocity magnitude falls below this
+     *    value (world units/sec) the camera will center and stay centered until
+     *    the sprite exits the `boundingRadius`.
+     * @param { SpriteType } sprite
+     * @param {{offset?:Vector,panSmooth?:number,zoomSmooth?:number,boundingRadius?:number,stopVel?:number}} [options]
+     */
+    track(sprite, options = {}){
+        this._trackedSprite = sprite;
+        this._tracking = !!sprite;
+        this._pausedTracking = false;
+        // Store a shallow copy of options for use during update. Clone offset
+        // separately so we don't hold a reference to the caller's object.
+        this._trackOptions = Object.assign({}, options || {});
+        if (options.offset) {
+            this.trackOffset = options.offset.clone ? options.offset.clone() : options.offset;
+            // do not keep the offset object inside _trackOptions (avoid dup refs)
+            this._trackOptions.offset = undefined;
+        } else {
+            this.trackOffset = new Vector(0,0);
+        }
+        // If a zoom value is supplied, apply it to the target zoom. Accepts a
+        // scalar or a Vector-like object with x/y or a Vector instance.
+        if (options.zoom) {
+            const z = options.zoom;
+            if (z && typeof z.clone === 'function') {
+                this.targetZoom = z.clone();
+            } else if (typeof z === 'number') {
+                this.targetZoom = new Vector(z, z);
+            } else if (z && typeof z.x === 'number' && typeof z.y === 'number') {
+                this.targetZoom = new Vector(z.x, z.y);
+            }
+        }
+    }
+
+    /**
+     * Stop tracking the currently tracked sprite and clear any tracking offset.
+     */
+    stopTrack(){
+        this._trackedSprite = null;
+        this._tracking = false;
+        this._pausedTracking = false;
+        this.trackOffset = new Vector(0,0);
+    }
+
+    /**
+     * Returns true when the camera is actively tracking a sprite.
+     */
+    isTracking(){ return !!this._tracking && !!this._trackedSprite; }
+
+    /**
+     * Apply the camera transform to the Draw instance (push+scale+translate).
+     */
+    applyTransform(){
+        if (!this.Draw) return;
+        this.Draw.pushMatrix();
+        this.Draw.scale(this.zoom);
+        this.Draw.translate(this.offset);
+    }
+
+    /**
+     * Pop the transform (mirror of applyTransform).
+     */
+    popTransform(){
+        if (!this.Draw) return;
+        this.Draw.popMatrix();
+    }
+
+    /**
+     * Convert screen (canvas) coordinates to world coordinates.
+     * @param {Vector|null} screen
+     * @returns {Vector}
+     */
+    screenToWorld(screen){
+        const s = screen || (this.mouse && this.mouse.pos) || new Vector(0,0);
+        return new Vector(s.x / this.zoom.x - this.offset.x, s.y / this.zoom.y - this.offset.y);
+    }
+
+    /**
+     * Convert world coords to screen coords.
+     * @param {Vector|null} world
+     * @returns {Vector}
+     */
+    worldToScreen(world){
+        const w = world || new Vector(0,0);
+        return new Vector((w.x + this.offset.x) * this.zoom.x, (w.y + this.offset.y) * this.zoom.y);
+    }
+}
