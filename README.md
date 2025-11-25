@@ -1,5 +1,5 @@
 # Dwarves are stealing my bread
-The BREAD rules above all dwarves. All dwarves pray to the BREAD. Dwarves must recreate the BREAD.
+The holy BREAD calls to us my children, we dwarves shall find it once more. Monsters and even our own brotheren don't beleive in this yeasty GOD, so PRAISE BE TO BREAD.
 
 
 #### Infomation
