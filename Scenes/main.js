@@ -50,10 +50,10 @@ export class MainScene extends Scene {
             // Load dwarf spritesheet
             const dwarfImg = await this._loadImage('Assets/Sprites/dwarf.png', 'dwarf');
             const dwarfSheet = new SpriteSheet(dwarfImg, 16);
-            dwarfSheet.addAnimation('idle', 0, 6);
+            dwarfSheet.addAnimation('idle', 5, 1);
             dwarfSheet.addAnimation('hold', 1, 3);
             dwarfSheet.addAnimation('march', 2, 5);
-            dwarfSheet.addAnimation('walk', 3, 5);
+            dwarfSheet.addAnimation('walk', 1, 5);
             this.SpriteImages.set('dwarf', dwarfSheet);
 
             // Load slime spritesheet
