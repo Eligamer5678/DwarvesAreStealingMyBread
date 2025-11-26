@@ -193,7 +193,7 @@ export default class MiningSystem {
         if (this.player && this.noiseTileSize) {
             const px = this.player.pos.x + this.player.size.x * 0.5;
             const py = this.player.pos.y + this.player.size.y * 0.5;
-            base = new Vector(Math.floor(px / this.noiseTileSize), Math.floor(py / this.noiseTileSize));
+            let base = new Vector(Math.floor(px / this.noiseTileSize), Math.floor(py / this.noiseTileSize));
         }
         return base
     }
