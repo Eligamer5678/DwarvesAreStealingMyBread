@@ -50,32 +50,39 @@ export class MainScene extends Scene {
             // Load dwarf spritesheet
             const dwarfImg = await this._loadImage('Assets/Sprites/dwarf.png', 'dwarf');
             const dwarfSheet = new SpriteSheet(dwarfImg, 16);
-            dwarfSheet.addAnimation('idle', 5, 1);
-            dwarfSheet.addAnimation('hold', 1, 3);
-            dwarfSheet.addAnimation('march', 2, 5);
-            dwarfSheet.addAnimation('walk', 1, 5);
+            dwarfSheet.addAnimation('idle', 5, 1, 8);
+            dwarfSheet.addAnimation('walk', 1, 5, 8);
+            dwarfSheet.addAnimation('mine', 4, 5, 24);
+            dwarfSheet.addAnimation('hold_pick', 6, 1, 8);
+            dwarfSheet.addAnimation('walk_and_hold_pick', 7, 5, 8);
+            dwarfSheet.addAnimation('walk_and_hold_pick_as_sheild', 8, 5, 8);
+            dwarfSheet.addAnimation('look', 1, 5, 8);
+            dwarfSheet.addAnimation('point', 0, 3, 8);
+            dwarfSheet.addAnimation('walk_and_point', 2, 5, 8);
+            dwarfSheet.playAnimation('idle')
             this.SpriteImages.set('dwarf', dwarfSheet);
 
             // Load slime spritesheet
             try {
                 const slimeImg = await this._loadImage('Assets/Sprites/slime.png', 'slime');
                 const slimeSheet = new SpriteSheet(slimeImg, 16);
-                slimeSheet.addAnimation('idle', 0, 2);
-                slimeSheet.addAnimation('walk', 0, 2);
-                slimeSheet.addAnimation('defeat', 1, 6);
-                slimeSheet.addAnimation('attack', 2, 8);
+                slimeSheet.addAnimation('idle', 0, 2, 8);
+                slimeSheet.addAnimation('walk', 0, 2, 8);
+                slimeSheet.addAnimation('defeat', 1, 6, 8);
+                slimeSheet.addAnimation('attack', 2, 8,8,0,'swapTo','walk');
+                slimeSheet.playAnimation('idle')
                 this.SpriteImages.set('slime', slimeSheet);
             } catch (e) {
                 console.warn('Failed to load slime spritesheet', e);
             }
-
             // Load moth spritesheet
             try {
                 const mothImg = await this._loadImage('Assets/Sprites/moth.png', 'moth');
                 const mothSheet = new SpriteSheet(mothImg, 16);
                 // row0: fly (6 frames), row1: defeat (8 frames)
-                mothSheet.addAnimation('fly', 0, 6);
-                mothSheet.addAnimation('defeat', 1, 8);
+                mothSheet.addAnimation('fly', 0, 6, 32);
+                mothSheet.addAnimation('defeat', 1, 8, 8);
+                mothSheet.playAnimation('idle')
                 this.SpriteImages.set('moth', mothSheet);
             } catch (e) {
                 console.warn('Failed to load moth spritesheet', e);
@@ -84,8 +91,9 @@ export class MainScene extends Scene {
                 const batImg = await this._loadImage('Assets/Sprites/bat.png', 'bat');
                 const batSheet = new SpriteSheet(batImg, 16);
                 // row0: fly (6 frames), row1: defeat (8 frames)
-                batSheet.addAnimation('fly', 0, 7);
-                batSheet.addAnimation('defeat', 1, 11);
+                batSheet.addAnimation('fly', 0, 7, 32);
+                batSheet.addAnimation('defeat', 1, 11, 8);
+                batSheet.playAnimation('idle')
                 this.SpriteImages.set('bat', batSheet);
             } catch (e) {
                 console.warn('Failed to load bat spritesheet', e);
@@ -165,9 +173,6 @@ export class MainScene extends Scene {
         });
     }
 
-    // Ensure the player's starting position is free. If the current player position
-    // lies inside solid tiles (due to generation seed), search outward for the nearest
-    // tile area that can contain the player and move them there.
     _ensurePlayerSpawn() {
         if (!this.player || !this.chunkManager) return;
         const ts = this.noiseTileSize || 8;
@@ -287,9 +292,9 @@ export class MainScene extends Scene {
         // Spawn slimes
         this._spawnSlimes();
         // Spawn moths
-        this._spawnMoths();
+        //this._spawnMoths();
         // Spawn bats
-        this._spawnBats();
+        //this._spawnBats();
     }
 
     _initializeCamera() {
@@ -341,7 +346,7 @@ export class MainScene extends Scene {
                         this.Draw,
                         new Vector(sx, sy),
                         new Vector(sz, sz),
-                        slimeSheet,
+                        slimeSheet.connect(),
                         { scene: this }
                     );
                     this.entityManager.addEntity(slime);
@@ -353,7 +358,7 @@ export class MainScene extends Scene {
                     const sx = playerCenter.x + (Math.random()*40-20);
                     const sy = playerCenter.y - (ts * 2 + Math.random()*20);
                     const sz = Math.max(12, Math.min(48, Math.random() * 32 + 12));
-                    const slime = new Slime(this.Draw, new Vector(sx, sy), new Vector(sz, sz), slimeSheet, { scene: this });
+                    const slime = new Slime(this.Draw, new Vector(sx, sy), new Vector(sz, sz), slimeSheet.connect(), { scene: this });
                     this.entityManager.addEntity(slime);
                 }
             }
@@ -402,6 +407,7 @@ export class MainScene extends Scene {
             console.warn('Failed to spawn moths', e);
         }
     }
+
     _spawnBats() {
         try {
             const batSheet = this.SpriteImages.get('bat');
@@ -496,7 +502,6 @@ export class MainScene extends Scene {
         }
     }
 
-    // Legacy accessor for Slime compatibility
     _getTileValue(sx, sy) {
         return this.chunkManager.getTileValue(sx, sy);
     }
@@ -652,86 +657,5 @@ export class MainScene extends Scene {
         
         // Outline
         this.Draw.circle(new Vector(cx, cy), ts * 0.4, 'rgba(255,255,255,0.25)', false, 2);
-    }
-
-    _updateMining(tickDelta) {
-        const miningHeld = !!this.keys.held(' ');
-        if (miningHeld && !this._prevMiningHeld) {
-            // mining started this frame: capture current highlight as mining target and start progress
-            if (this.highlightTile) {
-                this._miningActive = true;
-                this.miningTarget = { sx: this.highlightTile.sx, sy: this.highlightTile.sy };
-                this.miningProgress = 0;
-            }
-        } else if (!miningHeld && this._prevMiningHeld) {
-            // mining released this frame: clear target
-            this._miningActive = false;
-            this.miningTarget = null;
-        }
-        this._prevMiningHeld = miningHeld;
-
-        // Torch toggle: press 't' to toggle a torch at the dwarf's current tile (not the highlight)
-        if (this.keys.pressed && this.keys.pressed('t')) {
-            if (this.player && this.noiseTileSize) {
-                const px = (this.player.pos.x || 0) + (this.player.size.x || 0) * 0.5;
-                const py = (this.player.pos.y || 0) + (this.player.size.y || 0) * 0.5;
-                const tsz = this.noiseTileSize || 1;
-                const sx = Math.floor(px / tsz);
-                const sy = Math.floor(py / tsz);
-                const key = `${sx},${sy}`;
-                if (this.torches.has(key)) {
-                    // always allow removal
-                    this.torches.delete(key);
-                    this._lightsDirty = true;
-                } else {
-                    // only place a torch if the tile is empty (no solid/ladder)
-                    const existing = this._getTileValue(sx, sy);
-                    if (!existing) {
-                        this.torches.set(key, { level: this.maxLight });
-                        this._lightsDirty = true;
-                    }
-                }
-            }
-        }
-
-        // If currently mining (holding), validate target and advance progress; cancel if invalid or too far
-        if (this._miningActive && miningHeld && this.miningTarget && this.player) {
-            // validate that the target still exists (solid or ladder)
-            const tv = this._getTileValue(this.miningTarget.sx, this.miningTarget.sy);
-            const targetExists = (tv && (tv.type === 'solid' || tv.type === 'ladder'));
-            // cancel if target no longer exists
-            if (!targetExists) {
-                this._miningActive = false;
-                this.miningTarget = null;
-                this.miningProgress = 0;
-            } else {
-                // cancel if player moved too far away (more than 2 tiles)
-                const px = (this.player.pos.x || 0) + (this.player.size.x || 0) * 0.5;
-                const py = (this.player.pos.y || 0) + (this.player.size.y || 0) * 0.5;
-                const tx = (this.miningTarget.sx * this.noiseTileSize) + (this.noiseTileSize * 0.5);
-                const ty = (this.miningTarget.sy * this.noiseTileSize) + (this.noiseTileSize * 0.5);
-                const dist = Math.hypot(px - tx, py - ty) / (this.noiseTileSize || 1);
-                if (dist > 2.0) {
-                    this._miningActive = false;
-                    this.miningTarget = null;
-                    this.miningProgress = 0;
-                } else {
-                    const speed = (this.player.currentTool && typeof this.player.currentTool.speed === 'number') ? this.player.currentTool.speed : 1.0;
-                    const required = (this.baseMiningTime || 2.0) / Math.max(0.0001, speed);
-                    this.miningProgress += tickDelta;
-                    if (this.miningProgress >= required) {
-                        // complete mining
-                        this._mineTile(this.miningTarget.sx, this.miningTarget.sy);
-                        // reset mining state (require re-press to mine again)
-                        this._miningActive = false;
-                        this.miningTarget = null;
-                        this.miningProgress = 0;
-                    }
-                }
-            }
-        } else if (!miningHeld) {
-            // ensure progress resets when not holding
-            this.miningProgress = 0;
-        }
     }
 }

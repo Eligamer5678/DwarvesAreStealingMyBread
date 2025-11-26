@@ -40,11 +40,7 @@ export default class Slime extends Sprite {
         this.attackCooldown = 0;
         this.moveCooldown = 0;
         this.onAttackFinish = new Signal();
-        this.onAttackFinish.connect(()=>{ 
-            this.anim = 'walk'; 
-            this.animFrame = 0;
-
-        });
+        this.sheet.onStop.connect(()=>{this.onAttackFinish.emit()})
     }
 
     _startAttack(disp){
@@ -54,19 +50,16 @@ export default class Slime extends Sprite {
         // animation selection (don't override attack animation during windup/lunge)
         const walkThreshold = 0.1;
         const desiredAnim = (moveSpeed > walkThreshold && this.onGround) ? 'walk' : 'idle';
-        if (desiredAnim !== this.anim) {
-            this.anim = desiredAnim;
-            this.animFrame = 0;
-        }
-
+        this.sheet.playAnimation(desiredAnim)
+        
         if (this.attackCooldown > 0) return;
         if (disp.x >= this.attackRange) return;
         if (disp.y >= this.attackRange * 0.75) return;
-
+        
         this.isAttacking = true;
         this.attackTimer = this.attackWindup;
-        this.anim = 'attack';
-        this.animFrame = 0;
+        this.sheet.playAnimation('attack')
+        return;
     }
 
     _move(delta,desired,dir){
@@ -111,6 +104,7 @@ export default class Slime extends Sprite {
 
 
     update(delta){
+        super.update(delta);
         const player = this.scene.player
         const pPos = player.pos.add(player.size.mult(0.5))
         const cPos = this.pos.add(this.size.mult(0.5))
@@ -130,30 +124,9 @@ export default class Slime extends Sprite {
         // Movement
         this.vlos.y += (this.gravity * delta);
         if(!this.isAttacking && this.moveCooldown < 0) this._move(delta,desired,dir)
-
-
-        // call base update to run timers and integrate position (this advances animFrame)
-        // store previous anim/frame for detection of animation wrap (used to detect attack finish)
-        const prevAnim = this.anim;
-        const prevFrame = this.animFrame;
-
-        super.update(delta);
-
-
-        // detect end of attack animation: previous frame was last frame and now wrapped to 0
-        if (this.anim === 'attack' && prevAnim === 'attack') {
-            const meta = this.sheet.animations.get('attack') || null;
-            const frameCount = meta.frameCount;
-            if (frameCount > 0 && prevFrame === frameCount - 1 && this.currentFrame === 0) {
-                this.onAttackFinish.emit();
-            }
-        }
-    }
-
-    draw(levelOffset){
-        const drawPos = this.pos.add(levelOffset);
         if (this.vlos.x < -0.1) this.invert = new Vector(-1, 1);
         else if (this.vlos.x > 0.1) this.invert = new Vector(1, 1);
-        this.Draw.sheet(this.sheet, drawPos, this.size, this.anim, Math.floor(this.animFrame), this.invert, 1, false);
     }
+
+
 }

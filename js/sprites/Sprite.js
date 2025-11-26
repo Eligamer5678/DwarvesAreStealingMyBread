@@ -21,28 +21,19 @@ export default class Sprite {
      * @param {InputType|Object} inputSettings 
      */
     constructor(keys,Draw,pos,size,spriteSheet,inputSettings){
-        // basic state
-        this.size = size;                   // Vector (dst draw size in pixels)
-        this.pos = pos ? pos.clone() : new Vector(0,0); // Vector (top-left in world/local coords)
-        this.vlos = Vector.zero();          // keep velocity available for future physics use
+        this.size = size.clone();
+        this.pos = pos.clone(); // Vector (top-left in world/local coords)
+        this.vlos = Vector.zero();
         this.rotation = 0;
         this.Draw = Draw;
         this.destroy = new Signal();
         this.keys = keys || null;
+        this.sheet = spriteSheet; // instance of SpriteSheet
 
         // physics
-        this.mass = 5; // default box is heavier than cat
+        this.mass = 5;
         this.restitution = 1.0; // elastic collisions
 
-        // animation state (copied from TestSprite)
-        this.sheet = spriteSheet; // instance of SpriteSheet
-        this.anim = 'base';
-        this.animFrame = 0;
-        this.animTimer = 0;
-        this.animFps = 8; // default fps
-        this.animTimer = new Timer("loop", 1/this.animFps);
-        this.animTimer.onLoop.connect(()=>{ this.animFrame += 1; });
-        this.animTimer.start();
 
         // basic movement params
         this.invert = new Vector(0,0)
@@ -80,7 +71,7 @@ export default class Sprite {
         }
 
         // Secondary environment input (not used for physics directly but available
-        // for things like climbing or swimming). Create lazily when keys are present.
+        // for things like climbing or swimming).
         if (this.keys && !this.envInput) {
             try { this.envInput = new Input(this.keys, 'default', { normalizeDiagonal: false }); } catch (e) { this.envInput = null; }
         }
@@ -91,26 +82,18 @@ export default class Sprite {
 
         // simple friction
         this.vlos.x *= this.friction ** delta;
-
+        this.pos.addS(this.vlos);
         // advance animation timer and wrap frames
-        this.animTimer.update(delta);
-        if (this.sheet && this.anim && this.sheet.animations) {
-            const meta = this.sheet.animations.get(this.anim);
-            if (meta && meta.frameCount) this.animFrame = this.animFrame % meta.frameCount;
-        }
+        this.sheet.updateAnimation(delta)
 
 
-        // integrate velocity
-        this.pos.addS(this.vlos.clone());
     }
 
     adios(){ this.destroy.emit(); }
 
     draw(levelOffset){
-        if (this.sheet && this.anim) {
-            const drawPos = this.pos.add(levelOffset);
-            this.Draw.sheet(this.sheet, drawPos, this.size, this.anim, this.animFrame, this.invert, 1, false);
-        }
+        const drawPos = this.pos.add(levelOffset);
+        this.Draw.sheet(this.sheet, drawPos, this.size, this.sheet.currentAnimation.name, this.sheet.currentFrame, this.invert, 1, false);
     }
 }
 

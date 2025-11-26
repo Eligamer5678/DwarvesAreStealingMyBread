@@ -99,6 +99,7 @@ export default class MiningSystem {
         this.miningTarget = { sx: highlightTile.sx, sy: highlightTile.sy };
         this.miningProgress = 0;
         this.onMiningStarted.emit(this.miningTarget.sx, this.miningTarget.sy);
+        this.player.mining = true;
     }
 
     _cancelMining() {
@@ -108,6 +109,7 @@ export default class MiningSystem {
         this._isActive = false;
         this.miningTarget = null;
         this.miningProgress = 0;
+        this.player.mining = false;
     }
 
     _processMining(delta) {
@@ -164,6 +166,7 @@ export default class MiningSystem {
         this._isActive = false;
         this.miningTarget = null;
         this.miningProgress = 0;
+        this.player.mining = false;
     }
 
     _getMiningSpeed() {

@@ -121,6 +121,10 @@ export default class Input {
         for (const k of arr) if (this.keys.held(k)) return true;
         return false;
     }
+    isHeld(map) {
+        if (this._anyHeld(this.map[map])) return true;
+        return false;
+    }
 
     // Allow external inputs (remote joystick, touch) to set direction vector (not normalized automatically)
     setFromVector(v, { normalize = true } = {}) {

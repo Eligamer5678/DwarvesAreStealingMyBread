@@ -9,10 +9,12 @@ export default class Timer {
      * countup: starts at 0, stops at endtime.  
      * @param {number} [endTime]
      */
-    constructor(type = 'stopwatch', endTime = 0) {
+    constructor(type = 'stopwatch', endTime = 0, useFps = false) {
         this.type = type;
         this.endTime = endTime;
         this.time = 0;
+        this.useFps = useFps
+        this.frame = 0;
         this.running = false;
         this._lastUpdate = null;
         // Signals
@@ -61,6 +63,7 @@ export default class Timer {
     reset() {
         this.time = (this.type === 'countdown') ? this.endTime : 0;
         this._lastUpdate = this.running ? performance.now() : null;
+        this.frame = 0
         this.onReset.emit(this.time);
     }
 
@@ -70,6 +73,7 @@ export default class Timer {
     update(delta) {
         if (!this.running) return;
         let finished = false;
+        this.frame += 1
         if (this.type === 'stopwatch') {
             this.time += delta;
         } else if (this.type === 'countdown') {
@@ -88,7 +92,11 @@ export default class Timer {
             }
         } else if (this.type === 'loop') {
             this.time += delta;
-            if (this.time >= this.endTime) {
+            if (this.useFps && this.frame >= this.endTime-1){
+                this.onLoop.emit(this.time);
+                this.frame = 0
+            }
+            else if (this.time >= this.endTime) {
                 this.onLoop.emit(this.time);
                 this.time = 0;
             }
@@ -108,6 +116,12 @@ export default class Timer {
 
     getTime() {
         return this.time;
+    }
+    getFrame() {
+        return this.frame;
+    }
+    setEnd(endTime) {
+        this.endTime = endTime
     }
 
     setTime(t) {
