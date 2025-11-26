@@ -12,6 +12,9 @@ export default class MiningSystem {
         this.player = null;
         this.noiseTileSize = options.noiseTileSize || 8;
 
+        // Highlighted tile (selector)
+        this.highlightedTile = null; // { sx, sy }
+
         // Mining configuration
         this.baseMiningTime = options.baseMiningTime || 2.0;
         this.miningKey = options.miningKey || ' ';
@@ -39,16 +42,19 @@ export default class MiningSystem {
     }
 
     /**
-     * Update mining state
+     * Update mining state and highlighted tile
      * @param {number} delta - Time delta in seconds
-     * @param {Object|null} highlightTile - Currently highlighted tile {sx, sy}
      */
-    update(delta, highlightTile = null) {
+    update(delta) {
+        // Update highlighted tile. If we are currently locked to a mining target,
+        // pass that as the lockedTarget so the highlight doesn't jump around.
+        this._updateHighlightedTile(this.miningTarget);
+
         const miningHeld = !!this.keys.held(this.miningKey);
 
         // Mining input state machine
         if (miningHeld && !this._prevMiningHeld) {
-            this._startMining(highlightTile);
+            this._startMining(this.highlightedTile);
         } else if (!miningHeld && this._prevMiningHeld) {
             this._cancelMining();
         }
@@ -100,6 +106,107 @@ export default class MiningSystem {
         this.miningProgress = 0;
         this.onMiningStarted.emit(this.miningTarget.sx, this.miningTarget.sy);
         this.player.mining = true;
+    }
+
+    /**
+     * Update the highlighted tile based on player input and position.
+     * Preserves highlight if `lockedTarget` is provided.
+     * @param {Object|null} lockedTarget - Optional locked mining target {sx, sy}
+     */
+    _updateHighlightedTile(lockedTarget = null) {
+        // If mining is locked, keep that tile highlighted
+        if (lockedTarget) {
+            this.highlightedTile = { sx: lockedTarget.sx, sy: lockedTarget.sy };
+            return;
+        }
+
+        if (!this.player || !this.noiseTileSize) {
+            this.highlightedTile = null;
+            return;
+        }
+
+        const input = this.player.inputDir || new Vector(0, 0);
+        const ix = input.x || 0;
+        const iy = input.y || 0;
+        const holdUp = (iy < -0.5) || this.keys.held('ArrowUp');
+
+        let sx, sy;
+
+        if (holdUp) {
+            // Highlight tile above player's head
+            const centerX = this.player.pos.x + this.player.size.x * 0.5;
+            const headY = this.player.pos.y - 10;
+            sx = Math.floor(centerX / this.noiseTileSize);
+            sy = Math.floor(headY / this.noiseTileSize);
+        } else {
+            // Highlight tile in front of player (horizontal)
+            const centerY = this.player.pos.y + this.player.size.y * 0.5;
+            const dir = this._getFacingDirection(ix);
+            const frontX = this.player.pos.x + this.player.size.x * 0.5 + dir * (this.player.size.x * 0.6);
+            sx = Math.floor(frontX / this.noiseTileSize);
+            sy = Math.floor(centerY / this.noiseTileSize);
+        }
+
+        // Only highlight if there's actually a block
+        const tile = this.chunkManager.getTileValue(sx, sy);
+        const hasBlock = tile && (tile.type === 'solid' || tile.type === 'ladder');
+
+        this.highlightedTile = hasBlock ? { sx, sy } : null;
+    }
+
+    /**
+     * Return currently highlighted tile (or null)
+     */
+    getHighlightedTile() {
+        return this.highlightedTile;
+    }
+
+    /**
+     * Draw the highlighted tile and mining progress using the provided Draw instance.
+     * @param {Object} Draw - drawing helper (Scenes pass `this.Draw`)
+     */
+    draw(Draw) {
+        if (!Draw) return;
+        const ts = this.noiseTileSize;
+
+        // Draw highlight
+        if (this.highlightedTile) {
+            const hx = this.highlightedTile.sx * ts;
+            const hy = this.highlightedTile.sy * ts;
+            Draw.rect(
+                new Vector(hx, hy),
+                new Vector(ts, ts),
+                'rgba(255,255,0,0.25)',
+                true,
+                true,
+                2,
+                '#FFFF00'
+            );
+        }
+
+        // Draw mining progress if active
+        if (!this._isActive || !this.player) return;
+
+        const target = this.miningTarget;
+        if (!target) return;
+
+        const sx = target.sx;
+        const sy = target.sy;
+        const cx = sx * ts + ts * 0.5;
+        const cy = sy * ts + ts * 0.5;
+        const progress = this.getProgress();
+
+        // Background circle
+        Draw.circle(new Vector(cx, cy), ts * 0.4, 'rgba(0,0,0,0.5)', true);
+        
+        // Progress arc
+        const start = -Math.PI / 2;
+        const end = start + progress * Math.PI * 2;
+        const size = new Vector(ts * 0.8, ts * 0.8);
+        Draw.arc(new Vector(cx, cy), size, start, end, 'rgba(255,220,80,0.95)', true, false);
+        
+        // Outline
+        Draw.circle(new Vector(cx, cy), ts * 0.4, 'rgba(255,255,255,0.25)', false, 2);
     }
 
     _cancelMining() {
@@ -174,5 +281,21 @@ export default class MiningSystem {
         return typeof this.player.currentTool.speed === 'number' 
             ? this.player.currentTool.speed 
             : 1.0;
+    }
+
+    _getFacingDirection(inputX) {
+        const holdLeft = inputX < -0.5;
+        const holdRight = inputX > 0.5;
+
+        if (holdLeft) return -1;
+        if (holdRight) return 1;
+
+        // Fallback to sprite facing
+        if (this.player && this.player.invert) {
+            if (typeof this.player.invert.x === 'number') return this.player.invert.x;
+            if (typeof this.player.invert === 'number') return this.player.invert;
+        }
+
+        return 1;
     }
 }

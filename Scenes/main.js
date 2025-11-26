@@ -9,7 +9,6 @@ import Bat from '../js/sprites/Bat.js';
 import ChunkManager from '../js/ChunkManager.js';
 import LightingSystem from '../js/LightingSystem.js';
 import MiningSystem from '../js/MiningSystem.js';
-import TileHighlight from '../js/TileHighlight.js';
 import EntityManager from '../js/EntityManager.js';
 import CollisionSystem from '../js/CollisionSystem.js';
 import MainUI from '../js/UI/MainUI.js';
@@ -146,7 +145,7 @@ export class MainScene extends Scene {
         this._ensurePlayerSpawn();
         this._initializeLightingSystem();
         this._initializeMiningSystem();
-        this._initializeHighlightSystem();
+        // Highlighting is handled by MiningSystem now
         this._initializeCollisionSystem();
         this._initializeEntitySystem();
         this._initializeCamera();
@@ -264,13 +263,6 @@ export class MainScene extends Scene {
             }
         );
         this.miningSystem.setPlayer(this.player);
-    }
-
-    _initializeHighlightSystem() {
-        this.highlightSystem = new TileHighlight(this.chunkManager, this.keys, {
-            noiseTileSize: this.noiseTileSize
-        });
-        this.highlightSystem.setPlayer(this.player);
     }
 
     _initializeCollisionSystem() {
@@ -469,11 +461,8 @@ export class MainScene extends Scene {
         this.collisionSystem.updatePlayer(this.player);
         this.entityManager.update(tickDelta);
         
-        const miningTarget = this.miningSystem.getTarget();
-        this.highlightSystem.update(miningTarget);
-        
-        const highlightedTile = this.highlightSystem.getTile();
-        this.miningSystem.update(tickDelta, highlightedTile);
+        // MiningSystem now manages highlighting internally
+        this.miningSystem.update(tickDelta);
 
         // Handle torch placement
         this._handleTorchInput();
@@ -520,11 +509,10 @@ export class MainScene extends Scene {
         // Draw torches
         this._drawTorches();
 
-        // Draw tile highlight
-        this._drawHighlight();
-
-        // Draw mining progress
-        this._drawMiningProgress();
+        // Draw highlight and mining progress (handled by MiningSystem)
+        if (this.miningSystem && typeof this.miningSystem.draw === 'function') {
+            this.miningSystem.draw(this.Draw);
+        }
 
         // Draw entities and player
         if (this.entityManager) {
@@ -611,49 +599,5 @@ export class MainScene extends Scene {
             this.Draw.circle(new Vector(cx, cy), ts * 0.08, 'rgba(255,255,255,0.9)', true);
         }
     }
-
-    _drawHighlight() {
-        const highlightedTile = this.highlightSystem.getTile();
-        if (!highlightedTile) return;
-
-        const ts = this.noiseTileSize;
-        const hx = highlightedTile.sx * ts;
-        const hy = highlightedTile.sy * ts;
-        
-        this.Draw.rect(
-            new Vector(hx, hy),
-            new Vector(ts, ts),
-            'rgba(255,255,0,0.25)',
-            true,
-            true,
-            2,
-            '#FFFF00'
-        );
-    }
-
-    _drawMiningProgress() {
-        if (!this.miningSystem.isActive() || !this.player) return;
-
-        const target = this.miningSystem.getTarget();
-        if (!target) return;
-
-        const ts = this.noiseTileSize;
-        const sx = target.sx;
-        const sy = target.sy;
-        const cx = sx * ts + ts * 0.5;
-        const cy = sy * ts + ts * 0.5;
-        const progress = this.miningSystem.getProgress();
-
-        // Background circle
-        this.Draw.circle(new Vector(cx, cy), ts * 0.4, 'rgba(0,0,0,0.5)', true);
-        
-        // Progress arc
-        const start = -Math.PI / 2;
-        const end = start + progress * Math.PI * 2;
-        const size = new Vector(ts * 0.8, ts * 0.8);
-        this.Draw.arc(new Vector(cx, cy), size, start, end, 'rgba(255,220,80,0.95)', true, false);
-        
-        // Outline
-        this.Draw.circle(new Vector(cx, cy), ts * 0.4, 'rgba(255,255,255,0.25)', false, 2);
-    }
+    // Mining progress drawing moved to MiningSystem.draw
 }
