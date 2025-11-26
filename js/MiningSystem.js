@@ -26,6 +26,9 @@ export default class MiningSystem {
         this.miningTarget = null;
         this.miningProgress = 0;
 
+        // Building state
+        this.buildDirection = new Vector(0,0)
+
         // Signals
         this.onMiningStarted = new Signal();
         this.onMiningProgress = new Signal();
@@ -51,7 +54,8 @@ export default class MiningSystem {
         this._updateHighlightedTile(this.miningTarget);
 
         const miningHeld = !!this.keys.held(this.miningKey);
-
+        this.placeLogic()
+        
         // Mining input state machine
         if (miningHeld && !this._prevMiningHeld) {
             this._startMining(this.highlightedTile);
@@ -60,13 +64,37 @@ export default class MiningSystem {
         }
 
         this._prevMiningHeld = miningHeld;
-
+        
         // Process active mining
         if (this._isActive && miningHeld && this.miningTarget && this.player) {
             this._processMining(delta);
         } else if (!miningHeld) {
             this.miningProgress = 0;
         }
+    }
+    
+    placeLogic(){
+        if(!this.keys.held('Shift') || !this.player.onGround) return;
+
+        this.buildDirection.multS(0)
+        let canPlace = false;
+        if(this.player.input.isHeld('up')) {this.buildDirection.y = -1; canPlace = true;}
+        if(this.player.input.isHeld('down')) {this.buildDirection.y = 1; canPlace = true;}
+        if(this.player.input.isHeld('right')) {this.buildDirection.x = 1; canPlace = true;}
+        if(this.player.input.isHeld('left')) {this.buildDirection.x = -1; canPlace = true;}
+        const base = this.getPlayerPos()
+
+        if(!canPlace) return;
+        if(!this.keys.held(' ')) return;
+        const tile = this.chunkManager.getTileValue(base.x+this.buildDirection.x, base.y+this.buildDirection.y);
+        const hasBlock = tile && (tile.type === 'solid' || tile.type === 'ladder');
+        if(hasBlock===true) return;
+        this.chunkManager.setTileValue(
+            base.x + this.buildDirection.x,
+            base.y + this.buildDirection.y,
+            { type: 'solid' }
+        );
+      
     }
 
     /**
@@ -161,6 +189,15 @@ export default class MiningSystem {
         return this.highlightedTile;
     }
 
+    getPlayerPos(){
+        if (this.player && this.noiseTileSize) {
+            const px = this.player.pos.x + this.player.size.x * 0.5;
+            const py = this.player.pos.y + this.player.size.y * 0.5;
+            base = new Vector(Math.floor(px / this.noiseTileSize), Math.floor(py / this.noiseTileSize));
+        }
+        return base
+    }
+
     /**
      * Draw the highlighted tile and mining progress using the provided Draw instance.
      * @param {Object} Draw - drawing helper (Scenes pass `this.Draw`)
@@ -168,20 +205,55 @@ export default class MiningSystem {
     draw(Draw) {
         if (!Draw) return;
         const ts = this.noiseTileSize;
+        // If Shift is held, highlight the 8 adjacent tiles in blue.
+        const shiftHeld = !!(this.keys && this.keys.held && this.keys.held('Shift'));
 
-        // Draw highlight
-        if (this.highlightedTile) {
-            const hx = this.highlightedTile.sx * ts;
-            const hy = this.highlightedTile.sy * ts;
-            Draw.rect(
-                new Vector(hx, hy),
-                new Vector(ts, ts),
-                'rgba(255,255,0,0.25)',
-                true,
-                true,
-                2,
-                '#FFFF00'
-            );
+        if (shiftHeld) {
+            // Determine base tile to surround: prefer highlighted tile, fall back to player's center tile
+            base = this.getPlayerPos()
+
+            if (base) {
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        const tile = this.chunkManager.getTileValue(base.x+dx, base.y+dy);
+                        const hasBlock = tile && (tile.type === 'solid' || tile.type === 'ladder');
+
+                        if (hasBlock===true) continue;
+                        if (dx === 0 && dy === 0) continue; // skip center
+                        const sx = (base.x + dx) * ts;
+                        const sy = (base.y + dy) * ts;
+                        let color = '#4FA3FF'
+                        if (dy === this.buildDirection.y && dx === this.buildDirection.x){
+                            color = '#FF00000'
+                        }
+                        Draw.rect(
+                            new Vector(sx, sy),
+                            new Vector(ts, ts),
+                            'rgba(80,150,255,0.28)',
+                            true,
+                            true,
+                            2,
+                            color
+                        );
+
+                    }
+                }
+            }
+        } else {
+            // Draw single yellow highlight as before
+            if (this.highlightedTile) {
+                const hx = this.highlightedTile.sx * ts;
+                const hy = this.highlightedTile.sy * ts;
+                Draw.rect(
+                    new Vector(hx, hy),
+                    new Vector(ts, ts),
+                    'rgba(255,255,0,0.25)',
+                    true,
+                    true,
+                    2,
+                    '#FFFF00'
+                );
+            }
         }
 
         // Draw mining progress if active
@@ -207,6 +279,9 @@ export default class MiningSystem {
         
         // Outline
         Draw.circle(new Vector(cx, cy), ts * 0.4, 'rgba(255,255,255,0.25)', false, 2);
+    }
+    _drawMiningHighlight(Draw){
+
     }
 
     _cancelMining() {

@@ -76,6 +76,14 @@ export default class Vector {
         this.y = Math.floor(this.y)
         return this;
     }
+    sign(){
+        return new Vector(Math.sign(this.x),Math.sign(this.y))
+    }
+    signS(){
+        this.x = Math.sign(this.x)
+        this.y = Math.sign(this.y)
+        return this;
+    }
     abs(){
         return new Vector(Math.abs(this.x),Math.abs(this.y))
     }
@@ -154,7 +162,7 @@ export default class Vector {
     static add(v1, v2) { return new Vector(v1.x + v2.x, v1.y + v2.y); }
     static sub(v1, v2) { return new Vector(v1.x - v2.x, v1.y - v2.y); }
     static zero() { return new Vector(0, 0); }
-    static one() { return new Vector(1, 1); }
+    static one() { return new Vector(1, 1); }sign
 
     /**
      * Evaluate a simple expression against each component and return a new Vector.

@@ -47,7 +47,7 @@ export default class Dwarf extends Sprite {
         // Wire jump input (Input.onJump emits when jump key pressed)
         if (this.input && this.input.onJump && typeof this.input.onJump.connect === 'function') {
             this.input.onJump.connect((k) => {
-                if (this.onGround) {
+                if (this.onGround&&!this.keys.held('Shift')) {
                     this.vlos.y = -this.jumpSpeed;
                     this.onGround = false;
                 }
@@ -58,6 +58,9 @@ export default class Dwarf extends Sprite {
     update(delta){
         // base sprite update handles horizontal input and friction
         super.update(delta);
+        if(this.keys.held('Shift')){
+            this.pos.subS(this.vlos)
+        }
 
         // Ladder climbing: when on a ladder, gravity is suspended and vertical
         // movement is controlled by input.y (this.inputDir.y). Otherwise, apply gravity.

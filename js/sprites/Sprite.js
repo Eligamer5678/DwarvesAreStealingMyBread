@@ -23,6 +23,7 @@ export default class Sprite {
     constructor(keys,Draw,pos,size,spriteSheet,inputSettings){
         this.size = size.clone();
         this.pos = pos.clone(); // Vector (top-left in world/local coords)
+        this.prevPos = pos.clone()
         this.vlos = Vector.zero();
         this.rotation = 0;
         this.Draw = Draw;
@@ -60,6 +61,7 @@ export default class Sprite {
     }
 
     update(delta){
+        this.prevPos = this.pos.clone()
         // If this sprite has an input controller (player-controlled), apply it.
         // Otherwise treat this as a passive entity and don't call input.
         if (this.input && typeof this.input.update === 'function') {
