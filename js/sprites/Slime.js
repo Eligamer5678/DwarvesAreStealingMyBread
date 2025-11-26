@@ -13,7 +13,6 @@ export default class Slime extends Sprite {
             color:'#55cc55',
             gravity: 30,
             jumpSpeed: 9,
-            animFps: 8,
             attackWindup: 1,
             attackRange: 60,
             attackSpeed: new Vector(10,5),
@@ -26,14 +25,12 @@ export default class Slime extends Sprite {
         this.color = options.color;
         this.gravity = options.gravity;
         this.jumpSpeed = options.jumpSpeed;
-        this.animFps = options.animFps;
         this.attackWindup = options.attackWindup;
         this.attackRange = options.attackRange;
         this.attackSpeed = options.attackSpeed;
         this.attackCooldownTime = options.attackCooldown;
         this.speed = Math.random() * 100;
         this.friction = 0.01;
-        this.anim = 'idle';
         this.mass = 1;
         this.isAttacking = false;
         this.attackTimer = 0;

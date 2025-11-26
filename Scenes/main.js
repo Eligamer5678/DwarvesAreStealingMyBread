@@ -70,7 +70,6 @@ export class MainScene extends Scene {
                 slimeSheet.addAnimation('walk', 0, 2, 8);
                 slimeSheet.addAnimation('defeat', 1, 6, 8);
                 slimeSheet.addAnimation('attack', 2, 8,8,0,'swapTo','walk');
-                slimeSheet.playAnimation('idle')
                 this.SpriteImages.set('slime', slimeSheet);
             } catch (e) {
                 console.warn('Failed to load slime spritesheet', e);
@@ -80,9 +79,9 @@ export class MainScene extends Scene {
                 const mothImg = await this._loadImage('Assets/Sprites/moth.png', 'moth');
                 const mothSheet = new SpriteSheet(mothImg, 16);
                 // row0: fly (6 frames), row1: defeat (8 frames)
+                mothSheet.addAnimation('idle', 0, 6, 32);
                 mothSheet.addAnimation('fly', 0, 6, 32);
                 mothSheet.addAnimation('defeat', 1, 8, 8);
-                mothSheet.playAnimation('idle')
                 this.SpriteImages.set('moth', mothSheet);
             } catch (e) {
                 console.warn('Failed to load moth spritesheet', e);
@@ -93,7 +92,6 @@ export class MainScene extends Scene {
                 // row0: fly (6 frames), row1: defeat (8 frames)
                 batSheet.addAnimation('fly', 0, 7, 32);
                 batSheet.addAnimation('defeat', 1, 11, 8);
-                batSheet.playAnimation('idle')
                 this.SpriteImages.set('bat', batSheet);
             } catch (e) {
                 console.warn('Failed to load bat spritesheet', e);
@@ -292,9 +290,9 @@ export class MainScene extends Scene {
         // Spawn slimes
         this._spawnSlimes();
         // Spawn moths
-        //this._spawnMoths();
+        this._spawnMoths();
         // Spawn bats
-        //this._spawnBats();
+        this._spawnBats();
     }
 
     _initializeCamera() {
@@ -375,7 +373,7 @@ export class MainScene extends Scene {
                 return;
             }
 
-            const spawnCount = 3;
+            const spawnCount = 10;
             const ts = this.noiseTileSize || 8;
             const playerCenter = this.player.pos.add(this.player.size.mult(0.5));
             for (let i = 0; i < spawnCount; i++) {
@@ -390,7 +388,7 @@ export class MainScene extends Scene {
                     if (tile && tile.type === 'solid') continue;
                     if (dist < ts * 1.5) continue;
                     const sz = Math.max(12, Math.min(32, Math.random() * 20 + 12));
-                    const moth = new Moth(this.Draw, new Vector(sx, sy), new Vector(sz, sz), mothSheet, { scene: this });
+                    const moth = new Moth(this.Draw, new Vector(sx, sy), new Vector(sz, sz), mothSheet.connect(), { scene: this });
                     this.entityManager.addEntity(moth);
                     placed = true;
                     break;
@@ -399,7 +397,7 @@ export class MainScene extends Scene {
                     const sx = playerCenter.x + (Math.random()*60-30);
                     const sy = playerCenter.y - (ts * 3 + Math.random()*40);
                     const sz = Math.max(12, Math.min(32, Math.random() * 20 + 12));
-                    const moth = new Moth(this.Draw, new Vector(sx, sy), new Vector(sz, sz), mothSheet, { scene: this });
+                    const moth = new Moth(this.Draw, new Vector(sx, sy), new Vector(sz, sz), mothSheet.connect(), { scene: this });
                     this.entityManager.addEntity(moth);
                 }
             }
@@ -416,7 +414,7 @@ export class MainScene extends Scene {
                 return;
             }
 
-            const spawnCount = 3;
+            const spawnCount = 10;
             const ts = this.noiseTileSize || 8;
             const playerCenter = this.player.pos.add(this.player.size.mult(0.5));
             for (let i = 0; i < spawnCount; i++) {
@@ -431,7 +429,7 @@ export class MainScene extends Scene {
                     if (tile && tile.type === 'solid') continue;
                     if (dist < ts * 1.5) continue;
                     const sz = Math.max(12, Math.min(24, Math.random() * 10 + 14));
-                    const bat = new Bat(this.Draw, new Vector(sx, sy), new Vector(sz, sz), batSheet, { scene: this });
+                    const bat = new Bat(this.Draw, new Vector(sx, sy), new Vector(sz, sz), batSheet.connect(), { scene: this });
                     this.entityManager.addEntity(bat);
                     placed = true;
                     break;
@@ -440,7 +438,7 @@ export class MainScene extends Scene {
                     const sx = playerCenter.x + (Math.random()*60-30);
                     const sy = playerCenter.y - (ts * 3 + Math.random()*40);
                     const sz = Math.max(12, Math.min(24, Math.random() * 10 + 14));
-                    const bat = new Bat(this.Draw, new Vector(sx, sy), new Vector(sz, sz), batSheet, { scene: this });
+                    const bat = new Bat(this.Draw, new Vector(sx, sy), new Vector(sz, sz), batSheet.connect(), { scene: this });
                     this.entityManager.addEntity(bat);
                 }
             }

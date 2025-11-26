@@ -15,7 +15,6 @@ export default class Moth extends Sprite {
         super(null, Draw, pos, size, sheet, null);
         const defaults = {
             scene: null,
-            animFps: 32,
             flightSpeed: 10,
             pathRecalc: 0.6,
             attackRange: 30,
@@ -24,7 +23,6 @@ export default class Moth extends Sprite {
         mergeObjects(options, defaults);
 
         this.scene = options.scene;
-        this.animFps = options.animFps;
         this.speed = options.flightSpeed;
         this.pathRecalc = options.pathRecalc;
         this.attackRange = options.attackRange;
@@ -45,9 +43,8 @@ export default class Moth extends Sprite {
 
         // desynchronize initial attack timers so moths don't all swoop together
         this.attackCooldown = Math.random() * this.attackCooldownTime;
-
-        this.anim = 'fly';
         this.onGround = false;
+        this.sheet.playAnimation('fly')
     }
 
     // Simple A* on the tile grid. Limits nodes to avoid runaway CPU.
@@ -269,6 +266,7 @@ export default class Moth extends Sprite {
     }
 
     update(delta){
+        super.update(delta)
         if (!this.scene || !this.scene.player) return;
         const player = this.scene.player;
         const pCenter = player.pos.add(player.size.mult(0.5));
@@ -351,18 +349,14 @@ export default class Moth extends Sprite {
 
         // integrate position
         this.pos = this.pos.add(this.vlos.mult(delta));
-
-        // basic animation advance handled by base update if used; call Sprite.update if exists
-        try { if (typeof super.update === 'function') super.update(delta); } catch (e) {}
+        if (this.vlos.x < -0.1) this.invert = new Vector(-1, 1);
+        else if (this.vlos.x > 0.1) this.invert = new Vector(1, 1);
     }
 
     draw(levelOffset){
-        const drawPos = this.pos.add(levelOffset);
+        
+        super.draw(levelOffset)
         // choose facing
-        if (this.vlos.x < -0.1) this.invert = new Vector(-1, 1);
-        else if (this.vlos.x > 0.1) this.invert = new Vector(1, 1);
-        this.Draw.sheet(this.sheet, drawPos, this.size, this.anim, Math.floor(this.animFrame), this.invert, 1, false);
-
         // Optional debug: draw computed path and roam target if scene requests it
         try {
             if (this.scene && this.scene.debugMothPaths) {
