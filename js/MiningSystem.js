@@ -190,10 +190,11 @@ export default class MiningSystem {
     }
 
     getPlayerPos(){
+        let base = null;
         if (this.player && this.noiseTileSize) {
             const px = this.player.pos.x + this.player.size.x * 0.5;
             const py = this.player.pos.y + this.player.size.y * 0.5;
-            let base = new Vector(Math.floor(px / this.noiseTileSize), Math.floor(py / this.noiseTileSize));
+            base = new Vector(Math.floor(px / this.noiseTileSize), Math.floor(py / this.noiseTileSize));
         }
         return base
     }
@@ -210,33 +211,31 @@ export default class MiningSystem {
 
         if (shiftHeld) {
             // Determine base tile to surround: prefer highlighted tile, fall back to player's center tile
-            base = this.getPlayerPos()
+            const base = this.getPlayerPos()
 
-            if (base) {
-                for (let dy = -1; dy <= 1; dy++) {
-                    for (let dx = -1; dx <= 1; dx++) {
-                        const tile = this.chunkManager.getTileValue(base.x+dx, base.y+dy);
-                        const hasBlock = tile && (tile.type === 'solid' || tile.type === 'ladder');
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    const tile = this.chunkManager.getTileValue(base.x+dx, base.y+dy);
+                    const hasBlock = tile && (tile.type === 'solid' || tile.type === 'ladder');
 
-                        if (hasBlock===true) continue;
-                        if (dx === 0 && dy === 0) continue; // skip center
-                        const sx = (base.x + dx) * ts;
-                        const sy = (base.y + dy) * ts;
-                        let color = '#4FA3FF'
-                        if (dy === this.buildDirection.y && dx === this.buildDirection.x){
-                            color = '#FF00000'
-                        }
-                        Draw.rect(
-                            new Vector(sx, sy),
-                            new Vector(ts, ts),
-                            'rgba(80,150,255,0.28)',
-                            true,
-                            true,
-                            2,
-                            color
-                        );
-
+                    if (hasBlock===true) continue;
+                    if (dx === 0 && dy === 0) continue; // skip center
+                    const sx = (base.x + dx) * ts;
+                    const sy = (base.y + dy) * ts;
+                    let color = '#4FA3FF'
+                    if (dy === this.buildDirection.y && dx === this.buildDirection.x){
+                        color = '#FF00000'
                     }
+                    Draw.rect(
+                        new Vector(sx, sy),
+                        new Vector(ts, ts),
+                        'rgba(80,150,255,0.28)',
+                        true,
+                        true,
+                        2,
+                        color
+                    );
+
                 }
             }
         } else {
