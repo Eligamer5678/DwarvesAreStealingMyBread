@@ -127,8 +127,9 @@ export default class SpriteSheet{
 
     playAnimation(name,reset=false){
         this.currentAnimation = this.animations.get(name);
-        if(!reset && name === this.currentAnimation.name) return
-        this.currentFrame = this.currentAnimation.buffer;
+        if (!this.currentAnimation) return;
+        if(!reset && this.currentAnimation && name === this.currentAnimation.name) return;
+        this.currentFrame = this.currentAnimation.buffer || 0;
         this.updateFrame = true;
     }
 

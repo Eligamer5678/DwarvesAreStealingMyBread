@@ -95,7 +95,10 @@ export default class Sprite {
 
     draw(levelOffset){
         const drawPos = this.pos.add(levelOffset);
-        this.Draw.sheet(this.sheet, drawPos, this.size, this.sheet.currentAnimation.name, this.sheet.currentFrame, this.invert, 1, false);
+        // Guard against missing currentAnimation (can be null) to avoid runtime errors
+        const animName = (this.sheet && this.sheet.currentAnimation && this.sheet.currentAnimation.name) ? this.sheet.currentAnimation.name : null;
+        const frame = (this.sheet && typeof this.sheet.currentFrame === 'number') ? this.sheet.currentFrame : 0;
+        this.Draw.sheet(this.sheet, drawPos, this.size, animName, frame, this.invert, 1, false);
     }
 }
 

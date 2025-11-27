@@ -1,5 +1,6 @@
 import { perlinNoise } from './noiseGen.js';
 import Signal from './Signal.js';
+import TileSheet from './Tilesheet.js';
 
 /**
  * ChunkManager handles procedural terrain generation and tile queries.
@@ -14,6 +15,23 @@ export default class ChunkManager {
             seed: 1337, normalize: false, split: 0.2,
             offsetX: 0, offsetY: 0, bridgeWidth: 2, connect: true
         };
+
+        // Ore generation configuration
+        this.noiseOptions.oreChance = this.noiseOptions.oreChance || 0.2;
+        this.noiseOptions.oreSlicePx = this.noiseOptions.oreSlicePx || 16;
+
+        // Prepare a tilesheet placeholder for ores (image may be set later by package/scene)
+        this.oreTileSheet = new TileSheet(null, this.noiseOptions.oreSlicePx);
+        // Populate tile meta for a typical 64x64 / 16px slice grid (4x4)
+        const cols = 64 / this.noiseOptions.oreSlicePx;
+        const rows = 64 / this.noiseOptions.oreSlicePx;
+        let idx = 0;
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                this.oreTileSheet.addTile(`ore${idx}`, r, c);
+                idx++;
+            }
+        }
 
         this.chunks = new Map(); // key: "cx,cy" -> { x, y, data, width, height }
         this.modifiedTiles = new Map(); // key: "sx,sy" -> tile data or null
@@ -170,6 +188,8 @@ export default class ChunkManager {
 
         // Generate ladder columns deterministically
         this._generateLadders(startX, startY, map);
+        // Generate ore deposits deterministically (based on seed)
+        this._generateOre(startX, startY, map);
 
         return {
             x: cx,
@@ -218,6 +238,49 @@ export default class ChunkManager {
                     const key = `${sx},${sy}`;
                     if (!this.modifiedTiles.has(key) && this.blockMap.has(key)) {
                         this.blockMap.delete(key);
+                    }
+                }
+            }
+        }
+    }
+    _generateOre(startX, startY, map) {
+        const raw = map.data;
+        const w = map.width;
+        const h = map.height;
+        const seed = this.noiseOptions.seed || 1337;
+        const oreChance = this.noiseOptions.oreChance || 0.02;
+
+        // Count available ore variants in the oreTileSheet
+        let variants = 0;
+        try {
+            if (this.oreTileSheet && this.oreTileSheet.tiles instanceof Map) variants = this.oreTileSheet.tiles.size;
+            else if (this.oreTileSheet && this.oreTileSheet.tiles) variants = Object.keys(this.oreTileSheet.tiles).length;
+        } catch (e) { variants = 0; }
+
+        const pseudo = (s, x, y) => {
+            const n = x * 374761393 + y * 668265263 + (s | 0) * 1274126177;
+            const v = Math.sin(n) * 43758.5453123;
+            return v - Math.floor(v);
+        };
+
+        for (let y = 0; y < h; y++) {
+            for (let xx = 0; xx < w; xx++) {
+                const v = raw[y * w + xx];
+                // only embed ore inside solid tiles
+                if (typeof v === 'number' && v < 0.999) {
+                    const sx = startX + xx;
+                    const sy = startY + y;
+                    const key = `${sx},${sy}`;
+                    if (this.modifiedTiles.has(key)) continue; // don't overwrite explicit edits
+
+                    const r = pseudo(seed, sx, sy);
+                    if (r < oreChance) {
+                        // choose variant deterministically
+                        const pick = variants > 0 ? Math.floor(pseudo(seed + 1, sx, sy) * variants) : 0;
+                        const variantName = `ore${Math.max(0, pick % Math.max(1, variants))}`;
+                        const meta = { type: 'solid' };
+                        if (variants > 0) meta.ore = { tileKey: variantName };
+                        this.blockMap.set(key, meta);
                     }
                 }
             }

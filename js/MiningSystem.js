@@ -210,21 +210,22 @@ export default class MiningSystem {
         const shiftHeld = !!(this.keys && this.keys.held && this.keys.held('Shift'));
 
         if (shiftHeld) {
-            // Determine base tile to surround: prefer highlighted tile, fall back to player's center tile
-            const base = this.getPlayerPos()
+                // Determine base tile to surround: prefer highlighted tile, fall back to player's center tile
+                const base = this.highlightedTile ? { x: this.highlightedTile.sx, y: this.highlightedTile.sy } : this.getPlayerPos();
+                if (!base) return;
 
-            for (let dy = -1; dy <= 1; dy++) {
-                for (let dx = -1; dx <= 1; dx++) {
-                    const tile = this.chunkManager.getTileValue(base.x+dx, base.y+dy);
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        const tile = this.chunkManager.getTileValue(base.x+dx, base.y+dy);
                     const hasBlock = tile && (tile.type === 'solid' || tile.type === 'ladder');
 
                     if (hasBlock===true) continue;
                     if (dx === 0 && dy === 0) continue; // skip center
                     const sx = (base.x + dx) * ts;
                     const sy = (base.y + dy) * ts;
-                    let color = '#4FA3FF'
+                        let color = '#4FA3FF'
                     if (dy === this.buildDirection.y && dx === this.buildDirection.x){
-                        color = '#FF00000'
+                        color = '#FF0000'
                     }
                     Draw.rect(
                         new Vector(sx, sy),

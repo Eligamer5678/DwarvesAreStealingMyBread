@@ -96,6 +96,15 @@ export class MainScene extends Scene {
                 console.warn('Failed to load bat spritesheet', e);
             }
 
+            // Load ores tilesheet (64x64, 16px slices)
+            try {
+                const oresImg = await this._loadImage('Assets/Tilemaps/ores.png', 'ores');
+                // store raw image; ChunkManager will attach it to its TileSheet
+                this.SpriteImages.set('ores', oresImg);
+            } catch (e) {
+                console.warn('Failed to load ores tilesheet', e);
+            }
+
             // Create player
             this.player = new Dwarf(
                 this.keys, 
@@ -169,6 +178,15 @@ export class MainScene extends Scene {
             noiseTileSize: this.noiseTileSize,
             noiseOptions: noiseOptions
         });
+        // If we preloaded an ores image, attach it to the oreTileSheet so ores can be rendered
+        try {
+            const oresImg = (this.SpriteImages && this.SpriteImages.get) ? this.SpriteImages.get('ores') : null;
+            if (oresImg && this.chunkManager && this.chunkManager.oreTileSheet) {
+                this.chunkManager.oreTileSheet.sheet = oresImg;
+                // ensure slicePx matches the image slice (16)
+                this.chunkManager.oreTileSheet.slicePx = this.chunkManager.noiseOptions.oreSlicePx || 16;
+            }
+        } catch (e) { /* ignore */ }
     }
 
     _ensurePlayerSpawn() {
@@ -557,6 +575,34 @@ export class MainScene extends Scene {
                     const brightness = this.lightingSystem.getBrightness(sx, sy);
 
                     if (tile.type === 'solid') {
+                        // If this solid tile contains ore metadata and an ores tilesheet is available,
+                        // draw the ore sprite from the tilesheet. Otherwise fall back to a shaded rect.
+                        const oreMeta = tile.ore;
+                        const oreSheet = this.chunkManager && this.chunkManager.oreTileSheet ? this.chunkManager.oreTileSheet : null;
+                        if (oreMeta && oreSheet && oreSheet.sheet) {
+                            const tsSlice = oreSheet.slicePx || 16;
+                            const tileInfo = oreSheet.getTile(oreMeta.tileKey);
+                            if (tileInfo && typeof tileInfo.col !== 'undefined') {
+                                // If brightness is below the ore reveal threshold, mask ore as stone
+                                const oreThreshold = (this.lightingSystem && typeof this.lightingSystem.oreRevealThreshold === 'number')
+                                    ? this.lightingSystem.oreRevealThreshold
+                                    : (this.lightingSystem.ambientMin + 0.05);
+                                const oreVisible = (brightness >= oreThreshold);
+                                if (oreVisible) {
+                                    try {
+                                        this.Draw.setBrightness(brightness);
+                                        this.Draw.tile(oreSheet, pos, new Vector(ts, ts), oreMeta.tileKey, 0, null, 1, false);
+                                        continue; // skip default rect draw
+                                    } catch (e) {
+                                        // fallthrough to rect fallback
+                                    } finally {
+                                        try { this.Draw.setBrightness(1); } catch (e) {}
+                                    }
+                                }
+                            }
+                        }
+
+                        // Draw as stone (mask ore) when ore not visible
                         const color = LightingSystem.modulateColor('#555555', brightness);
                         this.Draw.rect(pos, new Vector(ts, ts), color);
                     } else if (tile.type === 'ladder') {

@@ -17,6 +17,8 @@ export default class Draw {
         this.svgCache = new Map();
         this.parsedSvgCache = new Map();
         this.loading = new Map();
+        // Brightness multiplier (1.0 = no change). Use Draw.setBrightness to modify.
+        this._brightness = 1.0;
     }
 
     px(num) { return num * this.Scale.x; }
@@ -782,7 +784,8 @@ export default class Draw {
             // ignore if context doesn't support these properties
         }
 
-        ctx.globalAlpha *= opacity;
+        // Apply overall opacity and current brightness multiplier
+        ctx.globalAlpha *= (opacity !== undefined ? opacity : 1) * (this._brightness !== undefined ? this._brightness : 1);
 
         // Move to the image position
         ctx.translate(x + w / 2, y + h / 2);
@@ -800,6 +803,18 @@ export default class Draw {
         ctx.drawImage(img, -w / 2, -h / 2, w, h);
 
         ctx.restore();
+    }
+
+    /**
+     * Set brightness multiplier for subsequent draws. Value should be >= 0.
+     * Use `setBrightness(1)` to reset.
+     */
+    setBrightness(v) {
+        this._brightness = (typeof v === 'number' && isFinite(v)) ? Math.max(0, v) : 1.0;
+    }
+
+    getBrightness() {
+        return this._brightness !== undefined ? this._brightness : 1.0;
     }
 
     /**
@@ -875,7 +890,7 @@ export default class Draw {
             const fy = inv.y < 0 ? -1 : 1;
             ctx.scale(fx, fy);
         }
-        ctx.globalAlpha *= (opacity !== undefined ? opacity : 1);
+        ctx.globalAlpha *= (opacity !== undefined ? opacity : 1) * (this._brightness !== undefined ? this._brightness : 1);
 
         try {
             // Prefer drawing a per-frame canvas or lazy descriptor directly when available.
@@ -995,7 +1010,7 @@ export default class Draw {
             const fy = inv.y < 0 ? -1 : 1;
             ctx.scale(fx, fy);
         }
-        ctx.globalAlpha *= (opacity !== undefined ? opacity : 1);
+        ctx.globalAlpha *= (opacity !== undefined ? opacity : 1) * (this._brightness !== undefined ? this._brightness : 1);
 
         try {
             ctx.drawImage(img, sx, sy, sw, sh, -this.px(dstW) / 2, -this.py(dstH) / 2, this.px(dstW), this.py(dstH));

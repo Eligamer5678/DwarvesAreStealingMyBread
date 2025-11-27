@@ -9,6 +9,11 @@ export default class LightingSystem {
         this.chunkManager = chunkManager;
         this.maxLight = options.maxLight || 12;
         this.ambientMin = options.ambientMin || 0.12;
+        // Threshold above which ores should be revealed. If brightness is below
+        // this value, ores will be masked as stone. Can be overridden via options.
+        this.oreRevealThreshold = (typeof options.oreRevealThreshold === 'number')
+            ? options.oreRevealThreshold
+            : Math.max(this.ambientMin + 0.05, 0.3);
 
         this.torches = new Map(); // key: "sx,sy" -> { level: number }
         this.lightMap = new Map(); // key: "sx,sy" -> number (0..maxLight)
