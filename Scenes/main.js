@@ -152,6 +152,7 @@ export class MainScene extends Scene {
 
         // Create Main UI
         this.mainUI = new MainUI(this.Draw,this.mouse,this.keys,this.player); 
+        
 
         this.isReady = true;
     }
@@ -477,6 +478,9 @@ export class MainScene extends Scene {
 
         // Update UI
         this.mainUI.update(tickDelta);
+        // Update height text
+        let htxt = this.mainUI.menu.elements.get('heightText2')
+        htxt.useText(Math.round(-this.player.pos.y/this.noiseTileSize))
     }
 
     _handleTorchInput() {

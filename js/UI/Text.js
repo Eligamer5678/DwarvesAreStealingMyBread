@@ -32,6 +32,9 @@ export default class UIText {
     update(delta){
         // no dynamic behaviour by default
     }
+    useText(text){
+        this.text = text
+    }
 
     draw(Draw){
         if(!this.visible) return;

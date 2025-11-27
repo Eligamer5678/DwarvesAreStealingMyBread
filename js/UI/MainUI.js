@@ -31,8 +31,12 @@ export default class MainUI {
             'h1': new Color(255,255,255,1,'rgb')
         }
         this.menu = new Menu(this.mouse,this.keys,new Vector(0,0),new Vector(200,1080),1,this.colors.bg)
-        const Text = new UIText('Testabc123',new Vector(50,50),1,this.colors.h1,25)
-        this.menu.addElement('header',Text)
+        const heightText = new UIText('Height:',new Vector(20,50),1,this.colors.h1,25)
+        const heightText2 = new UIText(0,new Vector(110,50),1,this.colors.h1,25)
+        const heightText3 = new UIText("Goal: 5000",new Vector(20,90),1,this.colors.h1,25)
+        this.menu.addElement('heightText',heightText)
+        this.menu.addElement('heightText2',heightText2)
+        this.menu.addElement('heightText3',heightText3)
     }
 
 
