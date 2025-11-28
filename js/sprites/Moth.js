@@ -356,6 +356,102 @@ export default class Moth extends Sprite {
     draw(levelOffset){
         
         super.draw(levelOffset)
+
+        // Draw red eyes on top of the sprite unaffected by brightness.
+        try {
+            const drawPos = this.pos.add(levelOffset);
+            const animName = (this.sheet && this.sheet.currentAnimation && this.sheet.currentAnimation.name) ? this.sheet.currentAnimation.name : null;
+            const frame = (this.sheet && typeof this.sheet.currentFrame === 'number') ? this.sheet.currentFrame : 0;
+            const slice = this.sheet && this.sheet.slicePx ? this.sheet.slicePx : 16;
+
+            if (!this.sheet._eyeCache) this.sheet._eyeCache = new Map();
+            const cacheKey = `${animName || '__'}:${frame}`;
+            let eyePixels = this.sheet._eyeCache.get(cacheKey);
+            if (!eyePixels) {
+                eyePixels = [];
+                try {
+                    // Prefer direct frame canvas from spritesheet (materialized if needed)
+                    let frameCanvas = null;
+                    if (typeof this.sheet.getFrame === 'function' && animName) {
+                        frameCanvas = this.sheet.getFrame(animName, frame);
+                    }
+                    if (!frameCanvas) {
+                        // fallback to using packed sheet canvas and slicing out region
+                        if (this.sheet && this.sheet.sheet && this.sheet.slicePx) {
+                            const off = document.createElement('canvas');
+                            off.width = slice; off.height = slice;
+                            const ctx = off.getContext('2d');
+                            let meta = null;
+                            if (animName) {
+                                if (this.sheet.animations instanceof Map) meta = this.sheet.animations.get(animName);
+                                else if (this.sheet.animations && this.sheet.animations[animName]) meta = this.sheet.animations[animName];
+                            }
+                            const row = meta && (meta.row !== undefined) ? meta.row : 0;
+                            const fi = Math.max(0, Math.floor(Number(frame) || 0));
+                            const sx = fi * slice;
+                            const sy = row * slice;
+                            ctx.clearRect(0,0,slice,slice);
+                            ctx.drawImage(this.sheet.sheet, sx, sy, slice, slice, 0, 0, slice, slice);
+                            frameCanvas = off;
+                        }
+                    }
+
+                    if (frameCanvas) {
+                        const ctx = frameCanvas.getContext('2d');
+                        const sw = frameCanvas.width;
+                        const sh = frameCanvas.height;
+                        // Scan corrected eye region (inclusive): x 8..12, y 8..12
+                        const startX = 8;
+                        const startY = 8;
+                        const endX = 12;
+                        const endY = 12;
+                        const sx = Math.max(0, Math.min(sw - 1, startX));
+                        const sy = Math.max(0, Math.min(sh - 1, startY));
+                        const ex = Math.max(0, Math.min(sw - 1, endX));
+                        const ey = Math.max(0, Math.min(sh - 1, endY));
+                        const w = ex - sx + 1;
+                        const h = ey - sy + 1;
+                        if (w > 0 && h > 0) {
+                            const data = ctx.getImageData(sx, sy, w, h).data;
+                            const TOL = 120; const TOL2 = TOL * TOL;
+                            for (let yy = 0; yy < h; yy++) {
+                                for (let xx = 0; xx < w; xx++) {
+                                    const idx = (yy * w + xx) * 4;
+                                    const r = data[idx];
+                                    const g = data[idx+1];
+                                    const b = data[idx+2];
+                                    const dr = r - 251;
+                                    const dg = g - 30;
+                                    const db = b - 25;
+                                    if (dr * dr + dg * dg + db * db <= TOL2) {
+                                        eyePixels.push({ x: sx + xx, y: sy + yy });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // image not ready or cross-origin; skip
+                    eyePixels = [];
+                }
+                this.sheet._eyeCache.set(cacheKey, eyePixels);
+                try { console.log(`[Moth] eyePixels ${cacheKey} = ${eyePixels.length}`); } catch(e) {}
+            }
+
+            if (eyePixels && eyePixels.length) {
+                const pixelW = this.size.x / slice;
+                const pixelH = this.size.y / slice;
+                const flipped = (this.invert && this.invert.x && this.invert.x < 0);
+                for (const p of eyePixels) {
+                    const pxIndex = flipped ? (slice - 1 - p.x) : p.x;
+                    const wx = drawPos.x + (pxIndex / slice) * this.size.x;
+                    const wy = drawPos.y + (p.y / slice) * this.size.y;
+                    this.Draw.rect(new Vector(wx, wy), new Vector(pixelW, pixelH), 'rgba(251,30,25,1)', true);
+                }
+            }
+        } catch (e) {
+            // swallow overlay errors
+        }
         // choose facing
         // Optional debug: draw computed path and roam target if scene requests it
         try {

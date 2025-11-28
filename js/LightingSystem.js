@@ -105,22 +105,81 @@ export default class LightingSystem {
         if (!noiseTileSize || !this._torchPositions || this._torchPositions.length === 0) {
             return this.ambientMin;
         }
-        const sx = Math.floor(px / noiseTileSize);
-        const sy = Math.floor(py / noiseTileSize);
 
-        let maxLevel = 0;
-        for (const t of this._torchPositions) {
-            const dx = t.sx - sx;
-            const dy = t.sy - sy;
-            const dist = Math.hypot(dx, dy);
-            // approximate light falloff: level ~= maxLight - dist
-            const lvl = Math.max(0, Math.floor((t.level || this.maxLight) - dist));
-            if (lvl > maxLevel) maxLevel = lvl;
-            if (maxLevel >= this.maxLight) break;
+        // Take several sub-samples inside the world-space position to avoid
+        // discrete artifacts when a single sample point flips visibility.
+        const samples = [ [0, 0], [0.25, 0.25], [-0.25, 0.25], [0.25, -0.25], [-0.25, -0.25] ];
+        let accum = 0;
+
+        for (const s of samples) {
+            const samplePx = px + s[0] * noiseTileSize;
+            const samplePy = py + s[1] * noiseTileSize;
+            const sampleTileX = Math.floor(samplePx / noiseTileSize);
+            const sampleTileY = Math.floor(samplePy / noiseTileSize);
+
+            // Sum smooth contributions from all unobstructed torches
+            let sumContrib = 0;
+            for (const t of this._torchPositions) {
+                // distance in tile units from torch center to sample point
+                const dx = (t.sx + 0.5) - (samplePx / noiseTileSize);
+                const dy = (t.sy + 0.5) - (samplePy / noiseTileSize);
+                const dist = Math.hypot(dx, dy);
+
+                // Quick cull: if beyond a few tiles past torch level, skip
+                const reach = (t.level || this.maxLight) + 4;
+                if (dist > reach) continue;
+
+                // LOS test between torch tile and target sample tile
+                if (!this._isLineOfSightClear(t.sx, t.sy, sampleTileX, sampleTileY)) continue;
+
+                const level = t.level || this.maxLight;
+                // Smooth inverse-square-like falloff (continuous)
+                const contrib = (level) / (1 + dist * dist);
+                sumContrib += contrib;
+            }
+
+            // Normalize contribution to 0..1 (heuristic based on maxLight)
+            const normalized = Math.max(0, Math.min(1, sumContrib / Math.max(1, this.maxLight)));
+            accum += normalized;
         }
 
-        const normalized = Math.max(0, Math.min(this.maxLight, maxLevel)) / Math.max(1, this.maxLight);
-        return this.ambientMin + normalized * (1 - this.ambientMin);
+        const avg = accum / samples.length;
+        return this.ambientMin + avg * (1 - this.ambientMin);
+    }
+
+    _isLineOfSightClear(x0, y0, x1, y1) {
+        // Bresenham line algorithm between integer tile coords; returns false if any intermediate
+        // tile (excluding the torch tile) is solid.
+        let dx = Math.abs(x1 - x0);
+        let sx = x0 < x1 ? 1 : -1;
+        let dy = -Math.abs(y1 - y0);
+        let sy = y0 < y1 ? 1 : -1;
+        let err = dx + dy; /* error value e_xy */
+
+        let cx = x0;
+        let cy = y0;
+
+        while (true) {
+            // advance to next pixel
+            if (cx === x1 && cy === y1) break;
+            const e2 = 2 * err;
+            if (e2 >= dy) {
+                err += dy;
+                cx += sx;
+            }
+            if (e2 <= dx) {
+                err += dx;
+                cy += sy;
+            }
+
+            // If we've reached the destination, stop (do not consider destination blocking)
+            if (cx === x1 && cy === y1) break;
+
+            const tile = this.chunkManager.getTileValue(cx, cy);
+            if (tile && tile.type === 'solid') return false;
+        }
+
+        return true;
     }
 
     /**
@@ -175,19 +234,16 @@ export default class LightingSystem {
     // --- Private methods ---
 
     _recomputeLighting() {
+        // Raycasting approach: cast multiple rays from each torch and write light
+        // only into non-solid tiles. This prevents light leaking into/through walls.
         this.lightMap.clear();
         if (this.torches.size === 0) return;
 
-        const queue = [];
-        const push = (sx, sy, level) => {
-            const k = `${sx},${sy}`;
-            const cur = this.lightMap.get(k) || 0;
-            if (level <= cur) return;
-            this.lightMap.set(k, level);
-            queue.push({ sx, sy, level });
-        };
+        const raysPerTorch = Math.max(32, Math.min(256, Math.floor(this.maxLight * 8)));
+        const step = 0.5; // step size along rays in tile units
+        const bounceAtten = 0.45; // how much level remains after a bounce
+        const maxBounces = 1;
 
-        // Seed with torches
         for (const [k, torch] of this.torches) {
             const parts = k.split(',');
             if (parts.length < 2) continue;
@@ -195,35 +251,59 @@ export default class LightingSystem {
             const sy = parseInt(parts[1], 10);
             if (!Number.isFinite(sx) || !Number.isFinite(sy)) continue;
             const level = torch.level || this.maxLight;
-            push(sx, sy, Math.min(this.maxLight, Math.max(0, Math.floor(level))));
-        }
 
-        // BFS propagation with 4-neighborhood
-        while (queue.length) {
-            const cur = queue.shift();
-            const nextLevel = cur.level - 1;
-            if (nextLevel <= 0) continue;
+            // Cast rays around the torch
+            for (let r = 0; r < raysPerTorch; r++) {
+                const ang = (r / raysPerTorch) * Math.PI * 2;
+                // step along ray in tile units (fractional)
+                const step = 0.5;
+                // Extend ray distance to better match prior BFS reach
+                const maxDist = Math.max(1, level + 6);
 
-            const neighbors = [
-                [cur.sx + 1, cur.sy],
-                [cur.sx - 1, cur.sy],
-                [cur.sx, cur.sy + 1],
-                [cur.sx, cur.sy - 1]
-            ];
+                for (let d = 0; d <= maxDist; d += step) {
+                    const fx = sx + 0.5 + Math.cos(ang) * d; // float world tile coords
+                    const fy = sy + 0.5 + Math.sin(ang) * d;
+                    const tx = Math.floor(fx);
+                    const ty = Math.floor(fy);
 
-            for (const [nx, ny] of neighbors) {
-                const tile = this.chunkManager.getTileValue(nx, ny);
-                const isSolid = (tile && tile.type === 'solid');
-                const key = `${nx},${ny}`;
-                const curVal = this.lightMap.get(key) || 0;
+                    const tile = this.chunkManager.getTileValue(tx, ty);
 
-                if (nextLevel > curVal) {
-                    this.lightMap.set(key, nextLevel);
-                    // Only propagate if not solid
-                    if (!isSolid) {
-                        queue.push({ sx: nx, sy: ny, level: nextLevel });
+                    // Use distance-based integer falloff similar to the previous BFS
+                    // so reach ~= level - dist. This produces more expected ray lengths.
+                    const intLevel = Math.min(this.maxLight, Math.max(0, Math.floor(level - d)));
+
+                    const key = `${tx},${ty}`;
+                    const cur = this.lightMap.get(key) || 0;
+                    if (intLevel > cur) {
+                        this.lightMap.set(key, intLevel);
                     }
+
+                    // If tile is solid, stop the ray but keep the light value on that tile
+                    if (tile && tile.type === 'solid') break;
                 }
+            }
+        }
+        // Small bloom pass: spread a fraction of each tile's light to neighbors (softens edges)
+        const bloomPasses = 1;
+        const spreadFactor = 0.2; // fraction to spread to neighbors
+        for (let pass = 0; pass < bloomPasses; pass++) {
+            const updates = new Map();
+            for (const [k, v] of this.lightMap.entries()) {
+                const [sx, sy] = k.split(',').map(n => parseInt(n, 10));
+                const amount = Math.floor(v * spreadFactor);
+                if (amount <= 0) continue;
+                const neigh = [ [sx+1,sy], [sx-1,sy], [sx,sy+1], [sx,sy-1] ];
+                for (const [nx, ny] of neigh) {
+                    const nk = `${nx},${ny}`;
+                    const cur = this.lightMap.get(nk) || 0;
+                    const upd = Math.min(this.maxLight, cur + amount);
+                    const prevUpd = updates.get(nk) || 0;
+                    if (upd > prevUpd) updates.set(nk, upd);
+                }
+            }
+            for (const [k, v] of updates.entries()) {
+                const cur = this.lightMap.get(k) || 0;
+                if (v > cur) this.lightMap.set(k, v);
             }
         }
     }
