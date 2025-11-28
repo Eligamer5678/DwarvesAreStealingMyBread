@@ -265,7 +265,7 @@ export class MainScene extends Scene {
     _initializeLightingSystem() {
         this.lightingSystem = new LightingSystem(this.chunkManager, {
             maxLight: 12,
-            ambientMin: 0.12
+            ambientMin: 0.0
         });
     }
 
@@ -296,6 +296,8 @@ export class MainScene extends Scene {
             noiseTileSize: this.noiseTileSize,
             activeRadius: 32
         });
+        // provide lighting system to entity manager for per-sprite lighting
+        try { if (this.lightingSystem) this.entityManager.setLightingSystem(this.lightingSystem); } catch (e) {}
         this.entityManager.setPlayer(this.player);
 
         // Spawn slimes
@@ -541,7 +543,24 @@ export class MainScene extends Scene {
             this.entityManager.drawEntities();
         }
         if (this.player && typeof this.player.draw === 'function') {
-            this.player.draw(new Vector(0, 0));
+            try {
+                if (this.lightingSystem && typeof this.lightingSystem.getBrightnessForWorld === 'function') {
+                    const px = this.player.pos.x + this.player.size.x * 0.5;
+                    const py = this.player.pos.y + this.player.size.y * 0.5;
+                    // Make player slightly brighter than entities so the player is easier to see
+                    const rawB = this.lightingSystem.getBrightnessForWorld(px, py, this.noiseTileSize);
+                    const b = Math.min(1, rawB * 2);
+                    try { this.Draw.setBrightness(b); } catch (e) {}
+                    this.player.draw(new Vector(0, 0));
+                    try { this.Draw.setBrightness(1); } catch (e) {}
+                    // skip default draw
+                } else {
+                    this.player.draw(new Vector(0, 0));
+                }
+            } catch (e) {
+                // fallback
+                this.player.draw(new Vector(0, 0));
+            }
         }
 
         this.camera.popTransform();

@@ -13,6 +13,7 @@ export default class EntityManager {
         
         this.entities = [];
         this.player = null;
+        this.lightingSystem = null;
     }
 
     /**
@@ -29,6 +30,14 @@ export default class EntityManager {
      */
     addEntity(entity) {
         this.entities.push(entity);
+    }
+
+    /**
+     * Set lighting system reference so entity rendering can query nearby torches.
+     * @param {LightingSystem} ls
+     */
+    setLightingSystem(ls) {
+        this.lightingSystem = ls;
     }
 
     /**
@@ -97,6 +106,18 @@ export default class EntityManager {
                 const dist = Math.hypot(px - ex, py - ey);
                 
                 if (dist <= maxDist && typeof entity.draw === 'function') {
+                    // If a lighting system is available, compute per-entity brightness
+                    try {
+                        if (this.lightingSystem && typeof this.lightingSystem.getBrightnessForWorld === 'function') {
+                            const brightness = this.lightingSystem.getBrightnessForWorld(ex, ey, this.noiseTileSize);
+                            try { this.draw.setBrightness(brightness); } catch (e) {}
+                            entity.draw(new Vector(0, 0));
+                            try { this.draw.setBrightness(1); } catch (e) {}
+                            continue;
+                        }
+                    } catch (e) {
+                        // fall back to default draw
+                    }
                     entity.draw(new Vector(0, 0));
                 }
             } catch (e) {

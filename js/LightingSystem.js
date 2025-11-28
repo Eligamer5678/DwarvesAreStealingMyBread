@@ -7,8 +7,8 @@ import Signal from './Signal.js';
 export default class LightingSystem {
     constructor(chunkManager, options = {}) {
         this.chunkManager = chunkManager;
-        this.maxLight = options.maxLight || 12;
-        this.ambientMin = options.ambientMin || 0.12;
+        this.maxLight = options.maxLight || 0;
+        this.ambientMin = options.ambientMin || 0;
         // Threshold above which ores should be revealed. If brightness is below
         // this value, ores will be masked as stone. Can be overridden via options.
         this.oreRevealThreshold = (typeof options.oreRevealThreshold === 'number')
@@ -18,6 +18,8 @@ export default class LightingSystem {
         this.torches = new Map(); // key: "sx,sy" -> { level: number }
         this.lightMap = new Map(); // key: "sx,sy" -> number (0..maxLight)
         this._isDirty = true;
+        // Cached torch positions for fast per-sprite queries: [{sx,sy,level}, ...]
+        this._torchPositions = [];
 
         // Signals
         this.onLightChanged = new Signal();
@@ -28,6 +30,8 @@ export default class LightingSystem {
                 this.markDirty();
             });
         }
+        // initialize cache from any pre-existing torches
+        this._rebuildTorchCache();
     }
 
     /**
@@ -41,6 +45,7 @@ export default class LightingSystem {
 
         if (this.torches.has(key)) {
             this.torches.delete(key);
+            this._updateTorchCacheRemove(sx, sy);
             this.markDirty();
             return false;
         } else {
@@ -48,6 +53,7 @@ export default class LightingSystem {
             const tile = this.chunkManager.getTileValue(sx, sy);
             if (!tile) {
                 this.torches.set(key, { level: this.maxLight });
+                this._updateTorchCacheAdd(sx, sy, this.maxLight);
                 this.markDirty();
                 return true;
             }
@@ -64,8 +70,57 @@ export default class LightingSystem {
         const key = `${sx},${sy}`;
         if (this.torches.has(key)) {
             this.torches.delete(key);
+            this._updateTorchCacheRemove(sx, sy);
             this.markDirty();
         }
+    }
+
+    _rebuildTorchCache() {
+        this._torchPositions = [];
+        for (const [k, t] of this.torches) {
+            const parts = k.split(',');
+            if (parts.length < 2) continue;
+            const sx = parseInt(parts[0], 10);
+            const sy = parseInt(parts[1], 10);
+            if (!Number.isFinite(sx) || !Number.isFinite(sy)) continue;
+            this._torchPositions.push({ sx, sy, level: t && t.level ? t.level : this.maxLight });
+        }
+    }
+
+    _updateTorchCacheAdd(sx, sy, level) {
+        // remove existing entry if present
+        this._torchPositions = this._torchPositions.filter(p => !(p.sx === sx && p.sy === sy));
+        this._torchPositions.push({ sx, sy, level: level || this.maxLight });
+    }
+
+    _updateTorchCacheRemove(sx, sy) {
+        this._torchPositions = this._torchPositions.filter(p => !(p.sx === sx && p.sy === sy));
+    }
+
+    /**
+     * Compute brightness for a world-space position (px,py) using cached torches.
+     * Returns a brightness factor in [ambientMin..1].
+     */
+    getBrightnessForWorld(px, py, noiseTileSize) {
+        if (!noiseTileSize || !this._torchPositions || this._torchPositions.length === 0) {
+            return this.ambientMin;
+        }
+        const sx = Math.floor(px / noiseTileSize);
+        const sy = Math.floor(py / noiseTileSize);
+
+        let maxLevel = 0;
+        for (const t of this._torchPositions) {
+            const dx = t.sx - sx;
+            const dy = t.sy - sy;
+            const dist = Math.hypot(dx, dy);
+            // approximate light falloff: level ~= maxLight - dist
+            const lvl = Math.max(0, Math.floor((t.level || this.maxLight) - dist));
+            if (lvl > maxLevel) maxLevel = lvl;
+            if (maxLevel >= this.maxLight) break;
+        }
+
+        const normalized = Math.max(0, Math.min(this.maxLight, maxLevel)) / Math.max(1, this.maxLight);
+        return this.ambientMin + normalized * (1 - this.ambientMin);
     }
 
     /**
