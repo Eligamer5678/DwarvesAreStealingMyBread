@@ -33,6 +33,17 @@ export default class ChunkManager {
             }
         }
 
+        // Placeholder tilesheets for surface and structure placement. These can be
+        // assigned images later by the scene or asset loader. For now populate
+        // with a few example keys so user code can reference them.
+        this.surfaceTileSheet = new TileSheet(null, this.noiseOptions.oreSlicePx);
+        this.structureTileSheet = new TileSheet(null, this.noiseOptions.oreSlicePx);
+        // Add 5 placeholder keys each (place0..place4, struct0..struct4)
+        for (let i = 0; i < 5; i++) {
+            this.surfaceTileSheet.addTile(`place${i}`, 0, i);
+            this.structureTileSheet.addTile(`struct${i}`, 0, i);
+        }
+
         this.chunks = new Map(); // key: "cx,cy" -> { x, y, data, width, height }
         this.modifiedTiles = new Map(); // key: "sx,sy" -> tile data or null
         this.blockMap = new Map(); // key: "sx,sy" -> { type: 'solid'|'ladder' }
@@ -172,6 +183,142 @@ export default class ChunkManager {
         this.chunks.set(key, chunk);
         this.onChunkGenerated.emit(cx, cy, chunk);
         return chunk;
+    }
+
+    /**
+     * Set/override a chunk at chunk-coordinates `cx,cy` with provided data.
+     * `data` may be either:
+     * - an object { width, height, data } where data is an array of length width*height
+     * - a flat numeric array (length will be interpreted as chunkSize*chunkSize)
+     * This allows user code to programmatically place structures/surfaces by
+     * supplying a tilemap for a chunk.
+     */
+    setChunk(cx, cy, data) {
+        const key = this._chunkKey(cx, cy);
+        let chunk = null;
+
+        if (!data) return null;
+
+        if (Array.isArray(data)) {
+            // assume square chunk of chunkSize unless array length matches chunkSize*chunkSize
+            const w = this.chunkSize;
+            const h = Math.max(1, Math.floor(data.length / w));
+            chunk = { x: cx, y: cy, width: w, height: h, data: data.slice(0, w * h) };
+        } else if (typeof data === 'object' && data.data && Array.isArray(data.data)) {
+            const w = data.width || this.chunkSize;
+            const h = data.height || Math.max(1, Math.floor(data.data.length / w));
+            chunk = { x: cx, y: cy, width: w, height: h, data: data.data.slice(0, w * h) };
+        } else {
+            // unsupported format
+            return null;
+        }
+
+        this.chunks.set(key, chunk);
+        // If modifiedTiles includes entries inside this chunk, prefer those values
+        // (keep modifiedTiles authoritative). Also update blockMap to reflect
+        // any explicit 'solid' markers present in the provided chunk data.
+        try {
+            const startX = cx * this.chunkSize;
+            const startY = cy * this.chunkSize;
+            for (let y = 0; y < chunk.height; y++) {
+                for (let x = 0; x < chunk.width; x++) {
+                    const sx = startX + x;
+                    const sy = startY + y;
+                    const idx = y * chunk.width + x;
+                    const raw = chunk.data[idx];
+                    const keyTile = `${sx},${sy}`;
+                    // If caller provided null/1.0 for empty and 0.0 for solid, keep same interpretation
+                    if (this.modifiedTiles.has(keyTile)) continue;
+                    if (typeof raw === 'number') {
+                        if (raw < 0.999) {
+                            // solid
+                            this.blockMap.set(keyTile, { type: 'solid' });
+                        } else {
+                            // empty -> ensure blockMap doesn't claim solidity
+                            if (this.blockMap.has(keyTile)) this.blockMap.delete(keyTile);
+                        }
+                    }
+                }
+            }
+        } catch (e) { /* be robust */ }
+
+        this.onChunkGenerated.emit(cx, cy, chunk);
+        return chunk;
+    }
+
+    /**
+     * Place a horizontal surface line at sample Y coordinate `sy` across chunks
+     * from `fromCx` to `toCx` (inclusive). Options support:
+     * - onlyIfEmpty: if true, skip a chunk if the target row already contains solids
+     * - tileValue: numeric value to write for solid (default 0.0)
+     * - emptyValue: numeric value for empty tiles (default 1.0)
+     * - tileMeta: optional object to merge into blockMap entries for visuals (e.g., { surface: { tileKey: 'place2' } })
+     */
+    setHorizontalSurfaceAtSampleY(sy, fromCx, toCx, options = {}) {
+        const opts = Object.assign({ onlyIfEmpty: true, tileValue: 0.0, emptyValue: 1.0, tileMeta: null }, options);
+        const chunkSize = this.chunkSize;
+        if (!Number.isFinite(sy)) return null;
+
+        const cy = Math.floor(sy / chunkSize);
+        const localY = sy - cy * chunkSize;
+        if (localY < 0 || localY >= chunkSize) return null;
+
+        for (let cx = fromCx; cx <= toCx; cx++) {
+            const key = this._chunkKey(cx, cy);
+            let chunk = this.chunks.get(key);
+            let arr;
+
+            if (chunk && Array.isArray(chunk.data) && chunk.data.length >= chunkSize * chunkSize) {
+                arr = chunk.data.slice(); // copy existing
+            } else {
+                arr = new Array(chunkSize * chunkSize).fill(opts.emptyValue);
+            }
+
+            const rowBase = localY * chunkSize;
+
+            // If onlyIfEmpty is set, detect any existing solid in the target row and skip
+            if (opts.onlyIfEmpty) {
+                let hasSolid = false;
+                for (let x = 0; x < chunkSize; x++) {
+                    const v = arr[rowBase + x];
+                    if (typeof v === 'number' && v < 0.999) { hasSolid = true; break; }
+                }
+                if (hasSolid) continue;
+            }
+
+            // Write the row as solid
+            for (let x = 0; x < chunkSize; x++) arr[rowBase + x] = opts.tileValue;
+
+            const newChunk = { x: cx, y: cy, width: chunkSize, height: chunkSize, data: arr };
+            // Use setChunk to ensure common handling (modifiedTiles/blockMap updates and signaling)
+            try {
+                this.setChunk(cx, cy, newChunk);
+                // Explicitly set tileMeta for visuals on the written row if provided
+                if (opts.tileMeta) {
+                    const startX = cx * chunkSize;
+                    for (let x = 0; x < chunkSize; x++) {
+                        const sx = startX + x;
+                        const syAbs = cy * chunkSize + localY;
+                        const tkey = `${sx},${syAbs}`;
+                        if (this.modifiedTiles.has(tkey)) continue;
+                        if (this.blockMap.has(tkey)) {
+                            const existing = this.blockMap.get(tkey) || { type: 'solid' };
+                            Object.assign(existing, opts.tileMeta);
+                            this.blockMap.set(tkey, existing);
+                        }
+                    }
+                }
+                // Debug log for visibility when testing
+                // eslint-disable-next-line no-console
+                console.log('[ChunkManager] setHorizontalSurface wrote chunk', cx, cy);
+            } catch (e) {
+                // fallback: write raw
+                this.chunks.set(key, newChunk);
+                console.warn('[ChunkManager] failed to setChunk, fallback to direct write', e);
+            }
+        }
+
+        return true;
     }
 
     _generateChunk(cx, cy) {

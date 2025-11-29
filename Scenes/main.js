@@ -150,6 +150,15 @@ export class MainScene extends Scene {
 
         // Initialize systems
         this._initializeChunkSystem();
+        // --- DEBUG / TEST: place a horizontal surface spanning multiple chunks at sample Y = 0 ---
+        try {
+            const cm = this.chunkManager;
+            if (cm) {
+                // Span chunks from -2..2 (5 chunks wide) to create a longer structure
+                cm.setHorizontalSurfaceAtSampleY(0, -2, 2, { onlyIfEmpty: false, tileMeta: { surface: { tileKey: 'place2' } } });
+                console.log('[DEBUG] Placed test surface spanning chunks -2..2 at sample Y=0');
+            }
+        } catch (e) { console.warn('Failed to place multi-chunk test surface', e); }
         // Ensure player is not embedded in solid tiles for some seeds
         this._ensurePlayerSpawn();
         this._initializeLightingSystem();
