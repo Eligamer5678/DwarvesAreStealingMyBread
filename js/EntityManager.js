@@ -30,6 +30,14 @@ export default class EntityManager {
      */
     addEntity(entity) {
         this.entities.push(entity);
+        // initialize components if present
+        if (entity && Array.isArray(entity.components)) {
+            for (const c of entity.components) {
+                try {
+                    if (c && typeof c.init === 'function') c.init(entity, this);
+                } catch (e) { console.warn('Entity component init failed', e); }
+            }
+        }
     }
 
     /**
@@ -38,6 +46,18 @@ export default class EntityManager {
      */
     setLightingSystem(ls) {
         this.lightingSystem = ls;
+        // Re-init components so those that failed to register earlier (because
+        // lighting wasn't available) can now register with the lighting system.
+        try {
+            for (const entity of this.entities) {
+                if (!entity || !Array.isArray(entity.components)) continue;
+                for (const c of entity.components) {
+                    try {
+                        if (c && typeof c.init === 'function') c.init(entity, this);
+                    } catch (e) { /* ignore per-component init errors */ }
+                }
+            }
+        } catch (e) { /* ignore */ }
     }
 
     /**
@@ -47,6 +67,12 @@ export default class EntityManager {
     removeEntity(entity) {
         const index = this.entities.indexOf(entity);
         if (index !== -1) {
+            // destroy components
+            if (entity && Array.isArray(entity.components)) {
+                for (const c of entity.components) {
+                    try { if (c && typeof c.destroy === 'function') c.destroy(); } catch (e) { /* ignore */ }
+                }
+            }
             this.entities.splice(index, 1);
         }
     }
@@ -78,8 +104,18 @@ export default class EntityManager {
 
                 // Only update entities within active radius
                 if (dist <= maxDist) {
+                    // Call the entity's update first (applies friction, animations,
+                    // and integrates existing velocity), then run component updates.
                     if (typeof entity.update === 'function') {
                         entity.update(delta);
+                    }
+                    // update components after entity update so they can set new
+                    // velocities and optionally perform immediate one-time
+                    // position integration (matching original sprite behavior).
+                    if (entity && Array.isArray(entity.components)) {
+                        for (const c of entity.components) {
+                            try { if (c && typeof c.update === 'function') c.update(delta); } catch (e) { console.warn('Entity component update failed', e); }
+                        }
                     }
                     this.resolveCollisions(entity);
                 }

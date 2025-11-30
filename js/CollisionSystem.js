@@ -97,4 +97,16 @@ export default class CollisionSystem {
         // Resolve collisions
         this.resolveCollisions(player);
     }
+
+    /**
+     * Generic update for any sprite: detect ladders and resolve collisions.
+     * This keeps behavior modular so the same system can be applied to
+     * non-player entities as well.
+     * @param {Object} sprite
+     */
+    updateSprite(sprite) {
+        if (!sprite) return;
+        sprite.onLadder = this.detectLadder(sprite);
+        this.resolveCollisions(sprite);
+    }
 }

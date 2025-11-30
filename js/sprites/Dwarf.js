@@ -30,16 +30,16 @@ export default class Dwarf extends Sprite {
      */
     constructor(keys, Draw, pos, size = new Vector(48,48), spriteSheet = null, inputSettings = { type: 'platformer' }){
         super(keys, Draw, pos, size, spriteSheet, inputSettings);
-        this.speed = 50;
+        this.speed = 7;
         this.friction = 0.001;
 
         // Platformer physics
-        this.gravity = 30; // px/s^2 downward
+        this.gravity = 5; // px/s^2 downward
         this.terminal = 100; // max fall speed (px/s)
-        this.jumpSpeed = 7; // initial jump impulse (px/s)
+        this.jumpSpeed = 1.6; // initial jump impulse (px/s)
         this.onGround = false; // set by scene collision resolution
         this.onLadder = false; // set by scene when overlapping ladder
-        this.climbSpeed = 4; // px/s climb speed when on ladder (slower)
+        this.climbSpeed = 0.5; // px/s climb speed when on ladder (slower)
         this.mining = false;
         // Tool state (can be changed at runtime). `speed` scales mining time (1.0 = normal).
         this.currentTool = { type: 'pickaxe', speed: 1.0 };

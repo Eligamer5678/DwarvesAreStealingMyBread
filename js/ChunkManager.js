@@ -1,6 +1,7 @@
 import { perlinNoise } from './noiseGen.js';
 import Signal from './Signal.js';
 import TileSheet from './Tilesheet.js';
+import Vector from './Vector.js';
 
 /**
  * ChunkManager handles procedural terrain generation and tile queries.
@@ -8,42 +9,44 @@ import TileSheet from './Tilesheet.js';
  */
 export default class ChunkManager {
     constructor(options = {}) {
-        this.chunkSize = options.chunkSize || 16;
-        this.noiseTileSize = options.noiseTileSize || 8;
-        this.noiseOptions = options.noiseOptions || {
-            width: 64, height: 64, scale: 24, octaves: 4,
-            seed: 1337, normalize: false, split: 0.2,
-            offsetX: 0, offsetY: 0, bridgeWidth: 2, connect: true
+        // Basic sizing and options (allow overrides via `options`)
+        this.chunkSize = Number.isFinite(options.chunkSize) ? options.chunkSize : 16;
+        this.noiseTileSize = Number.isFinite(options.noiseTileSize) ? options.noiseTileSize : 16;
+        const tilePx = Number.isFinite(options.tilePx) ? options.tilePx : this.noiseTileSize;
+
+        // Default noise options; user-supplied options.noiseOptions will override these
+        const defaultNoise = {
+            width: this.chunkSize,
+            height: this.chunkSize,
+            scale: 24,
+            octaves: 4,
+            seed: (options.noiseOptions && Number.isFinite(options.noiseOptions.seed)) ? options.noiseOptions.seed : 0,
+            normalize: true,
+            split: false,
+            offsetX: 0,
+            offsetY: 0,
+            bridgeWidth: 2,
+            connect: false,
+            threshold: 0.5,
+            seedOffset: 0,
         };
+        this.noiseOptions = Object.assign({}, defaultNoise, options.noiseOptions || {});
 
-        // Ore generation configuration
-        this.noiseOptions.oreChance = this.noiseOptions.oreChance || 0.2;
-        this.noiseOptions.oreSlicePx = this.noiseOptions.oreSlicePx || 16;
-
-        // Prepare a tilesheet placeholder for ores (image may be set later by package/scene)
-        this.oreTileSheet = new TileSheet(null, this.noiseOptions.oreSlicePx);
-        // Populate tile meta for a typical 64x64 / 16px slice grid (4x4)
-        const cols = 64 / this.noiseOptions.oreSlicePx;
-        const rows = 64 / this.noiseOptions.oreSlicePx;
-        let idx = 0;
-        for (let r = 0; r < rows; r++) {
-            for (let c = 0; c < cols; c++) {
-                this.oreTileSheet.addTile(`ore${idx}`, r, c);
-                idx++;
-            }
-        }
-
-        // Placeholder tilesheets for surface and structure placement. These can be
-        // assigned images later by the scene or asset loader. For now populate
-        // with a few example keys so user code can reference them.
-        this.surfaceTileSheet = new TileSheet(null, this.noiseOptions.oreSlicePx);
-        this.structureTileSheet = new TileSheet(null, this.noiseOptions.oreSlicePx);
-        // Add 5 placeholder keys each (place0..place4, struct0..struct4)
+        // Placeholder tilesheets for surface, structure and ore placement. These can
+        // be assigned real images later by the scene or asset loader. Use a sane
+        // default tile pixel size (`tilePx`) instead of referencing noiseOptions
+        // before it's initialized.
+        this.surfaceTileSheet = new TileSheet(null, tilePx);
+        this.structureTileSheet = new TileSheet(null, tilePx);
+        // NOTE: ore tiles are registered via `blocks.json` into TileSheets by AssetManager;
+        // do not maintain a separate oreTileSheet here.
+        // Add a few placeholder keys so user code can reference them safely
         for (let i = 0; i < 5; i++) {
             this.surfaceTileSheet.addTile(`place${i}`, 0, i);
             this.structureTileSheet.addTile(`struct${i}`, 0, i);
         }
 
+        // Internal state
         this.chunks = new Map(); // key: "cx,cy" -> { x, y, data, width, height }
         this.modifiedTiles = new Map(); // key: "sx,sy" -> tile data or null
         this.blockMap = new Map(); // key: "sx,sy" -> { type: 'solid'|'ladder' }
@@ -52,6 +55,42 @@ export default class ChunkManager {
         // Signals
         this.onChunkGenerated = new Signal();
         this.onTileModified = new Signal();
+
+        // JSON-driven generation specs (loaded via loadDefinitions)
+        this.chunkSpecs = null; // contents of data/chunks.json
+        this.generationSpec = null; // contents of data/generation.json
+        this.blockDefs = null; // Map of block id -> metadata (from data/blocks.json)
+    }
+
+    /**
+     * Load external JSON definitions for chunks, generation rules, and blocks.
+     * This is async and should be called once at startup by the scene/engine.
+     */
+    async loadDefinitions(basePath = '/data') {
+        try {
+            const chunksResp = await fetch(`${basePath}/chunks.json`, { cache: 'no-cache' });
+            if (chunksResp.ok) this.chunkSpecs = await chunksResp.json();
+        } catch (e) { console.warn('ChunkManager.loadDefinitions: failed to load chunks.json', e); }
+
+        try {
+            const genResp = await fetch(`${basePath}/generation.json`, { cache: 'no-cache' });
+            if (genResp.ok) this.generationSpec = await genResp.json();
+        } catch (e) { console.warn('ChunkManager.loadDefinitions: failed to load generation.json', e); }
+
+        try {
+            const blocksResp = await fetch(`${basePath}/blocks.json`, { cache: 'no-cache' });
+            if (blocksResp.ok) {
+                const bj = await blocksResp.json();
+                this.blockDefs = new Map();
+                if (bj.blocks && typeof bj.blocks === 'object') {
+                    for (const k of Object.keys(bj.blocks)) {
+                        this.blockDefs.set(k, bj.blocks[k]);
+                    }
+                }
+            }
+        } catch (e) { console.warn('ChunkManager.loadDefinitions: failed to load blocks.json', e); }
+
+        return { chunks: this.chunkSpecs, generation: this.generationSpec, blocks: this.blockDefs };
     }
 
     /**
@@ -95,8 +134,11 @@ export default class ChunkManager {
             const v = this.modifiedTiles.get(mkey);
             if (v === null) return null;
             if (typeof v === 'object') return v;
-            // Legacy numeric support
-            if (typeof v === 'number') return (v < 0.999) ? { type: 'solid' } : null;
+            if (typeof v === 'string') {
+                const def = (this.blockDefs && this.blockDefs instanceof Map) ? this.blockDefs.get(v) : null;
+                const mode = def && def.data && def.data.mode ? def.data.mode : 'solid';
+                return { type: mode, id: v, meta: def || null };
+            }
             return null;
         }
 
@@ -116,7 +158,21 @@ export default class ChunkManager {
         if (lx < 0 || ly < 0 || lx >= chunk.width || ly >= chunk.height) return null;
 
         const raw = chunk.data[ly * chunk.width + lx];
-        // Interpret raw noise: <0.999 => solid, >=0.999 => empty
+        // New JSON-driven format: chunk.data can store block id strings (e.g. 'stone' or 'air')
+        if (typeof raw === 'string') {
+            if (raw === 'air' || raw === '' || raw === null) return null;
+            // lookup block definition if available to determine solidity
+            try {
+                const def = (this.blockDefs && this.blockDefs instanceof Map) ? this.blockDefs.get(raw) : null;
+                const mode = def && def.data && def.data.mode ? def.data.mode : 'solid';
+                if (mode === 'solid') return { type: 'solid', id: raw, meta: def || null };
+                return { type: mode || 'solid', id: raw, meta: def || null };
+            } catch (e) {
+                return { type: 'solid', id: raw };
+            }
+        }
+
+        // Legacy numeric support (kept minimal for backwards compatibility)
         if (typeof raw === 'number' && raw < 0.999) return { type: 'solid' };
         return null;
     }
@@ -141,7 +197,15 @@ export default class ChunkManager {
             const lx = sx - cx * this.chunkSize;
             const ly = sy - cy * this.chunkSize;
             if (lx >= 0 && ly >= 0 && lx < chunk.width && ly < chunk.height) {
-                chunk.data[ly * chunk.width + lx] = value === null ? 1.0 : 0.0;
+                // Write block ids into the JSON-driven chunk data.
+                // Accept several value shapes: null -> 'air', string -> use as block id,
+                // object -> use `.id` if present, otherwise default to 'stone'.
+                let out;
+                if (value === null) out = 'air';
+                else if (typeof value === 'string') out = value;
+                else if (typeof value === 'object' && value.id) out = value.id;
+                else out = 'stone';
+                chunk.data[ly * chunk.width + lx] = out;
             }
         }
 
@@ -175,14 +239,248 @@ export default class ChunkManager {
         return `${cx},${cy}`;
     }
 
+    _matchesGenerationConditions(conds, cx, cy) {
+        if (!conds || !Array.isArray(conds) || conds.length === 0) return false;
+        const chunkSize = this.chunkSize;
+        const centerX = cx * chunkSize + Math.floor(chunkSize / 2);
+        const centerY = cy * chunkSize + Math.floor(chunkSize / 2);
+
+        for (const c of conds) {
+            if (!c || !c.type) continue;
+            const meta = c.data && c.data.meta ? c.data.meta : null;
+            if (c.type === 'y' && Array.isArray(meta)) {
+                const op = meta[0];
+                const val = Number(meta[1] || 0);
+                if (op === 'below') { if (!(centerY < val)) return false; }
+                else if (op === 'above') { if (!(centerY > val)) return false; }
+                else if (op === 'equal') { if (!(centerY === val)) return false; }
+            } else if (c.type === 'x' && Array.isArray(meta)) {
+                const op = meta[0];
+                const val = Number(meta[1] || 0);
+                if (op === 'below') { if (!(centerX < val)) return false; }
+                else if (op === 'above') { if (!(centerX > val)) return false; }
+                else if (op === 'equal') { if (!(centerX === val)) return false; }
+            } else if (c.type === 'chance' && Array.isArray(meta)) {
+                const prob = Number(meta[0] || 0);
+                const seed = (this.noiseOptions && this.noiseOptions.seed) ? this.noiseOptions.seed : 1337;
+                const n = centerX * 374761393 + centerY * 668265263 + (seed|0) * 1274126177;
+                const v = Math.sin(n) * 43758.5453123;
+                const r = v - Math.floor(v);
+                if (!(r < prob)) return false;
+            } else {
+                // unknown condition types are treated as non-matching
+                return false;
+            }
+        }
+        return true;
+    }
+
     _ensureChunk(cx, cy) {
         const key = this._chunkKey(cx, cy);
         if (this.chunks.has(key)) return this.chunks.get(key);
+        let chunk;
+        // Always use JSON-driven generation. If there are no definitions,
+        // _generateChunkJSON will return an empty 'air' chunk.
+        chunk = this._generateChunkJSON(cx, cy);
 
-        const chunk = this._generateChunk(cx, cy);
         this.chunks.set(key, chunk);
         this.onChunkGenerated.emit(cx, cy, chunk);
         return chunk;
+    }
+
+    /**
+     * Generate a chunk using the JSON-driven specs (chunks.json + generation.json)
+     */
+    _generateChunkJSON(cx, cy) {
+        const chunkSize = this.chunkSize;
+        const startX = cx * chunkSize;
+        const startY = cy * chunkSize;
+
+        // Default empty chunk filled with 'air'
+        const arr = new Array(chunkSize * chunkSize).fill('air');
+
+        // Select generation rule from generationSpec by evaluating conditions
+        let selected = null;
+        if (this.generationSpec && typeof this.generationSpec === 'object') {
+            for (const key of Object.keys(this.generationSpec)) {
+                const rule = this.generationSpec[key];
+                const conds = rule.conditions || [];
+                if (this._matchesGenerationConditions(conds, cx, cy)) { selected = rule; break; }
+            }
+        }
+
+        // Determine chunk type and spec
+        const chunkType = selected && selected.chunk_type ? selected.chunk_type : (this.chunkSpecs && this.chunkSpecs.chunks ? Object.keys(this.chunkSpecs.chunks)[0] : null);
+        const spec = (this.chunkSpecs && this.chunkSpecs.chunks && this.chunkSpecs.chunks[chunkType]) ? this.chunkSpecs.chunks[chunkType] : null;
+        if (!spec) {
+            // No spec available: return a default empty chunk (all 'air').
+            return { x: cx, y: cy, width: chunkSize, height: chunkSize, data: arr };
+        }
+
+        // Fill regions
+        try {
+            const regions = spec.data && spec.data.regions ? spec.data.regions : [];
+            for (const reg of regions) {
+                const r0 = reg.region && reg.region[0] ? reg.region[0] : [0,0];
+                const r1 = reg.region && reg.region[1] ? reg.region[1] : [chunkSize-1, chunkSize-1];
+                const bx = Math.max(0, Math.min(chunkSize-1, r0[0]));
+                const by = Math.max(0, Math.min(chunkSize-1, r0[1]));
+                const ex = Math.max(0, Math.min(chunkSize-1, r1[0]));
+                const ey = Math.max(0, Math.min(chunkSize-1, r1[1]));
+                const blockType = reg.block_type || 'stone';
+                for (let y = by; y <= ey; y++) {
+                    for (let x = bx; x <= ex; x++) {
+                        arr[y * chunkSize + x] = blockType;
+                    }
+                }
+            }
+            // After filling regions, apply cave carving as a post-process for ground chunks
+            try {
+                let caveRule = null;
+                if (this.generationSpec && typeof this.generationSpec === 'object') {
+                    // Prefer a rule literally named 'caves' if present
+                    if (this.generationSpec.caves) caveRule = this.generationSpec.caves;
+                    else {
+                        for (const k of Object.keys(this.generationSpec)) {
+                            if (k.toLowerCase().includes('cave')) { caveRule = this.generationSpec[k]; break; }
+                        }
+                    }
+                }
+                // Apply caves if this chunk type is ground and a cave rule exists
+                if (chunkType === 'ground' && caveRule && Array.isArray(caveRule.special)) {
+                    for (const s of caveRule.special) {
+                        if (!s || s.type !== 'caves') continue;
+                        const sd = s.data || {};
+                        // Start from default noise options, then apply cave-specific overrides
+                        const nopts = Object.assign({}, this.noiseOptions);
+                        if (typeof sd.scale === 'number') nopts.scale = sd.scale;
+                        if (typeof sd.octaves === 'number') nopts.octaves = sd.octaves;
+                        if (typeof sd.persistence === 'number') nopts.persistence = sd.persistence;
+                        if (typeof sd.lacunarity === 'number') nopts.lacunarity = sd.lacunarity;
+                        if (typeof sd.normalize === 'boolean') nopts.normalize = sd.normalize;
+                        if (typeof sd.split === 'number') nopts.split = sd.split;
+                        if (typeof sd.connect === 'boolean') nopts.connect = sd.connect;
+                        if (typeof sd.bridgeWidth === 'number') nopts.bridgeWidth = sd.bridgeWidth;
+                        // seed: prefer explicit seed, otherwise apply seedOffset to base seed
+                        if (Number.isFinite(sd.seed)) nopts.seed = sd.seed;
+                        else if (Number.isFinite(sd.seedOffset)) nopts.seed = (this.noiseOptions.seed || 0) + sd.seedOffset;
+                        // offsets: allow per-special offsets added to chunk start
+                        const extraOX = Number.isFinite(sd.offsetX) ? sd.offsetX : 0;
+                        const extraOY = Number.isFinite(sd.offsetY) ? sd.offsetY : 0;
+                        nopts.offsetX = (startX || 0) + extraOX;
+                        nopts.offsetY = (startY || 0) + extraOY;
+
+                        const caveMap = perlinNoise(chunkSize, chunkSize, nopts);
+                        const threshold = (sd.threshold !== undefined) ? sd.threshold : 0.5;
+
+                        for (let y = 0; y < chunkSize; y++) {
+                            for (let x = 0; x < chunkSize; x++) {
+                                const idx = y * chunkSize + x;
+                                const v = caveMap.data[idx];
+                                if (typeof v !== 'number') continue;
+
+                                let carve = false;
+                                // If split was requested, perlinNoise produced a binary map (0/1)
+                                // NOTE: Invert carving logic so that 1 => cavity when using split
+                                if (Number.isFinite(nopts.split) && nopts.split >= 0) {
+                                    // treat 1 as cavity (air) and 0 as solid (inverted compared to previous behavior)
+                                    if (v === 1) carve = true;
+                                } else {
+                                    // Normalize raw output to 0..1 if the noise wasn't normalized
+                                    let val = v;
+                                    if (!nopts.normalize) val = (v + 1) / 2; // map [-1,1] -> [0,1]
+                                    // Inverted: carve when value is above the threshold
+                                    if (val > threshold) carve = true;
+                                }
+
+                                if (carve) arr[idx] = 'air';
+                            }
+                        }
+                    }
+                }
+            } catch (e) { /* ignore cave carve errors */ }
+
+            // Apply region-local specials (e.g., ores defined inside a region)
+            for (const reg of regions) {
+                if (!reg || !reg.special) continue;
+                const s = reg.special;
+                if (!s || !s.type) continue;
+                // compute region bounds again
+                const r0 = reg.region && reg.region[0] ? reg.region[0] : [0,0];
+                const r1 = reg.region && reg.region[1] ? reg.region[1] : [chunkSize-1, chunkSize-1];
+                const bx = Math.max(0, Math.min(chunkSize-1, r0[0]));
+                const by = Math.max(0, Math.min(chunkSize-1, r0[1]));
+                const ex = Math.max(0, Math.min(chunkSize-1, r1[0]));
+                const ey = Math.max(0, Math.min(chunkSize-1, r1[1]));
+
+                if (s.type === 'ores') {
+                    const spread = (s.data && s.data.spread) ? s.data.spread : [];
+                    const seed = (this.noiseOptions && Number.isFinite(this.noiseOptions.seed)) ? this.noiseOptions.seed : 1337;
+                    const pseudo = (a, x, y) => { const n = x * 374761393 + y * 668265263 + (a|0) * 1274126177; const v = Math.sin(n) * 43758.5453123; return v - Math.floor(v); };
+                    for (let y = by; y <= ey; y++) {
+                        for (let x = bx; x <= ex; x++) {
+                            const idx = y * chunkSize + x;
+                            const cur = arr[idx];
+                            if (typeof cur === 'string' && cur !== 'air') {
+                                for (let i = 0; i < spread.length; i++) {
+                                    const sopt = spread[i];
+                                    const chance = Number(sopt.chance || 0);
+                                    const pick = sopt.block_type;
+                                    // compute a per-ore random value so multiple ore types can be selected
+                                    const r = pseudo(seed + i * 2654435761, startX + x, startY + y);
+                                    if (r < chance) { arr[idx] = pick; break; }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e) { /* ignore */ }
+
+        // Apply special rules from selected generation rule
+        try {
+            if (selected && Array.isArray(selected.special)) {
+                for (const s of selected.special) {
+                    if (!s || !s.type) continue;
+                    if (s.type === 'caves') {
+                        const sd = s.data || {};
+                        const nopts = Object.assign({}, this.noiseOptions);
+                        if (typeof sd.scale === 'number') nopts.scale = sd.scale;
+                        if (typeof sd.octaves === 'number') nopts.octaves = sd.octaves;
+                        if (typeof sd.seedOffset === 'number') nopts.seed = (this.noiseOptions.seed || 0) + sd.seedOffset;
+                        nopts.offsetX = startX; nopts.offsetY = startY;
+                        const caveMap = perlinNoise(chunkSize, chunkSize, nopts);
+                        const threshold = (sd.threshold !== undefined) ? sd.threshold : 0.5;
+                        for (let y = 0; y < chunkSize; y++) {
+                            for (let x = 0; x < chunkSize; x++) {
+                                const v = caveMap.data[y * chunkSize + x];
+                                if (typeof v === 'number' && v < threshold) arr[y * chunkSize + x] = 'air';
+                            }
+                        }
+                    } else if (s.type === 'ores') {
+                        const spread = (s.data && s.data.spread) ? s.data.spread : [];
+                        const seed = (this.noiseOptions && this.noiseOptions.seed) ? this.noiseOptions.seed : 1337;
+                        const pseudo = (a, x, y) => { const n = x * 374761393 + y * 668265263 + (a|0) * 1274126177; const v = Math.sin(n) * 43758.5453123; return v - Math.floor(v); };
+                        for (let y = 0; y < chunkSize; y++) {
+                            for (let x = 0; x < chunkSize; x++) {
+                                const idx = y * chunkSize + x;
+                                const cur = arr[idx];
+                                if (typeof cur === 'string' && cur !== 'air') {
+                                    for (const sopt of spread) {
+                                        const chance = Number(sopt.chance || 0);
+                                        const pick = sopt.block_type;
+                                        const r = pseudo(seed, startX + x, startY + y);
+                                        if (r < chance) { arr[idx] = pick; break; }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e) { /* ignore */ }
+
+        return { x: cx, y: cy, width: chunkSize, height: chunkSize, data: arr };
     }
 
     /**
@@ -247,189 +545,93 @@ export default class ChunkManager {
     }
 
     /**
-     * Place a horizontal surface line at sample Y coordinate `sy` across chunks
-     * from `fromCx` to `toCx` (inclusive). Options support:
-     * - onlyIfEmpty: if true, skip a chunk if the target row already contains solids
-     * - tileValue: numeric value to write for solid (default 0.0)
-     * - emptyValue: numeric value for empty tiles (default 1.0)
-     * - tileMeta: optional object to merge into blockMap entries for visuals (e.g., { surface: { tileKey: 'place2' } })
+     * Draw visible tiles to the provided Draw instance.
+     * - `draw`: the Draw instance with an active context (call `useCtx` before)
+     * - `camera`: optional Camera instance (used to compute visible area). If
+     *     provided, `camera.screenToWorld` is used to map screen -> world.
+     * - `resources`: optional Map-like container created by AssetManager (keys
+     *     are tilemap names -> TileSheet, and key 'blocks' -> Map of block metadata)
+     * - `opts`: { tileSize } overrides sample->world tile size (defaults to noiseTileSize)
      */
-    setHorizontalSurfaceAtSampleY(sy, fromCx, toCx, options = {}) {
-        const opts = Object.assign({ onlyIfEmpty: true, tileValue: 0.0, emptyValue: 1.0, tileMeta: null }, options);
-        const chunkSize = this.chunkSize;
-        if (!Number.isFinite(sy)) return null;
+    draw(draw, camera = null, resources = null, opts = {}) {
+        if (!draw || !draw.ctx) return;
+        const ctx = draw.ctx;
+        const canvas = ctx.canvas;
+        const tileSize = Number.isFinite(opts.tileSize) ? opts.tileSize : this.noiseTileSize;
 
-        const cy = Math.floor(sy / chunkSize);
-        const localY = sy - cy * chunkSize;
-        if (localY < 0 || localY >= chunkSize) return null;
+        // Compute world-space rectangle for visible area
+        let topLeft = { x: 0, y: 0 };
+        let bottomRight = { x: canvas.width, y: canvas.height };
+        if (camera && typeof camera.screenToWorld === 'function') {
+            topLeft = camera.screenToWorld({ x: 0, y: 0 });
+            bottomRight = camera.screenToWorld({ x: canvas.width, y: canvas.height });
+        } else {
+            // Convert pixel extents to world units using Draw.Scale
+            topLeft = { x: 0, y: 0 };
+            bottomRight = { x: canvas.width / (draw.Scale.x || 1), y: canvas.height / (draw.Scale.y || 1) };
+        }
 
-        for (let cx = fromCx; cx <= toCx; cx++) {
-            const key = this._chunkKey(cx, cy);
-            let chunk = this.chunks.get(key);
-            let arr;
+        const sx0 = Math.floor(topLeft.x / tileSize) - 1;
+        const sy0 = Math.floor(topLeft.y / tileSize) - 1;
+        const sx1 = Math.ceil(bottomRight.x / tileSize) + 1;
+        const sy1 = Math.ceil(bottomRight.y / tileSize) + 1;
 
-            if (chunk && Array.isArray(chunk.data) && chunk.data.length >= chunkSize * chunkSize) {
-                arr = chunk.data.slice(); // copy existing
-            } else {
-                arr = new Array(chunkSize * chunkSize).fill(opts.emptyValue);
+        // Helper to lookup TileSheet for a block id via resources or this.blockDefs
+        const lookupTileSheet = (bid) => {
+            if (!bid) return null;
+            let meta = null;
+            if (this.blockDefs && this.blockDefs instanceof Map) meta = this.blockDefs.get(bid);
+            if ((!meta || !meta.texture) && resources && typeof resources.get === 'function') {
+                // resources may contain a 'blocks' entry (map) with richer metadata
+                try {
+                    const rblocks = resources.get('blocks');
+                    if (rblocks && rblocks instanceof Map && rblocks.has(bid)) meta = rblocks.get(bid);
+                } catch (e) { /* ignore */ }
             }
-
-            const rowBase = localY * chunkSize;
-
-            // If onlyIfEmpty is set, detect any existing solid in the target row and skip
-            if (opts.onlyIfEmpty) {
-                let hasSolid = false;
-                for (let x = 0; x < chunkSize; x++) {
-                    const v = arr[rowBase + x];
-                    if (typeof v === 'number' && v < 0.999) { hasSolid = true; break; }
-                }
-                if (hasSolid) continue;
-            }
-
-            // Write the row as solid
-            for (let x = 0; x < chunkSize; x++) arr[rowBase + x] = opts.tileValue;
-
-            const newChunk = { x: cx, y: cy, width: chunkSize, height: chunkSize, data: arr };
-            // Use setChunk to ensure common handling (modifiedTiles/blockMap updates and signaling)
+            if (!meta || !meta.texture) return null;
+            const tex = meta.texture;
+            const tilemapName = tex.tilemap;
+            if (!tilemapName) return null;
             try {
-                this.setChunk(cx, cy, newChunk);
-                // Explicitly set tileMeta for visuals on the written row if provided
-                if (opts.tileMeta) {
-                    const startX = cx * chunkSize;
-                    for (let x = 0; x < chunkSize; x++) {
-                        const sx = startX + x;
-                        const syAbs = cy * chunkSize + localY;
-                        const tkey = `${sx},${syAbs}`;
-                        if (this.modifiedTiles.has(tkey)) continue;
-                        if (this.blockMap.has(tkey)) {
-                            const existing = this.blockMap.get(tkey) || { type: 'solid' };
-                            Object.assign(existing, opts.tileMeta);
-                            this.blockMap.set(tkey, existing);
-                        }
-                    }
-                }
-                // Debug log for visibility when testing
-                // eslint-disable-next-line no-console
-                console.log('[ChunkManager] setHorizontalSurface wrote chunk', cx, cy);
-            } catch (e) {
-                // fallback: write raw
-                this.chunks.set(key, newChunk);
-                console.warn('[ChunkManager] failed to setChunk, fallback to direct write', e);
-            }
-        }
-
-        return true;
-    }
-
-    _generateChunk(cx, cy) {
-        const startX = cx * this.chunkSize;
-        const startY = cy * this.chunkSize;
-
-        const opts = Object.assign({}, this.noiseOptions);
-        delete opts.width;
-        delete opts.height;
-        opts.offsetX = startX;
-        opts.offsetY = startY;
-
-        const map = perlinNoise(this.chunkSize, this.chunkSize, opts);
-
-        // Generate ladder columns deterministically
-        this._generateLadders(startX, startY, map);
-        // Generate ore deposits deterministically (based on seed)
-        this._generateOre(startX, startY, map);
-
-        return {
-            x: cx,
-            y: cy,
-            width: map.width,
-            height: map.height,
-            data: map.data
-        };
-    }
-
-    _generateLadders(startX, startY, map) {
-        const raw = map.data;
-        const w = map.width;
-        const h = map.height;
-        const seed = this.noiseOptions.seed || 1337;
-        const columnChance = this.noiseOptions.ladderChance || 0.02;
-
-        // Deterministic pseudo-random per column
-        const pseudo = (s, n) => {
-            const x = n * 12.9898 + s * 78.233;
-            const v = Math.sin(x) * 43758.5453123;
-            return v - Math.floor(v);
+                if (resources && typeof resources.get === 'function') return resources.get(tilemapName);
+                if (resources && resources[tilemapName]) return resources[tilemapName];
+            } catch (e) { /* ignore */ }
+            return null;
         };
 
-        for (let xx = 0; xx < w; xx++) {
-            const globalSx = startX + xx;
-            const r = pseudo(seed, globalSx);
-            if (r >= columnChance) continue;
+        // Iterate visible sample coordinates and draw tiles
+        for (let sy = sy0; sy <= sy1; sy++) {
+            for (let sx = sx0; sx <= sx1; sx++) {
+                const tile = this.getTileValue(sx, sy);
+                if (!tile || !tile.id) continue;
+                const bid = tile.id;
 
-            // Place ladder for entire column
-            for (let y = 0; y < h; y++) {
-                const globalSy = startY + y;
-                const key = `${globalSx},${globalSy}`;
-                if (this.modifiedTiles.has(key)) continue;
-                this.blockMap.set(key, { type: 'ladder' });
-            }
-        }
-
-        // Remove ladders where solid blocks exist
-        for (let y = 0; y < h; y++) {
-            for (let xx = 0; xx < w; xx++) {
-                const v = raw[y * w + xx];
-                if (typeof v === 'number' && v < 0.999) {
-                    const sx = startX + xx;
-                    const sy = startY + y;
-                    const key = `${sx},${sy}`;
-                    if (!this.modifiedTiles.has(key) && this.blockMap.has(key)) {
-                        this.blockMap.delete(key);
-                    }
+                // Resolve tilesheet and draw using Draw.tile if available
+                const ts = lookupTileSheet(bid);
+                const pos = new Vector(sx * tileSize, sy * tileSize);
+                // Compute brightness if lighting provided
+                let brightness = 1;
+                if (opts.lighting && typeof opts.lighting.getBrightness === 'function') {
+                    try { brightness = opts.lighting.getBrightness(sx, sy); } catch (e) { brightness = 1; }
                 }
-            }
-        }
-    }
-    _generateOre(startX, startY, map) {
-        const raw = map.data;
-        const w = map.width;
-        const h = map.height;
-        const seed = this.noiseOptions.seed || 1337;
-        const oreChance = this.noiseOptions.oreChance || 0.02;
+                // Apply brightness multiplier for subsequent draw calls
+                if (typeof draw.setBrightness === 'function') draw.setBrightness(brightness);
 
-        // Count available ore variants in the oreTileSheet
-        let variants = 0;
-        try {
-            if (this.oreTileSheet && this.oreTileSheet.tiles instanceof Map) variants = this.oreTileSheet.tiles.size;
-            else if (this.oreTileSheet && this.oreTileSheet.tiles) variants = Object.keys(this.oreTileSheet.tiles).length;
-        } catch (e) { variants = 0; }
-
-        const pseudo = (s, x, y) => {
-            const n = x * 374761393 + y * 668265263 + (s | 0) * 1274126177;
-            const v = Math.sin(n) * 43758.5453123;
-            return v - Math.floor(v);
-        };
-
-        for (let y = 0; y < h; y++) {
-            for (let xx = 0; xx < w; xx++) {
-                const v = raw[y * w + xx];
-                // only embed ore inside solid tiles
-                if (typeof v === 'number' && v < 0.999) {
-                    const sx = startX + xx;
-                    const sy = startY + y;
-                    const key = `${sx},${sy}`;
-                    if (this.modifiedTiles.has(key)) continue; // don't overwrite explicit edits
-
-                    const r = pseudo(seed, sx, sy);
-                    if (r < oreChance) {
-                        // choose variant deterministically
-                        const pick = variants > 0 ? Math.floor(pseudo(seed + 1, sx, sy) * variants) : 0;
-                        const variantName = `ore${Math.max(0, pick % Math.max(1, variants))}`;
-                        const meta = { type: 'solid' };
-                        if (variants > 0) meta.ore = { tileKey: variantName };
-                        this.blockMap.set(key, meta);
+                if (ts && ts.sheet) {
+                    try {
+                        // disable smoothing for block textures to avoid antialiasing
+                        draw.tile(ts, pos, tileSize, bid, 0, null, 1, false);
+                    } catch (e) {
+                        // fallback to simple rect if tile draw fails
+                        draw.rect(pos, new Vector(tileSize, tileSize), '#ff00ff88', true);
                     }
+                } else {
+                    // No TileSheet available: draw a placeholder rect
+                    draw.rect(pos, new Vector(tileSize, tileSize), '#888888ff', true);
                 }
+
+                // Reset brightness to default for next tile
+                if (typeof draw.setBrightness === 'function') draw.setBrightness(1);
             }
         }
     }

@@ -30,6 +30,7 @@ export default class Sprite {
         this.destroy = new Signal();
         this.keys = keys || null;
         this.sheet = spriteSheet; // instance of SpriteSheet
+        this.components = []
 
         // physics
         this.mass = 5;
