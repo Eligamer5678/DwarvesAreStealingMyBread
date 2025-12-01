@@ -9,7 +9,7 @@ export default class EntityManager {
         this.chunkManager = chunkManager;
         this.draw = draw;
         this.noiseTileSize = options.noiseTileSize || 8;
-        this.activeRadius = options.activeRadius || 32; // tiles
+        this.activeRadius = options.activeRadius || 100; // tiles
         
         this.entities = [];
         this.player = null;

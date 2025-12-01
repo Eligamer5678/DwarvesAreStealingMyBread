@@ -62,7 +62,7 @@ export default class Bat extends Sprite {
                 }
                 // draw attack line to player when swooping
                 try {
-                    if (this._aerial && this._aerial.isSwooping && this.scene && this.scene.player) {
+                    if (this._aerial.attacking && this.scene && this.scene.player) {
                         const playerCenter = this.scene.player.pos.add(this.scene.player.size.mult(0.5));
                         const meCenter = this.pos.add(this.size.mult(0.5));
                         this.Draw.line(meCenter, playerCenter, 'rgba(255,0,0,0.5)', 1);

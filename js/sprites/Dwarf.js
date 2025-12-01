@@ -75,6 +75,7 @@ export default class Dwarf extends Sprite {
             this.vlos.y += this.gravity * delta;
             if (this.vlos.y > this.terminal) this.vlos.y = this.terminal;
         }
+        this.vlos.x *= this.friction ** delta;
 
         
         // Facing: set invert to -1 when moving left, 1 when moving right.

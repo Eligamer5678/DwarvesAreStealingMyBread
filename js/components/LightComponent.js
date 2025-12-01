@@ -6,7 +6,7 @@ import Vector from '../Vector.js';
  */
 export default class LightComponent {
     constructor(opts = {}) {
-        this.level = Number.isFinite(opts.level) ? opts.level : 8;
+        this.level = Number.isFinite(opts.level) ? opts.level : 15;
         this.offset = opts.offset ? opts.offset : new Vector(0,0); // offset from entity pos
         this._key = null;
         this._entity = null;

@@ -84,7 +84,6 @@ export default class Sprite {
         }
 
         // simple friction
-        this.vlos.x *= this.friction ** delta;
         this.pos.addS(this.vlos);
         // advance animation timer and wrap frames
         this.sheet.updateAnimation(delta)

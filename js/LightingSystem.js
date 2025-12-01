@@ -7,7 +7,7 @@ import Signal from './Signal.js';
 export default class LightingSystem {
     constructor(chunkManager, options = {}) {
         this.chunkManager = chunkManager;
-        this.maxLight = options.maxLight || 0;
+        this.maxLight = options.maxLight || 12;
         this.ambientMin = options.ambientMin || 0;
         // Threshold above which ores should be revealed. If brightness is below
         // this value, ores will be masked as stone. Can be overridden via options.

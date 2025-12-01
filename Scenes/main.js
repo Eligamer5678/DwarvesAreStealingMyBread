@@ -126,7 +126,7 @@ export class MainScene extends Scene {
             } catch (e) { console.warn('Failed to create EntityManager', e); }
             // Create lighting system and set initial options
             try {
-                this.lighting = new LightingSystem(this.chunkManager, { maxLight: 8, ambientMin: 0.12 });
+                this.lighting = new LightingSystem(this.chunkManager, {});
                 // Force initial compute
                 this.lighting.markDirty();
                 this.lighting.update();

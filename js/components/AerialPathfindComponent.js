@@ -1,4 +1,5 @@
 import Vector from '../Vector.js';
+import Signal from '../Signal.js';
 
 // Lightweight heuristics
 function heuristic(ax, ay, bx, by) {
@@ -9,15 +10,18 @@ function heuristic(ax, ay, bx, by) {
 export default class AerialPathfindComponent {
     constructor(opts = {}){
         const defaults = {
-            flightSpeed: 5,
+            flightSpeed: 5, // Basic flight speed used
             pathRecalc: 0.6,
-            attackRange: 30,
-            attackCooldown: 2.0,
-            attackWindup: 0,
-            swoopDuration: 0.5,
-            lungeSpeed: 0,
-            roamRadius: 3,
-            roamAttempts: 24,
+            attackCooldown: 5.0, // Time between consecutive attack attempts
+            
+            attackRange: 50, // Range from target to start windup
+            detectRange: 70, // Range to try and attack target
+            windupDuration: 0, // Windup time, conveys the attack before attacking
+            swoopDuration: 1.5, // Time before basic movement takes over again
+
+            lungeSpeed: 20, // Velocity given during lunge
+            roamRadius: 3, // Radius from current spot to next position
+            roamAttempts: 24, // Attempts to find a valid posiiton
         };
         this.opts = Object.assign({}, defaults, opts || {});
 
@@ -28,14 +32,16 @@ export default class AerialPathfindComponent {
         this.path = null;
         this.pathIdx = 0;
         this.pathTimer = 0;
-        this.isSwooping = false;
+        this.gravity = 5;
+
+        this.state = 'default'
+        
         this.swoopTimer = 0;
-        this.isWindingUp = false;
         this.windupTimer = 0;
         this.attackCooldown = 0;
+        this.yAccel = 0 // when swooping, this is what makes it flow
+
         this.roamTarget = null;
-        this._savedFriction = null;
-        this._lungeTarget = null;
     }
 
     init(entity, manager){
@@ -44,7 +50,7 @@ export default class AerialPathfindComponent {
         // expose convenience pointers
         this.scene = (entity && entity.scene) ? entity.scene : (manager && manager.scene) ? manager.scene : null;
         // desync initial timers a bit
-        this.attackCooldown = Math.random() * (this.opts.attackCooldown || 2.0);
+        this.attackCooldown = Math.random() * this.opts.attackCooldown;
     }
 
     // A* pathfinder adapted from sprite implementations
@@ -215,118 +221,130 @@ export default class AerialPathfindComponent {
     }
 
     update(dt){
-        if (!this._entity) return;
+        if (!this._entity) return; // ensure this is attached to an object
+        
+        // Face the correct direction
+        if (this._entity.vlos.x < -0.1) this._entity.invert = new Vector(-1, 1);
+        else if (this._entity.vlos.x > 0.1) this._entity.invert = new Vector(1, 1);
+
+        // timers
+        this.pathTimer -= dt;
+        this.swoopTimer -= dt;
+        this.windupTimer -= dt;
+        this.attackCooldown -=dt;
+        this._entity.vlos.y += this.yAccel * dt
+        this._entity.vlos.y += this.gravity * dt 
+
+        // Get data
         const player = (this._manager && this._manager.player) ? this._manager.player : (this.scene && this.scene.player ? this.scene.player : null);
         if (!player) return;
-
         const pCenter = player.pos.add(player.size.mult(0.5));
         const meCenter = this._entity.pos.add(this._entity.size.mult(0.5));
         const dist = pCenter.distanceTo(meCenter);
 
-        // timers
-        this.pathTimer -= dt;
-        this.attackCooldown -= dt;
-        if (this.isSwooping) {
-            this.swoopTimer -= dt;
+        if(dist <= this.opts.attackRange && this.attackCooldown <= 0 && this.state === 'default') {
+            this.state = 'windup'; 
+            console.log('hola')
+            this.windupTimer = this.opts.windupDuration;
+        };
+        this.windup(dt,pCenter,meCenter)
+        if(this.swoopTimer<=0 && this.state === 'swoop'){
+            this.state = 'default'
+            console.log('back to basic')
+            this.attackCooldown = this.opts.attackCooldown
         }
 
-        // Attack behavior: begin windup if close and not on cooldown
-        if (dist <= this.opts.attackRange && this.attackCooldown <= 0 && !this.isWindingUp && !this.isSwooping) {
-            // start windup: slow down briefly before the lunge
-            this.isWindingUp = true;
-            this.windupTimer = this.opts.attackWindup || 0.4;
-            try {
-                // Do not aggressively zero-out velocity during windup — only
-                // raise friction slightly so the enemy appears to brace but
-                // doesn't come to a halt. Avoid multiplying vlos (was 0.2)
-                // because that makes long windups cancel the lunge.
-                this._savedFriction = (this._entity && typeof this._entity.friction === 'number') ? this._entity.friction : null;
-                if (this._entity) this._entity.friction = 0.999;
-                // snapshot player's position now so the lunge aims at the
-                // anticipated location rather than recalculating at lunge time
-                try { this._lungeTarget = pCenter.clone ? pCenter.clone() : new Vector(pCenter.x, pCenter.y); } catch (e) { this._lungeTarget = pCenter; }
-            } catch (e) {}
+        if(this.state === 'default') {
+            this.basicMovement(dt)
+            this._entity.vlos.mult(0.8)
         }
 
-        // handle windup -> execute lunge when timer elapses
-        if (this.isWindingUp) {
-            this.windupTimer -= dt;
-            if (this.windupTimer <= 0) {
-                this.isWindingUp = false;
-                this.isSwooping = true;
-                this.swoopTimer = this.opts.swoopDuration || 0.6;
-                // set cooldown now to prevent re-trigger during swoop/windup
-                this.attackCooldown = this.opts.attackCooldown || 2.0;
-                // compute direction toward the stored lunge target (fallback to current player if missing)
-                const target = this._lungeTarget || pCenter;
-                const toTarget = target.sub(meCenter);
-                const td = Math.max(1, Math.hypot(toTarget.x, toTarget.y));
-                const dir = toTarget.div(td);
-                // base lunge magnitude
-                const base = (this.opts.flightSpeed || 1) * (this.opts.lungeSpeed || 1);
-                // ensure a minimum burst so short distances still produce a pass-through
-                const minBurst = Math.max(base * 0.5, td * 0.5);
-                const mag = Math.max(base, minBurst);
-                this._entity.vlos.x = dir.x * mag;
-                this._entity.vlos.y = dir.y * mag - Math.abs((this.opts.flightSpeed || 1) * 0.4);
-                // clear lunge target now that we've used it
-                this._lungeTarget = null;
-                // Apply one immediate position integration so the lunge moves the
-                // entity within the same tick (matches original sprites' behavior).
-                try {
-                    if (this._entity && typeof this._entity.pos.add === 'function') {
-                        this._entity.pos = this._entity.pos.add(this._entity.vlos.mult(dt));
-                    }
-                } catch (e) { /* ignore */ }
-            }
+        this._entity.pos.addS(this._entity.vlos.mult(dt))
+    }
+    windup(dt,pPos,mePos){
+        if(this.state !== 'windup') return;
+        this._entity.vlos.mult(0);
+        if(this.windupTimer < 0){
+            this.state = 'swoop';
+            console.log('swoop')
+            this.swoop(dt,pPos,mePos)
+            this.swoopTimer = this.opts.swoopDuration
         }
+    }
+    swoop(dt,pPos,mePos){
+        /**
+         * The goal is have it swoop down onto the target position
+         * Base equasion: the Kinematic equasion
+         * velY = netA*t + vYI (get current y velocity given, new accelertaion (gravity+wing), current time, and the initial y velocity)
+         * 
+         * We know: dY, t, vYI, and also velY, when it's at the players position (velY would be 0)
+         * g in the above equasion is the net y-acceleration, i.e. (gravity + a)) - a = wing force downward
+         * 
+         * Then also, velX is just dX/time, that's the easy one
+         * 
+         * So:
+         * dX = 2 * (pPos.x - mePos.x)  //multiply by 2 as just subtracting is only to the vertex
+         * t = this.opts.swoopDuration
+         * 
+         * 0 = (this.gravity) * t/2 + this.opts.lungeSpeed  (only half the time passed at the vertex)
+         * Rearange: this.gravity * a * t/2 = -this.opts.lungespeed 
+         * Rearange: a = (-2*this.opts.lungespeed)/(t*this.gravity) // we got a by it's self
+         * Then also
+         * velX = dX/t
+         * 
+        */
+        // net acceleration needed to bring vertical velocity from v0 to 0 in half the swoop time:
+        // a_net = -2*v0 / t
+        // we store `yAccel` as the extra acceleration (wings) applied in addition to gravity,
+        // so yAccel = a_net - gravity
+        this.yAccel = (-2 * this.opts.lungeSpeed) / this.opts.swoopDuration - this.gravity;
+        this._entity.vlos.y = this.opts.lungeSpeed
+        this._entity.vlos.x = (pPos.x-mePos.x)/this.opts.swoopDuration/16
+    }
 
-        if (this.isSwooping) {
-            // gentle drag while swooping
-            this._entity.vlos.x *= 0.98; this._entity.vlos.y *= 0.98;
-            if (this.swoopTimer <= 0) {
-                this.isSwooping = false;
-                // restore friction saved during windup so other motion behaves normally
-                try { if (this._entity && this._savedFriction !== null) this._entity.friction = this._savedFriction; } catch (e) {}
-                // after finishing swoop, pick a new roam target so enemies desync
-                try { this.chooseRoamTarget(); } catch (e) {}
-            }
-        } else {
-            if (!this.path || this.pathTimer <= 0) {
-                const ts = (this.scene && this.scene.noiseTileSize) ? this.scene.noiseTileSize : (this._manager && this._manager.noiseTileSize ? this._manager.noiseTileSize : 16);
-                const sx = Math.floor((this._entity.pos.x + this._entity.size.x*0.5) / ts);
-                const sy = Math.floor((this._entity.pos.y + this._entity.size.y*0.5) / ts);
+    basicMovement(dt){
 
-                if (this.attackCooldown > 0) {
-                    if (!this.roamTarget) this.chooseRoamTarget();
-                    if (this.roamTarget) {
-                        const rx = this.roamTarget.x, ry = this.roamTarget.y;
-                        const newPath = this.findPath(sx, sy, rx, ry, 1500);
-                        if (newPath && newPath.length > 0) { this.path = newPath; this.pathIdx = 0; }
-                        else this.roamTarget = null;
-                    } else {
-                        const dir = pCenter.sub(meCenter).div(Math.max(1, dist));
-                        this._entity.vlos.x += (dir.x * this.opts.flightSpeed - this._entity.vlos.x) * Math.min(1, dt*2);
-                        this._entity.vlos.y += (dir.y * this.opts.flightSpeed - this._entity.vlos.y) * Math.min(1, dt*2);
-                    }
+        // Get data
+        const player = (this._manager && this._manager.player) ? this._manager.player : (this.scene && this.scene.player ? this.scene.player : null);
+        if (!player) return;
+        const pCenter = player.pos.add(player.size.mult(0.5));
+        const meCenter = this._entity.pos.add(this._entity.size.mult(0.5));
+        const dist = pCenter.distanceTo(meCenter);
+
+
+        if(this.attacking) {
+            return;
+        }
+        if (!this.path || this.pathTimer <= 0) {
+            const ts = (this.scene && this.scene.noiseTileSize) ? this.scene.noiseTileSize : (this._manager && this._manager.noiseTileSize ? this._manager.noiseTileSize : 16);
+            const sx = Math.floor((this._entity.pos.x + this._entity.size.x*0.5) / ts);
+            const sy = Math.floor((this._entity.pos.y + this._entity.size.y*0.5) / ts);
+
+            if (this.attackCooldown > 0) {
+                if (!this.roamTarget) this.chooseRoamTarget();
+                if (this.roamTarget) {
+                    const rx = this.roamTarget.x, ry = this.roamTarget.y;
+                    const newPath = this.findPath(sx, sy, rx, ry, 1500);
+                    if (newPath && newPath.length > 0) { this.path = newPath; this.pathIdx = 0; }
+                    else this.roamTarget = null;
                 } else {
-                    const px = Math.floor(pCenter.x / ts); const py = Math.floor(pCenter.y / ts);
-                    const newPath = this.findPath(sx, sy, px, py, 2000);
-                    if (newPath && newPath.length > 0) { this.path = newPath; this.pathIdx = 0; this.roamTarget = null; }
-                    else {
-                        const dir = pCenter.sub(meCenter).div(Math.max(1, dist));
-                        this._entity.vlos.x += (dir.x * this.opts.flightSpeed - this._entity.vlos.x) * Math.min(1, dt*4);
-                        this._entity.vlos.y += (dir.y * this.opts.flightSpeed - this._entity.vlos.y) * Math.min(1, dt*4);
-                    }
+                    const dir = pCenter.sub(meCenter).div(Math.max(1, dist));
+                    this._entity.vlos.x += (dir.x * this.opts.flightSpeed - this._entity.vlos.x) * Math.min(1, dt*2);
+                    this._entity.vlos.y += (dir.y * this.opts.flightSpeed - this._entity.vlos.y) * Math.min(1, dt*2);
                 }
-                this.pathTimer = this.opts.pathRecalc;
+            } else {
+                const px = Math.floor(pCenter.x / ts); const py = Math.floor(pCenter.y / ts);
+                const newPath = this.findPath(sx, sy, px, py, 2000);
+                if (newPath && newPath.length > 0) { this.path = newPath; this.pathIdx = 0; this.roamTarget = null; }
+                else {
+                    const dir = pCenter.sub(meCenter).div(Math.max(1, dist));
+                    this._entity.vlos.x += (dir.x * this.opts.flightSpeed - this._entity.vlos.x) * Math.min(1, dt*4);
+                    this._entity.vlos.y += (dir.y * this.opts.flightSpeed - this._entity.vlos.y) * Math.min(1, dt*4);
+                }
             }
-            this._followPath(dt);
+            this.pathTimer = this.opts.pathRecalc;
         }
-
-        // entity's Sprite.update will integrate position; ensure facing
-        if (this._entity.vlos.x < -0.1) this._entity.invert = new Vector(-1, 1);
-        else if (this._entity.vlos.x > 0.1) this._entity.invert = new Vector(1, 1);
+        this._followPath(dt);
     }
 
     destroy(){ this._entity = null; this._manager = null; this.scene = null; }
