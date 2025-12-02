@@ -271,39 +271,78 @@ export default class AerialPathfindComponent {
         if(this.windupTimer < 0){
             this.state = 'swoop';
             console.log('swoop')
-            this.swoop(dt,pPos,mePos)
+            this.swoop(pPos,mePos)
             this.swoopTimer = this.opts.swoopDuration
         }
     }
-    swoop(dt,pPos,mePos){
+    swoop(pPos,mePos){
         /**
          * The goal is have it swoop down onto the target position
          * Base equasion: the Kinematic equasion
-         * velY = netA*t + vYI (get current y velocity given, new accelertaion (gravity+wing), current time, and the initial y velocity)
+         * velY = netA*t + vYI (get current y velocity given: net accelertaion, time till return, and the initial y velocity)
          * 
-         * We know: dY, t, vYI, and also velY, when it's at the players position (velY would be 0)
-         * g in the above equasion is the net y-acceleration, i.e. (gravity + a)) - a = wing force downward
+         * We know: t, vYI, g
+         * netA in the above equasion is the net y-acceleration, i.e. (gravity + a)) - a = wing force downward
          * 
-         * Then also, velX is just dX/time, that's the easy one
-         * 
-         * So:
-         * dX = 2 * (pPos.x - mePos.x)  //multiply by 2 as just subtracting is only to the vertex
+         * In our case:
          * t = this.opts.swoopDuration
+         * vYI = this.opts.lungeSpeed
+         * g = this.gravity
          * 
-         * 0 = (this.gravity) * t/2 + this.opts.lungeSpeed  (only half the time passed at the vertex)
-         * Rearange: this.gravity * a * t/2 = -this.opts.lungespeed 
-         * Rearange: a = (-2*this.opts.lungespeed)/(t*this.gravity) // we got a by it's self
-         * Then also
-         * velX = dX/t
+         * Solution:
+         * 
+         * When the entity is at the vertex, it would have no y velocity in theroy.
+         * We know this as the curve it makes is a parabola. This also means it's symmmetric
+         * We can substitute velY for 0, and t for t/2:
+         * 0 = netA * t/2 + vYI
+         * 
+         * Then it's basic algeabra
+         * 
+         * 1. Substract -vYI to both sides: 
+         *  netA * t/2 = -vYI
+         * 
+         * 2. Divide both sides by (t/2): 
+         *  netA = (-*vYI)/(t/2)
+         * 
+         * 3. Simplify: 
+         *  netA = (-2*vYI)/t
+         * 
+         * 4. Substitute netA for (wingA+gravity): 
+         *  (wingA+gravity) = (-2*vYI)/t
+         * 
+         * 5. Subtract gravity from both sides: 
+         *  wingA = (-2*vYI)/t - gravity
+         * 
+         * 
+         * Then for the X velocity
+         * 
+         * By definition, velocity is displacement * time
+         * 
+         * Since the player is at the vertex, and the entitiy is a point on the parabola: 
+         * dX = 2 * (pPos.x - mePos.x)  //multiply by 2 as only subtracting is only to the vertex
+         * 
+         * Base:
+         * velX = dx/t
+         * Sustitute:
+         * velX = 2*(pPos.x-mePos.x)/t
+         * 
+         * However, we have an issue. If we add the units:
+         * velX(tiles/second) = 2*(pPos.x-mePos.x)/t (pixels/second)
+         * The left uses tiles, the right uses pixels
+         * 
+         * This wasn't an issue for the Y axis as we only used velocities (only tile coords)
+         * But here we need to accout for that, divide the right by the tile size in pixels (1 tile = 16px)
+         * 
+         * velX = (2(pPos.x-mePos)/t)/16
+         * 
+         * Then simplify:
+         * velX = (pPos.x-mePos)/(8*t)
          * 
         */
-        // net acceleration needed to bring vertical velocity from v0 to 0 in half the swoop time:
-        // a_net = -2*v0 / t
-        // we store `yAccel` as the extra acceleration (wings) applied in addition to gravity,
-        // so yAccel = a_net - gravity
+
         this.yAccel = (-2 * this.opts.lungeSpeed) / this.opts.swoopDuration - this.gravity;
         this._entity.vlos.y = this.opts.lungeSpeed
-        this._entity.vlos.x = (pPos.x-mePos.x)/this.opts.swoopDuration/16
+        this._entity.vlos.x = (pPos.x-mePos.x)/(8*this.opts.swoopDuration)
     }
 
     basicMovement(dt){
