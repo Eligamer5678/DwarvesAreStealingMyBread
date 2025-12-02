@@ -9,6 +9,9 @@ export default class LightingSystem {
         this.chunkManager = chunkManager;
         this.maxLight = options.maxLight || 12;
         this.ambientMin = options.ambientMin || 0;
+        this.rayCount = 256
+        this.bloom = 1.5
+        this.bloomDepth = 1-1/this.bloom
         // Light falloff configuration: lower `falloffFactor` or `falloffPower`
         // produces a softer, longer-reaching light. These can be tuned at
         // LightingSystem construction time (e.g. new LightingSystem(cm, { falloffPower: 1, falloffFactor: 0.6 })).
@@ -135,12 +138,18 @@ export default class LightingSystem {
                 const reach = Math.max(1, level * 1.2 + 3);
                 if (dist > reach) continue;
 
-                // LOS test between torch tile and target sample tile
-                if (!this._isLineOfSightClear(t.sx, t.sy, sampleTileX, sampleTileY)) continue;
+                // Count obstructions (solid tiles) between torch and sample. Allow
+                // partial light penetration through a small number of blocks based
+                // on `this.bloom`. If obstruction count exceeds bloom, skip.
+                const blockCount = this._countObstructions(t.sx, t.sy, sampleTileX, sampleTileY);
+                if (blockCount > this.bloom) continue;
 
                 // Softer, configurable falloff: use power * factor instead of strict inverse-square
                 // contrib = level / (1 + (dist^power) * factor)
-                const contrib = (level) / (1 + Math.pow(dist, this.falloffPower) * this.falloffFactor);
+                let contrib = (level) / (1 + Math.pow(dist, this.falloffPower) * this.falloffFactor);
+                // Attenuate contribution by obstructions: each blocking tile reduces
+                // the contribution multiplicatively. Tunable factor per-block.
+                contrib *= this.bloom/Math.max(this.bloom,blockCount*2);
                 sumContrib += contrib;
             }
 
@@ -186,6 +195,42 @@ export default class LightingSystem {
         }
 
         return true;
+    }
+
+    /**
+     * Count number of blocking (solid) tiles between two tile coords, EXCLUDING
+     * the source and destination tiles. Uses Bresenham-like stepping.
+     * @returns {number}
+     */
+    _countObstructions(x0, y0, x1, y1) {
+        let dx = Math.abs(x1 - x0);
+        let sx = x0 < x1 ? 1 : -1;
+        let dy = -Math.abs(y1 - y0);
+        let sy = y0 < y1 ? 1 : -1;
+        let err = dx + dy;
+
+        let cx = x0;
+        let cy = y0;
+        let count = 0;
+
+        while (true) {
+            if (cx === x1 && cy === y1) break;
+            const e2 = 2 * err;
+            if (e2 >= dy) {
+                err += dy;
+                cx += sx;
+            }
+            if (e2 <= dx) {
+                err += dx;
+                cy += sy;
+            }
+
+            if (cx === x1 && cy === y1) break;
+            const tile = this.chunkManager.getTileValue(cx, cy);
+            if (tile && tile.type === 'solid') count += 1;
+        }
+
+        return count;
     }
 
     /**
@@ -245,7 +290,7 @@ export default class LightingSystem {
         this.lightMap.clear();
         if (this.torches.size === 0) return;
 
-        const raysPerTorch = Math.max(32, Math.min(256, Math.floor(this.maxLight * 8)));
+        const raysPerTorch = Math.max(32, Math.min(this.rayCount, Math.floor(this.maxLight * 8)));
         const step = 0.5; // step size along rays in tile units
         const bounceAtten = 0.45; // how much level remains after a bounce
         const maxBounces = 1;
@@ -262,7 +307,6 @@ export default class LightingSystem {
             for (let r = 0; r < raysPerTorch; r++) {
                 const ang = (r / raysPerTorch) * Math.PI * 2;
                 // step along ray in tile units (fractional)
-                const step = 0.5;
                 // Extend ray distance to better match prior BFS reach
                 const maxDist = Math.max(1, level + 6);
 
@@ -290,8 +334,8 @@ export default class LightingSystem {
             }
         }
         // Small bloom pass: spread a fraction of each tile's light to neighbors (softens edges)
-        const bloomPasses = 1;
-        const spreadFactor = 0.2; // fraction to spread to neighbors
+        const bloomPasses = this.bloom;
+        const spreadFactor = this.bloomDepth; // fraction to spread to neighbors
         for (let pass = 0; pass < bloomPasses; pass++) {
             const updates = new Map();
             for (const [k, v] of this.lightMap.entries()) {
