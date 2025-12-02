@@ -43,7 +43,7 @@ export default class Moth extends Sprite {
                         const nx = node.x * ts + ts * 0.5;
                         const ny = node.y * ts + ts * 0.5;
                         const next = new Vector(nx, ny);
-                        this.Draw.line(prev, next, 'rgba(0,200,0,0.6)', 1);
+                        this.Draw.line(prev, next, 'rgba(0,200,0,0.3)', 1);
                         prev = next;
                     }
                 }
@@ -55,7 +55,7 @@ export default class Moth extends Sprite {
                     this.Draw.circle(new Vector(cx, cy), Math.max(2, ts * 0.2), 'rgba(255,255,255,0.3)', false, 2);
                 }
                 try {
-                    if (this._aerial.attacking && this.scene && this.scene.player) {
+                    if (this._aerial.state === 'windup' && this.scene && this.scene.player) {
                         const playerCenter = this.scene.player.pos.add(this.scene.player.size.mult(0.5));
                         const meCenter = this.pos.add(this.size.mult(0.5));
                         this.Draw.line(meCenter, playerCenter, 'rgba(255,0,0,0.5)', 1);

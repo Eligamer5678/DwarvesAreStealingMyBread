@@ -16,7 +16,7 @@ export default class AerialPathfindComponent {
             
             attackRange: 50, // Range from target to start windup
             detectRange: 70, // Range to try and attack target
-            windupDuration: 0, // Windup time, conveys the attack before attacking
+            windupDuration: 0.5, // Windup time, conveys the attack before attacking
             swoopDuration: 1.5, // Time before basic movement takes over again
 
             lungeSpeed: 20, // Velocity given during lunge
@@ -232,9 +232,10 @@ export default class AerialPathfindComponent {
         this.swoopTimer -= dt;
         this.windupTimer -= dt;
         this.attackCooldown -=dt;
-        this._entity.vlos.y += this.yAccel * dt
-        this._entity.vlos.y += this.gravity * dt 
-
+        if(this.state!=='windup'){
+            this._entity.vlos.y += this.yAccel * dt
+            this._entity.vlos.y += this.gravity * dt 
+        }
         // Get data
         const player = (this._manager && this._manager.player) ? this._manager.player : (this.scene && this.scene.player ? this.scene.player : null);
         if (!player) return;
@@ -258,8 +259,11 @@ export default class AerialPathfindComponent {
             this.basicMovement(dt)
             this._entity.vlos.mult(0.8)
         }
-
         this._entity.pos.addS(this._entity.vlos.mult(dt))
+        this._entity.enablePhysicsUpdate = false;
+        if(this.state !== 'windup'){
+            this._entity.enablePhysicsUpdate = true;
+        }
     }
     windup(dt,pPos,mePos){
         if(this.state !== 'windup') return;

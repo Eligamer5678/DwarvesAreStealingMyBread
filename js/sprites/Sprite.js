@@ -35,7 +35,7 @@ export default class Sprite {
         // physics
         this.mass = 5;
         this.restitution = 1.0; // elastic collisions
-
+        this.enablePhysicsUpdate = true;
 
         // basic movement params
         this.invert = new Vector(0,0)
@@ -84,7 +84,7 @@ export default class Sprite {
         }
 
         // simple friction
-        this.pos.addS(this.vlos);
+        if(this.enablePhysicsUpdate) this.pos.addS(this.vlos);
         // advance animation timer and wrap frames
         this.sheet.updateAnimation(delta)
 
