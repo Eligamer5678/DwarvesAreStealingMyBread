@@ -282,7 +282,25 @@ export class MainScene extends Scene {
         if (this.player && typeof this.player.draw === 'function') {
             try {
                 if (this.camera && typeof this.camera.applyTransform === 'function') this.camera.applyTransform();
-                this.player.draw(new Vector(0,0));
+
+                // If lighting is available, compute brightness at player's world position
+                try {
+                    if (this.lighting && typeof this.lighting.getBrightnessForWorld === 'function' && this.Draw && typeof this.Draw.setBrightness === 'function') {
+                        const px = this.player.pos.x + this.player.size.x * 0.5;
+                        const py = this.player.pos.y + this.player.size.y * 0.5;
+                        const tileSize = (this.chunkManager && this.chunkManager.noiseTileSize) ? this.chunkManager.noiseTileSize : 16;
+                        const brightness = this.lighting.getBrightnessForWorld(px, py, tileSize);
+                        try { this.Draw.setBrightness(brightness*3); } catch (e) { /* ignore */ }
+                        this.player.draw(new Vector(0,0));
+                        try { this.Draw.setBrightness(1); } catch (e) { /* ignore */ }
+                    } else {
+                        this.player.draw(new Vector(0,0));
+                    }
+                } catch (e) {
+                    // fallback to default draw on any error
+                    this.player.draw(new Vector(0,0));
+                }
+
                 // draw entities managed by EntityManager
                 if (this.entityManager && typeof this.entityManager.drawEntities === 'function') {
                     try { this.entityManager.drawEntities(); } catch (e) { console.warn('EntityManager draw failed', e); }

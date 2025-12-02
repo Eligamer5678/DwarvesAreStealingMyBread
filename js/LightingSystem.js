@@ -9,6 +9,11 @@ export default class LightingSystem {
         this.chunkManager = chunkManager;
         this.maxLight = options.maxLight || 12;
         this.ambientMin = options.ambientMin || 0;
+        // Light falloff configuration: lower `falloffFactor` or `falloffPower`
+        // produces a softer, longer-reaching light. These can be tuned at
+        // LightingSystem construction time (e.g. new LightingSystem(cm, { falloffPower: 1, falloffFactor: 0.6 })).
+        this.falloffPower = (typeof options.falloffPower === 'number') ? options.falloffPower : 1.0; // 1 => linear, 2 => quadratic
+        this.falloffFactor = (typeof options.falloffFactor === 'number') ? options.falloffFactor : 0.6; // multiplier applied to distance term
         // Threshold above which ores should be revealed. If brightness is below
         // this value, ores will be masked as stone. Can be overridden via options.
         this.oreRevealThreshold = (typeof options.oreRevealThreshold === 'number')
@@ -125,16 +130,17 @@ export default class LightingSystem {
                 const dy = (t.sy + 0.5) - (samplePy / noiseTileSize);
                 const dist = Math.hypot(dx, dy);
 
-                // Quick cull: if beyond a few tiles past torch level, skip
-                const reach = (t.level || this.maxLight) + 4;
+                // Quick cull: extend reach modestly so softer falloff still has effect
+                const level = t.level || this.maxLight;
+                const reach = Math.max(1, level * 1.2 + 3);
                 if (dist > reach) continue;
 
                 // LOS test between torch tile and target sample tile
                 if (!this._isLineOfSightClear(t.sx, t.sy, sampleTileX, sampleTileY)) continue;
 
-                const level = t.level || this.maxLight;
-                // Smooth inverse-square-like falloff (continuous)
-                const contrib = (level) / (1 + dist * dist);
+                // Softer, configurable falloff: use power * factor instead of strict inverse-square
+                // contrib = level / (1 + (dist^power) * factor)
+                const contrib = (level) / (1 + Math.pow(dist, this.falloffPower) * this.falloffFactor);
                 sumContrib += contrib;
             }
 
