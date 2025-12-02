@@ -1,7 +1,7 @@
 import Sprite from './Sprite.js';
 import Vector from '../Vector.js';
 import Timer from '../Timer.js';
-
+import Color from '../Color.js';
 /**
  * @typedef {Object} DwarfInputSettings
  * @property {string} [type] - Input controller type (e.g. 'platformer').
@@ -37,30 +37,110 @@ export default class Dwarf extends Sprite {
         this.gravity = 5; // px/s^2 downward
         this.terminal = 100; // max fall speed (px/s)
         this.jumpSpeed = 1.6; // initial jump impulse (px/s)
-        this.onGround = false; // set by scene collision resolution
+        this.onGround = 0; // set by scene collision resolution
         this.onLadder = false; // set by scene when overlapping ladder
         this.climbSpeed = 0.5; // px/s climb speed when on ladder (slower)
         this.mining = false;
         // Tool state (can be changed at runtime). `speed` scales mining time (1.0 = normal).
         this.currentTool = { type: 'pickaxe', speed: 1.0 };
 
+        // Optional external systems passed via constructor options
+        this.chunkManager = (inputSettings && inputSettings.chunkManager) ? inputSettings.chunkManager : null;
+        this.scene = (inputSettings && inputSettings.scene) ? inputSettings.scene : null;
+        // mining state
+        this.miningTarget = null; // { sx, sy, worldPos }
+        this.miningProgress = 0;
+        this.miningRequired = 0.6; // seconds base to mine one tile (scaled by tool)
+        this.brightness = 0
+        this._lastMiningKey = null;
+        // building state
+        this.selectedItem = (inputSettings && inputSettings.selectedItem) ? inputSettings.selectedItem : 'stone';
+        this._buildModeToggle = true; // toggled state via double-tap
+        this._suppressAutoBuildAfterMine = false; // Ensure suppression flag is cleared when leaving build mode
+        this.blockPlaced = false;
+        this.blockMined = false;
+
         // Wire jump input (Input.onJump emits when jump key pressed)
         if (this.input && this.input.onJump && typeof this.input.onJump.connect === 'function') {
             this.input.onJump.connect((k) => {
                 if (this.onGround&&!this.keys.held('Shift')) {
                     this.vlos.y = -this.jumpSpeed;
-                    this.onGround = false;
+                    this.onGround = 0;
                 }
             });
         }
     }
 
+    // --- Mining / Building helpers (high-level, Dwarf-centric logic) ---
+    _worldToSample(worldX, worldY) {
+        const ts = (this.chunkManager && this.chunkManager.noiseTileSize) ? this.chunkManager.noiseTileSize : 16;
+        return { sx: Math.floor(worldX / ts), sy: Math.floor(worldY / ts), tilePx: ts };
+    }
+
+    mineAtWorld(worldX, worldY) {
+        if (!this.chunkManager || typeof this.chunkManager.getTileValue !== 'function' || typeof this.chunkManager.setTileValue !== 'function') return false;
+        const { sx, sy } = this._worldToSample(worldX, worldY);
+        const cur = this.chunkManager.getTileValue(sx, sy);
+        if (!cur || !cur.id) return false; // nothing to mine
+        try {
+            // remove tile (set to null / air)
+            this.chunkManager.setTileValue(sx, sy, null);
+            // optional: notify lighting/chunk updates elsewhere
+            if (this.scene && this.scene.lighting && typeof this.scene.lighting.markDirty === 'function') this.scene.lighting.markDirty();
+        } catch (e) { return false; }
+        return true;
+    }
+
+    buildAtWorld(worldX, worldY, blockId) {
+        if (!this.chunkManager || typeof this.chunkManager.setTileValue !== 'function') return false;
+        const { sx, sy } = this._worldToSample(worldX, worldY);
+
+        // Prevent placing a block in any tile overlapped by the dwarf's bounding box
+        const ts = this.chunkManager.noiseTileSize;
+        const left = this.pos.x + 4;
+        const right = this.pos.x + this.size.x - 4;
+        const top = this.pos.y + 0;
+        const bottom = this.pos.y + this.size.y - 0;
+        const sx0 = Math.floor(left / ts);
+        const sx1 = Math.floor((right - 1) / ts);
+        const sy0 = Math.floor(top / ts);
+        const sy1 = Math.floor((bottom - 1) / ts);
+        if (sx >= sx0 && sx <= sx1 && sy >= sy0 && sy <= sy1) return false;
+
+        const existing = this.chunkManager.getTileValue(sx, sy);
+        if (existing && existing.id) return false; // occupied
+
+        this.chunkManager.setTileValue(sx, sy, blockId);
+        this.scene.lighting.markDirty();
+
+        return true;
+    }
+
+    // Convenience: mine/build at player's center tile
+    mineUnderPlayer() {
+        const cx = this.pos.x + this.size.x * 0.5;
+        const cy = this.pos.y + this.size.y * 0.5;
+        return this.mineAtWorld(cx, cy);
+    }
+
+    buildUnderPlayer(blockId) {
+        const cx = this.pos.x + this.size.x * 0.5;
+        const cy = this.pos.y + this.size.y * 0.5;
+        return this.buildAtWorld(cx, cy, blockId);
+    }
+
     update(delta){
         // base sprite update handles horizontal input and friction
-        super.update(delta);
+        if(!this.enablePhysicsUpdate) this.enablePhysicsUpdate = true;
         if(this.keys.held('Shift')){
-            this.pos.subS(this.vlos)
+            if(this.vlos.y<0 && this.onGround) {
+                this.vlos.y = 0;
+                this.vlos.x = 0;
+            }
+            this.enablePhysicsUpdate = false; // stops super.update from updating position
+            this.pos.addS(this.vlos)
         }
+        super.update(delta);
 
         // Ladder climbing: when on a ladder, gravity is suspended and vertical
         // movement is controlled by input.y (this.inputDir.y). Otherwise, apply gravity.
@@ -69,7 +149,7 @@ export default class Dwarf extends Sprite {
             const env = (this.envInputDir && typeof this.envInputDir.y === 'number') ? this.envInputDir.y : (this.inputDir && typeof this.inputDir.y === 'number' ? this.inputDir.y : 0);
             // input: -1 up, +1 down
             this.vlos.y = env * this.climbSpeed;
-            this.onGround = false;
+            this.onGround = 0;
         } else {
             // apply gravity (downwards positive)
             this.vlos.y += this.gravity * delta;
@@ -83,13 +163,244 @@ export default class Dwarf extends Sprite {
         else if ((this.vlos.x || 0) > 0.01) this.invert.x = 1;
         this.updateAnimation()
         
+        // handle mining input/targeting each tick
+        this.handleMiningInput(delta);
+
+        // Build mode activation: hold Control OR double-tap Shift toggles build mode
+        let buildModeActive = false;
+        try {
+            if (this.keys && this.keys.held && this.keys.held('Control')) buildModeActive = true;
+            // double-tap Shift toggles persistent build mode
+            if (this.keys.doubleTapped('Shift')) {
+                this._buildModeToggle = !this._buildModeToggle;
+            }
+            buildModeActive = buildModeActive || this._buildModeToggle;
+        } catch (e) { /* ignore */ }
+
+        // If in build mode and space was pressed, place the selected item at target
+        if (buildModeActive && this.miningTarget && (this.keys.held(' ') && this.keys.held('Shift') || this.keys.pressed(' ')) && !this.blockMined) {
+            let placed = this.buildAtWorld(this.miningTarget.worldPos.x + this.chunkManager.noiseTileSize*0.5, this.miningTarget.worldPos.y + this.chunkManager.noiseTileSize*0.5, this.selectedItem);
+            if(this.keys.pressed(' ')) {
+                this.blockPlaced = placed;
+                // record whether the initial press started with a downward input
+                const startedDown = (this.envInputDir.y > 0) || this.input.isHeld('down') || this.keys.held('ArrowDown') || this.keys.held('s');
+                this._autoPlaceStartedDown = !!startedDown;
+            }
+            if (this.blockPlaced) {
+                // Prevent immediately mining the block we just placed: reset mining state and
+                // suppress mining until the player releases the keys.
+                this.mining = false;
+                this.miningProgress = 0;
+                this._lastMiningKey = null;
+            }
+        }
+
+        // QoL: while holding space in build mode, continuously attempt to place blocks
+        // downward (for quick 'towering'). Use a small cooldown so placement repeats
+        // at a reasonable rate rather than every frame.
+        if (buildModeActive && this.keys.held(' ') && !this.blockMined && this._autoPlaceStartedDown) {
+            if (this._autoPlaceCooldown === undefined) this._autoPlaceCooldown = 0;
+            this._autoPlaceCooldown -= delta;
+            if (this._autoPlaceCooldown <= 0) {
+                // target one tile below the player's center
+                if (this.chunkManager) {
+                    const ts = this.chunkManager.noiseTileSize;
+                    const cx = this.pos.x + this.size.x * 0.5;
+                    const cy = this.pos.y + this.size.y * 0.5;
+                    const placeX = cx;
+                    const placeY = cy + ts; // one tile down
+                    const placed = this.buildAtWorld(placeX, placeY, this.selectedItem);
+                    if (placed) {
+                        this.blockPlaced = true;
+                        this.mining = false;
+                        this.miningProgress = 0;
+                        this._lastMiningKey = null;
+                        this._autoPlaceCooldown = 0.12; // seconds between placements
+                    } else {
+                        // try again a bit sooner if placement failed (tile occupied)
+                        this._autoPlaceCooldown = 0.08;
+                    }
+                } else {
+                    this._autoPlaceCooldown = 0.12;
+                }
+            }
+        } else {
+            // reset cooldown and clear start flag when not holding
+            this._autoPlaceCooldown = 0;
+            this._autoPlaceStartedDown = false;
+        }
     }
+
+    draw(levelOffset){
+        // draw the dwarf itself
+        super.draw(levelOffset);
+
+        // draw the mining target highlight (if any)
+        try {
+            if (this.miningTarget && this.Draw) {
+                const ts = (this.chunkManager && this.chunkManager.noiseTileSize) ? this.chunkManager.noiseTileSize : 16;
+                const topLeft = new Vector(this.miningTarget.sx * ts, this.miningTarget.sy * ts).add(levelOffset || new Vector(0,0));
+                // outline (yellow for mining, green for build mode)
+                const buildActive = (this.keys && this.keys.held && this.keys.held('Control')) || this._buildModeToggle;
+                const col = buildActive ? new Color(0,200,0,Math.min(this.brightness,1),'rgb') : new Color(255,255,0,Math.min(this.brightness,1),'rgb');
+                this.Draw.rect(topLeft, new Vector(ts, ts), '#00000000', false, true, 1, col);
+                // progress bar (bottom of tile)
+                // Determine required time from the block's hardness (fallback to this.miningRequired)
+                let visualRequired = this.miningRequired;
+                try {
+                    if (this.chunkManager && typeof this.chunkManager.getTileValue === 'function') {
+                        const t = this.chunkManager.getTileValue(this.miningTarget.sx, this.miningTarget.sy);
+                        if (t && t.meta && t.meta.data && typeof t.meta.data.hardness === 'number') visualRequired = Number(t.meta.data.hardness);
+                    }
+                } catch (e) { /* ignore */ }
+                const frac = Math.max(0, Math.min(1, this.miningProgress / Math.max(1e-6, visualRequired / (this.currentTool?.speed || 1))));
+                if (frac > 0) {
+                    const barH = Math.max(2, Math.floor(ts * 0.12));
+                    const barW = Math.max(2, Math.floor(ts * frac));
+                    const barPos = topLeft.add(new Vector(0, ts - barH));
+                    this.Draw.rect(barPos, new Vector(barW, barH), '#FFFF0099', true, false);
+                }
+            }
+        } catch (e) { /* ignore draw errors */ }
+    }
+
+    // determine the tile being pointed to (one tile away) and update mining state
+    _updateTarget() {
+        // Prefer precise directional input from envInputDir (arrow keys/wasd), fall back to facing direction
+        const fx = this.invert.x;
+        const shiftHeld = this.keys.held('Shift');
+
+        // Determine whether player is attempting Up/Down input
+        let wantsUp = this.envInputDir.y < 0 || this.input.isHeld('up') || this.keys.held('ArrowUp') || this.keys.held('w');
+        let wantsDown = this.envInputDir.y > 0 || this.input.isHeld('down') || this.keys.held('ArrowDown') || this.keys.held('s');
+
+        // Default to facing direction
+        let dir = new Vector(fx, 0);
+
+        // Allow directional input if Shift held, or if pressing Down, or if pressing Up
+        // and there is a solid tile above. This prevents diagonal-up without Shift.
+        let allowInputDir = shiftHeld || wantsDown;
+        if (wantsUp) {
+            const tsCheck = this.chunkManager.noiseTileSize;
+            const center = this.pos.add(this.size.mult(0.5));
+            const sampleAbove = this._worldToSample(center.x, center.y - tsCheck);
+            const aboveTile = this.chunkManager.getTileValue(sampleAbove.sx, sampleAbove.sy);
+            if (aboveTile && aboveTile.id) allowInputDir = true;
+        }
+
+        if (allowInputDir) {
+            dir = this.envInputDir.clone();
+            // Prevent diagonal upward aiming unless Shift is held.
+            if (dir.y < 0 && !shiftHeld) {
+                if (wantsUp) dir = new Vector(0, -1);
+                else dir = new Vector(fx, 0);
+            }
+        }
+        dir = dir.normalize();
+
+        const ts = this.chunkManager.noiseTileSize;
+        const center = this.pos.add(this.size.mult(0.5));
+        // target world position is one tile away in direction
+        const targetWorld = center.add(dir.mult(ts));
+        const sample = this._worldToSample(targetWorld.x, targetWorld.y);
+        // ensure we don't target the tile we're standing on
+        const selfSample = this._worldToSample(center.x, center.y);
+        if (sample.sx === selfSample.sx && sample.sy === selfSample.sy) {
+            this.miningTarget = null;
+            return;
+        }
+        this.miningTarget = { sx: sample.sx, sy: sample.sy, worldPos: new Vector(sample.sx * ts, sample.sy * ts) };
+    }
+
+    // Attempt to progress mining when space is held. Call from scene update loop.
+    handleMiningInput(delta) {
+        // Check whether space is being held before changing target
+        const heldTime = this.keys.held(' ', true)
+        if(heldTime === 0) this.blockMined = false;
+        if(heldTime === 0) this.blockPlaced = false;
+
+        // If we're not currently mining and space is not held, update the target normally
+        if ((!this.mining && !heldTime) || this.blockPlaced) {
+            this._updateTarget();
+        }
+
+        // If space is being held and we've not yet begun mining, lock on the
+        // current target so transient changes (blocks above/below) don't steal context.
+        if (heldTime && !this.mining && !this.blockPlaced) {
+            // capture a fresh target when user begins holding space
+            this._updateTarget();
+            // If the captured target is air, abort starting mining
+            try {
+                if (!this.miningTarget) { this.miningProgress = 0; this._lastMiningKey = null; return; }
+                const maybeTile = this.chunkManager.getTileValue(this.miningTarget.sx, this.miningTarget.sy);
+                if (!maybeTile || !maybeTile.id) { this.miningProgress = 0; this._lastMiningKey = null; return; }
+                // initialize last key for this mining action
+                this._lastMiningKey = `${this.miningTarget.sx},${this.miningTarget.sy}`;
+            } catch (e) { this._lastMiningKey = null; return; }
+        }
+        if (!this.miningTarget) { this.miningProgress = 0; this._lastMiningKey = null; return; }
+
+        // If we're currently mining (space was held previously), DO NOT update the target
+        // This preserves the mining context even if nearby tiles change.
+        if (!this.mining && !this.miningTarget) { this.miningProgress = 0; this._lastMiningKey = null; return; }
+
+        // Reset progress if the targeted tile changed (only possible when not locked)
+        try {
+            const curKey = this.miningTarget ? `${this.miningTarget.sx},${this.miningTarget.sy}` : null;
+            if (curKey && this._lastMiningKey !== null && this._lastMiningKey !== curKey && !this.mining) {
+                this.miningProgress = 0;
+                this._lastMiningKey = curKey;
+            }
+        } catch (e) { /* ignore */ }
+
+        if (heldTime) {
+            this.mining = true;
+            const toolSpeed = this.currentTool.speed;
+            // Determine required time from the block's hardness (if present), otherwise fall back
+            let requiredBase = this.miningRequired;
+            if (this.miningTarget) {
+                const t = (this.chunkManager && typeof this.chunkManager.getTileValue === 'function') ? this.chunkManager.getTileValue(this.miningTarget.sx, this.miningTarget.sy) : null;
+                // if tile became air while mining, abort the mining action
+                if (!t || !t.id) { this.miningProgress = 0; this.mining = false; this._lastMiningKey = null; return; }
+                if (t && t.meta && t.meta.data && typeof t.meta.data.hardness === 'number') requiredBase = t.meta.data.hardness;
+            }
+            const required = requiredBase / toolSpeed;
+            if(!this.blockPlaced){
+                this.miningProgress += delta;
+            }
+            // play mining animation
+            this.sheet.playAnimation('mine'); 
+            if (this.miningProgress >= required) {
+                // perform mining on the target tile
+                const ts = this.chunkManager.noiseTileSize;
+                const wx = this.miningTarget.worldPos.x + ts * 0.5;
+                const wy = this.miningTarget.worldPos.y + ts * 0.5;
+                this.mineAtWorld(wx, wy);
+                this.miningProgress = 0;
+                this.mining = false;
+                this.blockMined = true;
+                this._lastMiningKey = null;
+            }
+        } else {
+            // when space released, clear mining state
+            this.miningProgress = 0;
+            this.mining = false;
+            this._lastMiningKey = null;
+        }
+    }
+
     updateAnimation(){
         // Animation & facing: switch to 'walk' when moving horizontally,
         // otherwise 'idle'. Reset frame when animation changes.
         const moveSpeed = Math.abs(this.vlos.x || 0);
         const walkThreshold = 0.1; // px/s threshold to consider 'walking'
+        const shiftHeld = this.keys.held('Shift');
+        const buildActive = ((this.keys.held('Control')) || this._buildModeToggle);
+        
         if (this.mining) {this.sheet.playAnimation('mine'); return;}
+        
+        if (shiftHeld && buildActive) {this.sheet.playAnimation('point'); return;}
+        if (shiftHeld&&!buildActive) {this.sheet.playAnimation('hold_pick'); return;}
         if (moveSpeed > walkThreshold) {
             if(this.keys.held(' ')) {
                 if(this.input.isHeld('up')) {this.sheet.playAnimation('walk_and_hold_pick'); return;}
@@ -100,5 +411,7 @@ export default class Dwarf extends Sprite {
             return;
         }
         this.sheet.playAnimation('idle');
+
+        
     }
 }

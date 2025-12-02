@@ -3,6 +3,9 @@ export default class Keys { // Key input
         this.keys = {};
         this.firstFrame = {};
         this.releasedFrame = {};
+        this._lastPressTime = {};
+        this._doubleTapped = new Set();
+        this.doubleTapThreshold = 350; // ms
 
         window.addEventListener("keydown", e => {
             // prevent browser interfering with shortcuts
@@ -13,6 +16,14 @@ export default class Keys { // Key input
             if (!this.keys[e.key]?.state) {
                 this.keys[e.key] = { state: true, time: 0 };
                 this.firstFrame[e.key] = true;
+                try {
+                    const now = Date.now();
+                    const last = this._lastPressTime[e.key] || 0;
+                    if (now - last <= this.doubleTapThreshold) {
+                        this._doubleTapped.add(e.key);
+                    }
+                    this._lastPressTime[e.key] = now;
+                } catch (err) { /* ignore timing errors */ }
             }
         });
 
@@ -60,6 +71,18 @@ export default class Keys { // Key input
         }
         if (this.releasedFrame[key]) {
             this.releasedFrame[key] = false;
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Query whether a key was double-tapped (returns true once and clears the flag)
+     * @param {string} key
+     */
+    doubleTapped(key) {
+        if (this._doubleTapped.has(key)) {
+            this._doubleTapped.delete(key);
             return true;
         }
         return false;

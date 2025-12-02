@@ -1,5 +1,4 @@
 import Scene from './Scene.js';
-import SpriteSheet from '../js/Spritesheet.js';
 import Vector from '../js/Vector.js';
 import MainUI from '../js/UI/MainUI.js';
 import Camera from '../js/Camera.js';
@@ -98,9 +97,9 @@ export class MainScene extends Scene {
             const tilePx = (this.chunkManager && this.chunkManager.noiseTileSize) ? this.chunkManager.noiseTileSize : 16;
             const startPos = new Vector(tilePx * 2, tilePx * 2);
             const size = new Vector(tilePx, tilePx);
-            this.player = new Dwarf(this.keys, this.Draw, startPos, size, dwarfSheet, { type: 'platformer' });
+            this.player = new Dwarf(this.keys, this.Draw, startPos, size, dwarfSheet, { type: 'platformer', chunkManager: this.chunkManager, scene: this });
             // simple fallback so player remains visible while collisions aren't implemented
-            this.player.onGround = true;
+            this.player.onGround = 1;
             if (this.camera && typeof this.camera.track === 'function') this.camera.track(this.player, { offset: new Vector(0,0) });
 
             // ensure generation around player's start position
@@ -132,6 +131,12 @@ export class MainScene extends Scene {
                 this.lighting.update();
                 // If an entity manager already exists, wire it to the lighting system
                 if (this.entityManager) this.entityManager.setLightingSystem(this.lighting);
+                // Connect chunk modifications to lighting so edits (mine/build) mark lighting dirty
+                try {
+                    if (this.chunkManager && this.chunkManager.onTileModified && typeof this.chunkManager.onTileModified.connect === 'function') {
+                        this.chunkManager.onTileModified.connect((sx, sy, val) => { try { if (this.lighting && typeof this.lighting.markDirty === 'function') this.lighting.markDirty(); } catch (e) {} });
+                    }
+                } catch (e) { /* ignore */ }
                 
             } catch (e) { console.warn('Failed to create LightingSystem', e); }
             // Zoom in camera a bunch for close-up view
@@ -290,6 +295,8 @@ export class MainScene extends Scene {
                         const py = this.player.pos.y + this.player.size.y * 0.5;
                         const tileSize = (this.chunkManager && this.chunkManager.noiseTileSize) ? this.chunkManager.noiseTileSize : 16;
                         const brightness = this.lighting.getBrightnessForWorld(px, py, tileSize);
+                        // expose brightness to the player for sprite logic
+                        try { this.player.brightness = brightness; } catch (e) {}
                         try { this.Draw.setBrightness(brightness*3); } catch (e) { /* ignore */ }
                         this.player.draw(new Vector(0,0));
                         try { this.Draw.setBrightness(1); } catch (e) { /* ignore */ }

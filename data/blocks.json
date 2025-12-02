@@ -7,7 +7,7 @@
             },
             "data":{
                 "mode":"solid",
-                "hardness":1
+                "hardness":0.75
             }
         },
         "cobblestone":{
@@ -27,7 +27,7 @@
             },
             "data":{
                 "mode":"solid",
-                "hardness":1
+                "hardness":50
             }
         },
         "briocheoid":{
@@ -37,57 +37,57 @@
             },
             "data":{
                 "mode":"solid",
-                "hardness":1
+                "hardness":20
             }
         },
         "pumpernickel":{
-            "texture":{
-                "tilemap":"ores",
-                "pos":[2,0]
-            },
-            "data":{
-                "mode":"solid",
-                "hardness":1
-            }
-        },
-        "breadstone":{
-            "texture":{
-                "tilemap":"ores",
-                "pos":[1,0]
-            },
-            "data":{
-                "mode":"solid",
-                "hardness":1
-            }
-        },
-        "salt":{
             "texture":{
                 "tilemap":"ores",
                 "pos":[0,2]
             },
             "data":{
                 "mode":"solid",
-                "hardness":1
+                "hardness":20
             }
         },
-        "coal":{
+        "breadstone":{
             "texture":{
                 "tilemap":"ores",
-                "pos":[1,2]
+                "pos":[0,1]
             },
             "data":{
                 "mode":"solid",
-                "hardness":1
+                "hardness":10
             }
         },
-        "pretzelstick":{
+        "salt":{
+            "texture":{
+                "tilemap":"ores",
+                "pos":[2,0]
+            },
+            "data":{
+                "mode":"solid",
+                "hardness":2
+            }
+        },
+        "coal":{
             "texture":{
                 "tilemap":"ores",
                 "pos":[2,1]
             },
             "data":{
                 "mode":"solid",
-                "hardness":1
+                "hardness":2
+            }
+        },
+        "pretzelstick":{
+            "texture":{
+                "tilemap":"ores",
+                "pos":[1,2]
+            },
+            "data":{
+                "mode":"solid",
+                "hardness":100
             }
         }
     }

@@ -42,7 +42,7 @@ export default class CollisionSystem {
                     if (res.collided && res.collided.bottom) collidedBottom = true;
                     sprite.vlos = res.vlos;
                     sprite.pos = res.pos;
-                    sprite.onGround = collidedBottom;
+                    sprite.onGround += collidedBottom?1:0;
                 }
             }
         }

@@ -30,7 +30,7 @@ export default class Slime extends Sprite {
         this.gravity = opts.gravity || pf.gravity;
         this.jumpSpeed = opts.jumpSpeed || pf.jumpSpeed;
         this.mass = opts.mass || 1;
-        this.onGround = true;
+        this.onGround = 1;
     }
 
     // Keep Sprite.update behavior; components are updated by EntityManager
