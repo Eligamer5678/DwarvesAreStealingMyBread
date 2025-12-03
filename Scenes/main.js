@@ -36,7 +36,7 @@ export class MainScene extends Scene {
                 try {
                     // lazy import to avoid loading during tests
                     const AM = await import('../js/AssetManager.js');
-                    const loaded = await AM.loadTexturesJSON('/data/textures.json');
+                    const loaded = await AM.loadTexturesJSON('./data/textures.json');
                     if (loaded && loaded.tilemaps) {
                         for (const [k, v] of loaded.tilemaps) this.SpriteImages.set(k, v);
                     }
@@ -56,7 +56,7 @@ export class MainScene extends Scene {
             // Initialize chunk manager and load generation/chunk/block definitions
             try {
                 this.chunkManager = new ChunkManager();
-                await this.chunkManager.loadDefinitions('/data');
+                await this.chunkManager.loadDefinitions('./data');
                 
                 // If AssetManager provided a blocks map, prefer that as blockDefs
                 try {

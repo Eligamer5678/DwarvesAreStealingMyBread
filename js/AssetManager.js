@@ -14,7 +14,7 @@ async function _loadImage(src) {
  * Load textures JSON and create TileSheet / SpriteSheet instances.
  * Returns an object: { tilemaps: Map(name -> TileSheet), sprites: Map(name -> SpriteSheet), raw: json }
  */
-export async function loadTexturesJSON(jsonPath = '/data/textures.json') {
+export async function loadTexturesJSON(jsonPath = './data/textures.json') {
     const res = { tilemaps: new Map(), sprites: new Map(), raw: null };
     try {
         const resp = await fetch(jsonPath, { cache: 'no-cache' });
@@ -81,7 +81,7 @@ export async function loadTexturesJSON(jsonPath = '/data/textures.json') {
 
         // Attempt to load blocks.json so block IDs can register tile keys
         try {
-            const bresp = await fetch('/data/blocks.json', { cache: 'no-cache' });
+            const bresp = await fetch('./data/blocks.json', { cache: 'no-cache' });
             if (bresp.ok) {
                 const bj = await bresp.json();
                 res.blocks = new Map();

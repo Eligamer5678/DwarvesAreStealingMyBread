@@ -66,7 +66,7 @@ export default class ChunkManager {
      * Load external JSON definitions for chunks, generation rules, and blocks.
      * This is async and should be called once at startup by the scene/engine.
      */
-    async loadDefinitions(basePath = '/data') {
+    async loadDefinitions(basePath = './data') {
         try {
             const chunksResp = await fetch(`${basePath}/chunks.json`, { cache: 'no-cache' });
             if (chunksResp.ok) this.chunkSpecs = await chunksResp.json();
