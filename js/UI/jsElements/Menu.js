@@ -1,4 +1,4 @@
-import Geometry from '../Geometry.js';
+import Geometry from '../../modules/Geometry.js';
 
 export default class Menu{
     constructor(mouse,keys,pos,size,layer,color){

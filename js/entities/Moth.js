@@ -1,5 +1,5 @@
 import Sprite from '../sprites/Sprite.js';
-import Vector from '../Vector.js';
+import Vector from '../modules/Vector.js';
 import AerialPathfindComponent from '../components/AerialPathfindComponent.js';
 
 export default class Moth extends Sprite {

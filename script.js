@@ -10,22 +10,21 @@
 // - Game: manages scenes, resource loading, multiplayer UI and top-level state.
 // - Inputs: routes mouse/keys into the current scene.
 // - Outputs: drawing to the Draw/UIDraw helpers and DOM-based UI elements.
-import Vector from './js/Vector.js';
-import Color from './js/Color.js';
-import Mouse from './js/Mouse.js';
-import Keys from './js/Keys.js';
-import Draw from './js/Draw.js';
-import Saver from './js/Saver.js';
-import Signal from './js/Signal.js';
-import { addEvent, getID } from './js/Support.js';
+import Vector from './js/modules/Vector.js';
+import Mouse from './js/modules/Mouse.js';
+import Keys from './js/modules/Keys.js';
+import Draw from './js/managers/Draw.js';
+import Saver from './js/managers/Saver.js';
+import Signal from './js/modules/Signal.js';
+import { addEvent, getID } from './js/utils/Support.js';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
 import { getDatabase } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
 import ServerManager from './js/Server/ServerManager.js';
 // firebaseConfig is loaded dynamically at runtime (may be gitignored on purpose)
-import createHButton from './js/htmlElements/createHButton.js';
-import createHDiv from './js/htmlElements/createHDiv.js';
-import createHInput from './js/htmlElements/createHInput.js';
-import createHLabel from './js/htmlElements/createHLabel.js';
+import createHButton from './js/UI/htmlElements/createHButton.js';
+import createHDiv from './js/UI/htmlElements/createHDiv.js';
+import createHInput from './js/UI/htmlElements/createHInput.js';
+import createHLabel from './js/UI/htmlElements/createHLabel.js';
 
 
 const mainWidth = 1920;

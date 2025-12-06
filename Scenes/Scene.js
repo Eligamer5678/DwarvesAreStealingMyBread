@@ -1,12 +1,12 @@
-import Timer from '../js/Timer.js';
+import Timer from '../js/modules/Timer.js';
 
 /**
  * JSDoc typedefs for editor tooling and autocomplete.
  *
- * @typedef {import('../js/Draw.js').default} Draw
+ * @typedef {import('../js/modules/Draw.js').default} Draw
  * @typedef {import('../js/Mouse.js').default} Mouse
- * @typedef {import('../js/Keys.js').default} Keys
- * @typedef {import('../js/Saver.js').default} Saver
+ * @typedef {import('../js/modules/Keys.js').default} Keys
+ * @typedef {import('../js/managers/Saver.js').default} Saver
  * @typedef {import('../Server/ServerManager.js').default} ServerManager
  */
 

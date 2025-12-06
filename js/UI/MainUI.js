@@ -1,15 +1,13 @@
-import Vector from '../Vector.js';
-import UIButton from './Button.js';
-import UIRect from './Rect.js';
-import UIText from './Text.js';
-import Menu from './Menu.js';
-import Color from '../Color.js';
+import Vector from '../modules/Vector.js';
+import UIText from './jsElements/Text.js';
+import Menu from './jsElements/Menu.js';
+import Color from '../modules/Color.js';
 /**
- * @typedef {import('../Spritesheet.js').default} SpriteSheetType
- * @typedef {import('../Vector.js').default} VectorType
- * @typedef {import('../Keys.js').default} KeysType
- * @typedef {import('../Mouse.js').default} MouseType
- * @typedef {import('../Draw.js').default} DrawType
+ * @typedef {import('../modules/Spritesheet.js').default} SpriteSheetType
+ * @typedef {import('../modules/Vector.js').default} VectorType
+ * @typedef {import('../modules/Keys.js').default} KeysType
+ * @typedef {import('../modules/Mouse.js').default} MouseType
+ * @typedef {import('../modules/Draw.js').default} DrawType
  */
 export default class MainUI {
     /**

@@ -1,5 +1,6 @@
-import TileSheet from './Tilesheet.js';
-import SpriteSheet from './Spritesheet.js';
+import TileSheet from "../modules/Tilesheet.js";
+import SpriteSheet from "../modules/Spritesheet.js";
+
 
 async function _loadImage(src) {
     return new Promise((resolve, reject) => {
@@ -11,8 +12,20 @@ async function _loadImage(src) {
 }
 
 /**
+ * Result returned by `loadTexturesJSON`.
+ * @typedef {Object} TexturesLoadResult
+ * @property {Map<string, Object>} tilemaps - Map of tilemap name -> TileSheet instance
+ * @property {Map<string, Object>} sprites - Map of spritesheet name -> SpriteSheet instance
+ * @property {Map<string, Object>} [blocks] - Optional map of block id -> metadata
+ * @property {Object|null} raw - Raw parsed JSON from the textures file
+ */
+
+/**
  * Load textures JSON and create TileSheet / SpriteSheet instances.
- * Returns an object: { tilemaps: Map(name -> TileSheet), sprites: Map(name -> SpriteSheet), raw: json }
+ * Returns a Promise resolving to a `TexturesLoadResult`.
+ *
+ * @param {string} [jsonPath='./data/textures.json'] - Path to textures JSON file
+ * @returns {Promise<TexturesLoadResult>} Loaded assets and metadata
  */
 export async function loadTexturesJSON(jsonPath = './data/textures.json') {
     const res = { tilemaps: new Map(), sprites: new Map(), raw: null };

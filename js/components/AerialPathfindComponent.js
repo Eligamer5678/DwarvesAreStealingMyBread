@@ -1,5 +1,4 @@
-import Vector from '../Vector.js';
-import Signal from '../Signal.js';
+import Vector from "../modules/Vector.js";
 
 // Lightweight heuristics
 function heuristic(ax, ay, bx, by) {

@@ -1,8 +1,15 @@
-import Vector from './Vector.js';
-import Geometry from './Geometry.js';
+import Geometry from '../modules/Geometry.js';
+import Vector from '../modules/Vector.js';
+
+/**
+ * @typedef {import('../systems/LightingSystem.js').default} LightingSystemType
+ */
 
 /**
  * EntityManager handles monster/entity spawning, updates, and collision resolution.
+ *
+ * It keeps a list of active entities, performs proximity-based updates, draws
+ * entities via the provided Draw helper, and resolves tile collisions.
  */
 export default class EntityManager {
     constructor(chunkManager, draw, options = {}) {

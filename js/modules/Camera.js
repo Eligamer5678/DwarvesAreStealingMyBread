@@ -1,5 +1,5 @@
 import Vector from './Vector.js';
-import { mergeObjects } from './Support.js';
+import { mergeObjects } from '../utils/Support.js';
 /**
  * @typedef {import('../sprites/Sprite.js').default} SpriteType
  */

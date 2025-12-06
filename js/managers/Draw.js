@@ -1,6 +1,17 @@
-import Color from './Color.js';
-import Vector from './Vector.js';
+import Color from '../modules/Color.js';
+import Vector from '../modules/Vector.js';
 
+/**
+ * Draw: Canvas helper utilities used by the engine for 2D rendering.
+ *
+ * This class centralizes common drawing operations (translate/rotate/scale,
+ * shapes, image/spritesheet blitting) and maintains context stacks so callers
+ * don't need to call `save`/`restore` directly. It's intentionally lightweight
+ * and agnostic to scene logic.
+ *
+ * @typedef {import('./Vector.js').default} VectorType
+ * @typedef {import('./Color.js').default} ColorType
+ */
 export default class Draw {
     constructor() {
         this.ctx = null;

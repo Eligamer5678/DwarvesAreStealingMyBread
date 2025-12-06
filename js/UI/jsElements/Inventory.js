@@ -1,5 +1,5 @@
-import Vector from '../Vector.js';
-import Color from '../Color.js';
+import Vector from '../../modules/Vector.js';
+import Color from '../../modules/Color.js';
 
 export default class Inventory {
     constructor(scene) {

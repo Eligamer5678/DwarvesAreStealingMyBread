@@ -1,5 +1,3 @@
-import Vector from '../Vector.js';
-
 /**
  * SheetComponent: a lightweight component that manages a SpriteSheet-like
  * instance for an entity. It controls animation playback and provides a

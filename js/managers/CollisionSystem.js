@@ -1,5 +1,5 @@
-import Vector from './Vector.js';
-import Geometry from './Geometry.js';
+import Vector from '../modules/Vector.js';
+import Geometry from '../modules/Geometry.js';
 
 /**
  * CollisionSystem handles sprite-to-tile collision resolution and ladder detection.

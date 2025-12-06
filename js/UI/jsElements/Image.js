@@ -1,4 +1,4 @@
-import Vector from '../Vector.js';
+import Vector from '../../modules/Vector.js';
 
 export default class UIImage {
     constructor(image,pos,size,layer){

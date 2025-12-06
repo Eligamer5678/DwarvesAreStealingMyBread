@@ -1,8 +1,8 @@
-import Vector from '../Vector.js';
+import Vector from '../../modules/Vector.js';
 import UIButton from './Button.js';
-import Signal from '../Signal.js';
+import Signal from '../../modules/Signal.js';
 
-export default class UITextInput extends UIButton {
+export default class UITextEdit extends UIButton {
     constructor(mouse, keys, pos, size, layer, text = '', placeholder = ''){
         super(mouse, keys, pos, size, layer, null, '#222', '#333', '#111');
         this.text = String(text || '');

@@ -1,4 +1,4 @@
-import Vector from '../Vector.js';
+import Vector from '../modules/Vector.js';
 import LightComponent from '../components/LightComponent.js';
 import SheetComponent from '../components/SheetComponent.js';
 

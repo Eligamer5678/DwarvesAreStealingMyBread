@@ -1,5 +1,5 @@
-import Vector from '../Vector.js';
-import Signal from '../Signal.js';
+import Signal from '../modules/Signal.js';
+import Vector from '../modules/Vector.js';
 
 /**
  * Input

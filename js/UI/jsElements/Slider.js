@@ -1,7 +1,7 @@
-import Vector from '../Vector.js';
-import Signal from '../Signal.js';
-import Geometry from '../Geometry.js';
-import Color from '../Color.js';
+import Vector from '../../modules/Vector.js';
+import Signal from '../../modules/Signal.js';
+import Geometry from '../../modules/Geometry.js';
+import Color from '../../modules/Color.js';
 
 export default class UISlider {
     /**

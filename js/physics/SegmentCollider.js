@@ -1,4 +1,4 @@
-import Vector from '../Vector.js';
+import Vector from '../modules/Vector.js';
 
 /**
  * BufferedSegment: a line segment with a variable buffer radius.

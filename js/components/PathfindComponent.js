@@ -1,4 +1,4 @@
-import Vector from '../Vector.js';
+import Vector from '../modules/Vector.js';
 
 /**
  * PathfindComponent: simple AI that can be attached to an entity to follow

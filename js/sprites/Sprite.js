@@ -1,13 +1,13 @@
-import Vector from "../Vector.js";
-import Signal from "../Signal.js";
-import Timer from "../Timer.js";
+import Vector from "../modules/Vector.js";
+import Signal from "../modules/Signal.js";
+import Timer from "../modules/Timer.js";
 import Input from './Input.js';
 /**
- * @typedef {import('../Spritesheet.js').default} SpriteSheetType
+ * @typedef {import('../modules/Spritesheet.js').default} SpriteSheetType
  * @typedef {import('../Input.js').default} InputType
- * @typedef {import('../Vector.js').default} VectorType
- * @typedef {import('../Keys.js').default} KeysType
- * @typedef {import('../Draw.js').default} DrawType
+ * @typedef {import('../modules/Vector.js').default} VectorType
+ * @typedef {import('../modules/Keys.js').default} KeysType
+ * @typedef {import('../modules/Draw.js').default} DrawType
  */
 
 export default class Sprite {

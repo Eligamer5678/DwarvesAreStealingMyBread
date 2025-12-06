@@ -1,4 +1,4 @@
-import Vector from '../Vector.js';
+import Vector from '../modules/Vector.js';
 
 /**
  * LightComponent: when attached to an entity, registers a torch/light

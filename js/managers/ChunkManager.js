@@ -1,7 +1,14 @@
-import { perlinNoise } from './noiseGen.js';
-import Signal from './Signal.js';
-import TileSheet from './Tilesheet.js';
-import Vector from './Vector.js';
+import { perlinNoise } from '../utils/noiseGen.js';
+import Signal from '../modules/Signal.js';
+import TileSheet from '../modules/Tilesheet.js';
+import Vector from '../modules/Vector.js';
+
+/**
+ * @typedef {Object} BlockDef
+ * @property {string} id - Block identifier
+ * @property {Object} [data] - Arbitrary metadata from `data/blocks.json` (e.g. hardness, mode)
+ * @property {Object} [texture] - Texture descriptor if present
+ */
 
 /**
  * ChunkManager handles procedural terrain generation and tile queries.

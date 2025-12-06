@@ -1,5 +1,5 @@
 import Sprite from '../sprites/Sprite.js';
-import Vector from '../Vector.js';
+import Vector from '../modules/Vector.js';
 import PathfindComponent from '../components/PathfindComponent.js';
 
 /**

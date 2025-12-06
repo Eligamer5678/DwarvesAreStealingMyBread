@@ -1,5 +1,5 @@
 import Encoder from "./Encoder.js";
-import Signal from "../Signal.js";
+import Signal from "../modules/Signal.js";
 
 export default class Serializer {
 	constructor() {

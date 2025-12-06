@@ -1,5 +1,5 @@
-import Vector from './Vector.js';
-import Signal from './Signal.js';
+import Vector from '../modules/Vector.js';
+
 function getCallerLocation(stackShift = 3) {
     // Create a new error to get the stack trace
     const err = new Error();

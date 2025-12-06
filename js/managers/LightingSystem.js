@@ -1,4 +1,4 @@
-import Signal from './Signal.js';
+import Signal from '../modules/Signal.js';
 
 /**
  * LightingSystem manages torch placement and light propagation.

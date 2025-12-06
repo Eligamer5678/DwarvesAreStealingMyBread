@@ -1,5 +1,5 @@
 import { ref, set, update, onValue, get } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
-import Signal from "../Signal.js";
+import Signal from "../modules/Signal.js";
 
 export default class ServerManager {
     async clearAllRooms() {

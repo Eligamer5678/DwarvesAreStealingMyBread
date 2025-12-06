@@ -1,4 +1,4 @@
-import Vector from '../Vector.js';
+import Vector from '../modules/Vector.js';
 import BufferedSegment from './SegmentCollider.js';
 
 /**

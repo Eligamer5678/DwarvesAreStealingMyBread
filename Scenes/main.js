@@ -1,12 +1,12 @@
 import Scene from './Scene.js';
-import Vector from '../js/Vector.js';
+import Vector from '../js/modules/Vector.js';
 import MainUI from '../js/UI/MainUI.js';
-import Camera from '../js/Camera.js';
-import ChunkManager from '../js/ChunkManager.js';
+import Camera from '../js/modules/Camera.js';
+import ChunkManager from '../js/managers/ChunkManager.js';
 import Dwarf from '../js/sprites/Dwarf.js';
-import CollisionSystem from '../js/CollisionSystem.js';
-import LightingSystem from '../js/LightingSystem.js';
-import EntityManager from '../js/EntityManager.js';
+import CollisionSystem from '../js/systems/CollisionSystem.js';
+import LightingSystem from '../js/systems/LightingSystem.js';
+import EntityManager from '../js/managers/EntityManager.js';
 import Torch from '../js/entities/Torch.js';
 import Slime from '../js/entities/Slime.js';
 import Bat from '../js/entities/Bat.js';
@@ -35,7 +35,7 @@ export class MainScene extends Scene {
                 // If no resources provided, try to load textures.json via AssetManager
                 try {
                     // lazy import to avoid loading during tests
-                    const AM = await import('../js/AssetManager.js');
+                    const AM = await import('../js/managers/AssetManager.js');
                     const loaded = await AM.loadTexturesJSON('./data/textures.json');
                     if (loaded && loaded.tilemaps) {
                         for (const [k, v] of loaded.tilemaps) this.SpriteImages.set(k, v);
@@ -100,7 +100,7 @@ export class MainScene extends Scene {
             this.player = new Dwarf(this.keys, this.Draw, startPos, size, dwarfSheet, { type: 'platformer', chunkManager: this.chunkManager, scene: this });
             // simple fallback so player remains visible while collisions aren't implemented
             this.player.onGround = 1;
-            if (this.camera && typeof this.camera.track === 'function') this.camera.track(this.player, { offset: new Vector(0,0) });
+            this.camera.track(this.player, { offset: new Vector(0,0) });
 
             // ensure generation around player's start position
             if (this.chunkManager && typeof this.chunkManager.generateChunksAround === 'function') {

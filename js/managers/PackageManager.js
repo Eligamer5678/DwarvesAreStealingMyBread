@@ -1,5 +1,5 @@
-import TileSheet from './Tilesheet.js';
-import Vector from './Vector.js';
+import TileSheet from '../modules/Tilesheet.js';
+import Vector from '../modules/Vector.js';
 
 export default class PackageManager {
     constructor(tilemap, scene = null) {

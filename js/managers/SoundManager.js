@@ -1,6 +1,4 @@
     
-import Signal from '../js/Signal.js';
-
 export default class SoundManager {
     constructor() {
         this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
