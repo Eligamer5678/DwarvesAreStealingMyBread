@@ -432,13 +432,15 @@ export default class Draw {
             ctx.fillStyle = col.toHex();
             ctx.fillRect(x, y, w, h);
         // --- GRADIENT FILL ---
-        } else if (fill === 'gradient') {
+        } else if (fill === 'gradient' || fill === 'gradienty') {
             if (!Array.isArray(color)) {
                 debug.log("Gradient fill requires an array of at least 2 colors");
                 ctx.restore();
                 return;
             }
-            const grad = ctx.createLinearGradient(x, y, x + w, y); // horizontal gradient
+            let grad; // horizontal gradient
+            if(fill==='gradient') grad = ctx.createLinearGradient(x, y, x + w, y);
+            if(fill==='gradienty') grad = ctx.createLinearGradient(x, y, x , y+h);
             const stops = color.length;
             color.forEach((c, i) => {
                 const col = Color.convertColor(c);

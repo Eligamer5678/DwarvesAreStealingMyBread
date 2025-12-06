@@ -89,6 +89,16 @@
                 "mode":"solid",
                 "hardness":100
             }
+        },
+        "sand":{
+            "texture":{
+                "tilemap":"desert",
+                "pos":[0,0]
+            },
+            "data":{
+                "mode":"solid",
+                "hardness":0.3
+            }
         }
     }
 }

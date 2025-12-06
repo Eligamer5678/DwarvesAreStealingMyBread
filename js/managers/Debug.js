@@ -85,8 +85,8 @@ class Debug {
 
         // Keyword signals map
         this.signals = new Map();
-    // Generic flags map (used by other systems to toggle quick behaviors)
-    this.flags = new Map();
+        // Generic flags map (used by other systems to toggle quick behaviors)
+        this.flags = new Map();
 
         // Ensure wheel events on the input are handled (whether the input pre-existed or was just created).
         this.logs = [];
@@ -129,6 +129,13 @@ class Debug {
         this._patchGlobal();
         this._setupInput();
         this._setupToggle();
+        this._setupEscClose();
+    }
+
+    _setupEscClose() {
+        this.element.addEventListener("click", e => {
+            console.log('hola')
+        });
     }
     /**
      * Register a keyword and its action. When the keyword is entered in the debug input, the action will be executed.

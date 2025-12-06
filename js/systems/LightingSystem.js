@@ -9,6 +9,10 @@ export default class LightingSystem {
         this.chunkManager = chunkManager;
         this.maxLight = options.maxLight || 12;
         this.ambientMin = options.ambientMin || 0;
+        // Sunlight layering: four layers for penetration depth (0..3), default values
+        this.sunlightLayers = Array.isArray(options.sunlightLayers) ? options.sunlightLayers : [1.0, 0.8, 0.5, 0.2];
+        // how many tiles upwards to raycast to check for open sky (defaults to 16)
+        this.sunlightRayDepth = Number.isFinite(options.sunlightRayDepth) ? options.sunlightRayDepth : 16;
         this.rayCount = 256
         this.bloom = 1.5
         this.bloomDepth = 1-1/this.bloom
@@ -110,8 +114,11 @@ export default class LightingSystem {
      * Returns a brightness factor in [ambientMin..1].
      */
     getBrightnessForWorld(px, py, noiseTileSize) {
-        if (!noiseTileSize || !this._torchPositions || this._torchPositions.length === 0) {
-            return this.ambientMin;
+        if (!noiseTileSize) return this.ambientMin;
+        // If there are no torches, still allow sunlight to fully illuminate above-surface areas
+        // Fall back to ambientMin otherwise.
+        if (!this._torchPositions || this._torchPositions.length === 0) {
+            // But we'll still check for sunlight below which can return full brightness
         }
 
         // Take several sub-samples inside the world-space position to avoid
@@ -124,6 +131,10 @@ export default class LightingSystem {
             const samplePy = py + s[1] * noiseTileSize;
             const sampleTileX = Math.floor(samplePx / noiseTileSize);
             const sampleTileY = Math.floor(samplePy / noiseTileSize);
+
+            // Sunlight check: compute layered sunlight contribution (0..1)
+            const sun = this._computeSunlightForSample(sampleTileX, sampleTileY);
+            if (sun > 0) return sun;
 
             // Sum smooth contributions from all unobstructed torches
             let sumContrib = 0;
@@ -198,6 +209,33 @@ export default class LightingSystem {
     }
 
     /**
+     * Determine sunlight contribution for a single tile sample (0..1).
+     * Performs a vertical raycast upward up to `sunlightRayDepth` tiles; if
+     * the ray reaches any tile with y < 0 (open sky) without encountering a
+     * solid tile, returns a layered sunlight value based on sample depth.
+     */
+    _computeSunlightForSample(tx, ty) {
+        // If sample already in sky, full sun
+        if (Number.isFinite(ty) && ty < 0) return 1.0;
+        if (!Number.isFinite(ty)) return 0;
+
+        const maxSteps = Math.max(0, Math.floor(this.sunlightRayDepth));
+        for (let step = 1; step <= maxSteps; step++) {
+            const y = ty - step;
+            if (y < 0) {
+                // depth measured in tiles below surface (surface top is y = 0)
+                const depth = Math.max(0, ty);
+                const groupSize = Math.max(1, Math.floor(maxSteps / this.sunlightLayers.length));
+                const layer = Math.min(this.sunlightLayers.length - 1, Math.floor(depth / groupSize));
+                return Math.max(0, Math.min(1, this.sunlightLayers[layer]));
+            }
+            const tile = this.chunkManager.getTileValue(tx, y);
+            if (tile && tile.type === 'solid') return 0;
+        }
+        return 0;
+    }
+
+    /**
      * Count number of blocking (solid) tiles between two tile coords, EXCLUDING
      * the source and destination tiles. Uses Bresenham-like stepping.
      * @returns {number}
@@ -240,6 +278,9 @@ export default class LightingSystem {
      * @returns {number} Light level (0..maxLight)
      */
     getLightLevel(sx, sy) {
+        // Sunlight contribution may provide non-zero light level even when no torches
+        const sun = this._computeSunlightForSample(sx, sy);
+        if (sun > 0) return Math.round(this.maxLight * sun);
         const key = `${sx},${sy}`;
         return this.lightMap.get(key) || 0;
     }
@@ -251,6 +292,9 @@ export default class LightingSystem {
      * @returns {number} Brightness (0..1)
      */
     getBrightness(sx, sy) {
+        // Sunlight check: if sunlight reaches this tile, return its layer brightness
+        const sun = this._computeSunlightForSample(sx, sy);
+        if (sun > 0) return sun;
         const level = this.getLightLevel(sx, sy);
         const normalized = Math.max(0, Math.min(this.maxLight, level)) / Math.max(1, this.maxLight);
         return this.ambientMin + normalized * (1 - this.ambientMin);

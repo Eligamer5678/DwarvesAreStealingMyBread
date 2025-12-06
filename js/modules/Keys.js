@@ -13,6 +13,10 @@ export default class Keys { // Key input
                 e.preventDefault();
             }
 
+            // If the built-in debug console is visible, ignore global key input
+            if(e.key!=='Escape'){
+                try { if (window.Debug && window.Debug.visible) return; } catch (err) { }
+            }
             if (!this.keys[e.key]?.state) {
                 this.keys[e.key] = { state: true, time: 0 };
                 this.firstFrame[e.key] = true;
@@ -28,6 +32,12 @@ export default class Keys { // Key input
         });
 
         window.addEventListener("keyup", e => {
+            // If the built-in debug console is visible, ignore global key input
+            if(e.key!=='Escape'){
+                try { if (window.Debug && window.Debug.visible) return; } catch (err) { }
+            } else {
+                console.log('hello')
+            }
             if ((e.altKey)) {
                 e.preventDefault();
             }

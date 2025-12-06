@@ -32,9 +32,11 @@ export default class MainUI {
         const heightText = new UIText('Height:',new Vector(20,50),1,this.colors.h1,25)
         const heightText2 = new UIText(0,new Vector(110,50),1,this.colors.h1,25)
         const heightText3 = new UIText("Goal: 5000",new Vector(20,90),1,this.colors.h1,25)
+        const itemText = new UIText("Selected:",new Vector(20,120),1,this.colors.h1,25)
         this.menu.addElement('heightText',heightText)
         this.menu.addElement('heightText2',heightText2)
         this.menu.addElement('heightText3',heightText3)
+        this.menu.addElement('itemText',itemText)
     }
 
 

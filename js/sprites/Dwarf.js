@@ -54,21 +54,19 @@ export default class Dwarf extends Sprite {
         this.brightness = 0
         this._lastMiningKey = null;
         // building state
-        this.selectedItem = (inputSettings && inputSettings.selectedItem) ? inputSettings.selectedItem : 'stone';
+        this.selectedItem = 'stone';
         this._buildModeToggle = true; // toggled state via double-tap
         this._suppressAutoBuildAfterMine = false; // Ensure suppression flag is cleared when leaving build mode
         this.blockPlaced = false;
         this.blockMined = false;
 
         // Wire jump input (Input.onJump emits when jump key pressed)
-        if (this.input && this.input.onJump && typeof this.input.onJump.connect === 'function') {
-            this.input.onJump.connect((k) => {
-                if (this.onGround&&!this.keys.held('Shift')) {
-                    this.vlos.y = -this.jumpSpeed;
-                    this.onGround = 0;
-                }
-            });
-        }
+        this.input.onJump.connect((k) => {
+            if (this.onGround&&!this.keys.held('Shift')) {
+                this.vlos.y = -this.jumpSpeed;
+                this.onGround = 0;
+            }
+        });
     }
 
     // --- Mining / Building helpers (high-level, Dwarf-centric logic) ---
@@ -78,7 +76,6 @@ export default class Dwarf extends Sprite {
     }
 
     mineAtWorld(worldX, worldY) {
-        if (!this.chunkManager || typeof this.chunkManager.getTileValue !== 'function' || typeof this.chunkManager.setTileValue !== 'function') return false;
         const { sx, sy } = this._worldToSample(worldX, worldY);
         const cur = this.chunkManager.getTileValue(sx, sy);
         if (!cur || !cur.id) return false; // nothing to mine
@@ -86,7 +83,7 @@ export default class Dwarf extends Sprite {
             // remove tile (set to null / air)
             this.chunkManager.setTileValue(sx, sy, null);
             // optional: notify lighting/chunk updates elsewhere
-            if (this.scene && this.scene.lighting && typeof this.scene.lighting.markDirty === 'function') this.scene.lighting.markDirty();
+            this.scene.lighting.markDirty();
         } catch (e) { return false; }
         return true;
     }
@@ -141,6 +138,8 @@ export default class Dwarf extends Sprite {
             this.pos.addS(this.vlos)
         }
         super.update(delta);
+        if(this.keys.pressed('o')) this.selectedItem = 'stone'
+        if(this.keys.pressed('p')) this.selectedItem = 'sand'
 
         // Ladder climbing: when on a ladder, gravity is suspended and vertical
         // movement is controlled by input.y (this.inputDir.y). Otherwise, apply gravity.
@@ -353,7 +352,7 @@ export default class Dwarf extends Sprite {
             }
         } catch (e) { /* ignore */ }
 
-        if (heldTime) {
+        if (heldTime && !this.blockPlaced) {
             this.mining = true;
             const toolSpeed = this.currentTool.speed;
             // Determine required time from the block's hardness (if present), otherwise fall back
@@ -381,6 +380,12 @@ export default class Dwarf extends Sprite {
                 this.blockMined = true;
                 this._lastMiningKey = null;
             }
+        } else if (heldTime && this.blockPlaced) {
+            // Space is held but we just placed a block: do not start mining.
+            this.mining = false;
+            // keep miningProgress at zero while blockPlaced is true
+            this.miningProgress = 0;
+            // Do not clear _lastMiningKey here; preserve context until user releases
         } else {
             // when space released, clear mining state
             this.miningProgress = 0;

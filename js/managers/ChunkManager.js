@@ -249,8 +249,9 @@ export default class ChunkManager {
     _matchesGenerationConditions(conds, cx, cy) {
         if (!conds || !Array.isArray(conds) || conds.length === 0) return false;
         const chunkSize = this.chunkSize;
-        const centerX = cx * chunkSize + Math.floor(chunkSize / 2);
-        const centerY = cy * chunkSize + Math.floor(chunkSize / 2);
+        // Use chunk top-left coordinates (startX/startY) for condition evaluation
+        const startX = cx * chunkSize;
+        const startY = cy * chunkSize;
 
         for (const c of conds) {
             if (!c || !c.type) continue;
@@ -258,19 +259,20 @@ export default class ChunkManager {
             if (c.type === 'y' && Array.isArray(meta)) {
                 const op = meta[0];
                 const val = Number(meta[1] || 0);
-                if (op === 'below') { if (!(centerY < val)) return false; }
-                else if (op === 'above') { if (!(centerY > val)) return false; }
-                else if (op === 'equal') { if (!(centerY === val)) return false; }
+                if (op === 'below') { if (!(startY < val)) return false; }
+                else if (op === 'above') { if (!(startY > val)) return false; }
+                else if (op === 'equal') { if (!(startY === val)) return false; }
             } else if (c.type === 'x' && Array.isArray(meta)) {
                 const op = meta[0];
                 const val = Number(meta[1] || 0);
-                if (op === 'below') { if (!(centerX < val)) return false; }
-                else if (op === 'above') { if (!(centerX > val)) return false; }
-                else if (op === 'equal') { if (!(centerX === val)) return false; }
+                if (op === 'below') { if (!(startX < val)) return false; }
+                else if (op === 'above') { if (!(startX > val)) return false; }
+                else if (op === 'equal') { if (!(startX === val)) return false; }
             } else if (c.type === 'chance' && Array.isArray(meta)) {
                 const prob = Number(meta[0] || 0);
                 const seed = (this.noiseOptions && this.noiseOptions.seed) ? this.noiseOptions.seed : 1337;
-                const n = centerX * 374761393 + centerY * 668265263 + (seed|0) * 1274126177;
+                // use startX/startY for deterministic chunk-level randomness
+                const n = startX * 374761393 + startY * 668265263 + (seed|0) * 1274126177;
                 const v = Math.sin(n) * 43758.5453123;
                 const r = v - Math.floor(v);
                 if (!(r < prob)) return false;
@@ -303,9 +305,7 @@ export default class ChunkManager {
         const startX = cx * chunkSize;
         const startY = cy * chunkSize;
 
-        // Default empty chunk filled with 'air'
-        const arr = new Array(chunkSize * chunkSize).fill('air');
-
+        
         // Select generation rule from generationSpec by evaluating conditions
         let selected = null;
         if (this.generationSpec && typeof this.generationSpec === 'object') {
@@ -317,16 +317,47 @@ export default class ChunkManager {
         }
 
         // Determine chunk type and spec
-        const chunkType = selected && selected.chunk_type ? selected.chunk_type : (this.chunkSpecs && this.chunkSpecs.chunks ? Object.keys(this.chunkSpecs.chunks)[0] : null);
+        let chunkType = null;
+        if (selected) {
+            if (selected.chunk_type) {
+                chunkType = selected.chunk_type;
+            } else if (Array.isArray(selected.chunk_types) && selected.chunk_types.length > 0) {
+                // Deterministically pick one of the chunk_types using a pseudo-random
+                // value derived from chunk top-left and the configured seed so world
+                // generation is repeatable.
+                const seed = (this.noiseOptions && Number.isFinite(this.noiseOptions.seed)) ? this.noiseOptions.seed : 1337;
+                const n = startX * 374761393 + startY * 668265263 + (seed|0) * 1274126177;
+                const v = Math.sin(n) * 43758.5453123;
+                let r = v - Math.floor(v);
+
+                // Normalize the chances (allow config that doesn't sum to 1)
+                let total = 0;
+                for (const t of selected.chunk_types) total += Number(t && t.chance) || 0;
+                if (total <= 0) total = selected.chunk_types.length;
+
+                let cum = 0;
+                let chosenName = (selected.chunk_types[0] && selected.chunk_types[0].name) ? selected.chunk_types[0].name : null;
+                for (const t of selected.chunk_types) {
+                    const prob = (Number(t && t.chance) || 0) / total;
+                    cum += prob;
+                    if (r < cum) { chosenName = t && t.name ? t.name : chosenName; break; }
+                }
+                chunkType = chosenName;
+            }
+        }
+        // Default empty chunk filled with 'air'        
+        const arr = new Array(chunkSize * chunkSize).fill('air');
         const spec = (this.chunkSpecs && this.chunkSpecs.chunks && this.chunkSpecs.chunks[chunkType]) ? this.chunkSpecs.chunks[chunkType] : null;
         if (!spec) {
             // No spec available: return a default empty chunk (all 'air').
             return { x: cx, y: cy, width: chunkSize, height: chunkSize, data: arr };
         }
-
+        arr.fill(spec.data.bg)
+        
         // Fill regions
         try {
             const regions = spec.data && spec.data.regions ? spec.data.regions : [];
+
             for (const reg of regions) {
                 const r0 = reg.region && reg.region[0] ? reg.region[0] : [0,0];
                 const r1 = reg.region && reg.region[1] ? reg.region[1] : [chunkSize-1, chunkSize-1];
@@ -343,68 +374,56 @@ export default class ChunkManager {
             }
             // After filling regions, apply cave carving as a post-process for ground chunks
             try {
-                let caveRule = null;
-                if (this.generationSpec && typeof this.generationSpec === 'object') {
-                    // Prefer a rule literally named 'caves' if present
-                    if (this.generationSpec.caves) caveRule = this.generationSpec.caves;
-                    else {
-                        for (const k of Object.keys(this.generationSpec)) {
-                            if (k.toLowerCase().includes('cave')) { caveRule = this.generationSpec[k]; break; }
-                        }
-                    }
-                }
-                // Apply caves if this chunk type is ground and a cave rule exists
-                if (chunkType === 'ground' && caveRule && Array.isArray(caveRule.special)) {
-                    for (const s of caveRule.special) {
-                        if (!s || s.type !== 'caves') continue;
-                        const sd = s.data || {};
-                        // Start from default noise options, then apply cave-specific overrides
-                        const nopts = Object.assign({}, this.noiseOptions);
-                        if (typeof sd.scale === 'number') nopts.scale = sd.scale;
-                        if (typeof sd.octaves === 'number') nopts.octaves = sd.octaves;
-                        if (typeof sd.persistence === 'number') nopts.persistence = sd.persistence;
-                        if (typeof sd.lacunarity === 'number') nopts.lacunarity = sd.lacunarity;
-                        if (typeof sd.normalize === 'boolean') nopts.normalize = sd.normalize;
-                        if (typeof sd.split === 'number') nopts.split = sd.split;
-                        if (typeof sd.connect === 'boolean') nopts.connect = sd.connect;
-                        if (typeof sd.bridgeWidth === 'number') nopts.bridgeWidth = sd.bridgeWidth;
-                        // seed: prefer explicit seed, otherwise apply seedOffset to base seed
-                        if (Number.isFinite(sd.seed)) nopts.seed = sd.seed;
-                        else if (Number.isFinite(sd.seedOffset)) nopts.seed = (this.noiseOptions.seed || 0) + sd.seedOffset;
-                        // offsets: allow per-special offsets added to chunk start
-                        const extraOX = Number.isFinite(sd.offsetX) ? sd.offsetX : 0;
-                        const extraOY = Number.isFinite(sd.offsetY) ? sd.offsetY : 0;
-                        nopts.offsetX = (startX || 0) + extraOX;
-                        nopts.offsetY = (startY || 0) + extraOY;
+                for (const s of selected.special) {
+                    if (!s || s.type !== 'caves') continue;
+                    const sd = s.data || {};
+                    // Start from default noise options, then apply cave-specific overrides
+                    const nopts = Object.assign({}, this.noiseOptions);
+                    if (typeof sd.scale === 'number') nopts.scale = sd.scale;
+                    if (typeof sd.octaves === 'number') nopts.octaves = sd.octaves;
+                    if (typeof sd.persistence === 'number') nopts.persistence = sd.persistence;
+                    if (typeof sd.lacunarity === 'number') nopts.lacunarity = sd.lacunarity;
+                    if (typeof sd.normalize === 'boolean') nopts.normalize = sd.normalize;
+                    if (typeof sd.split === 'number') nopts.split = sd.split;
+                    if (typeof sd.connect === 'boolean') nopts.connect = sd.connect;
+                    if (typeof sd.bridgeWidth === 'number') nopts.bridgeWidth = sd.bridgeWidth;
+                    // seed: prefer explicit seed, otherwise apply seedOffset to base seed
+                    if (Number.isFinite(sd.seed)) nopts.seed = sd.seed;
+                    else if (Number.isFinite(sd.seedOffset)) nopts.seed = (this.noiseOptions.seed || 0) + sd.seedOffset;
+                    // offsets: allow per-special offsets added to chunk start
+                    const extraOX = Number.isFinite(sd.offsetX) ? sd.offsetX : 0;
+                    const extraOY = Number.isFinite(sd.offsetY) ? sd.offsetY : 0;
+                    nopts.offsetX = (startX || 0) + extraOX;
+                    nopts.offsetY = (startY || 0) + extraOY;
 
-                        const caveMap = perlinNoise(chunkSize, chunkSize, nopts);
-                        const threshold = (sd.threshold !== undefined) ? sd.threshold : 0.5;
+                    const caveMap = perlinNoise(chunkSize, chunkSize, nopts);
+                    const threshold = (sd.threshold !== undefined) ? sd.threshold : 0.5;
 
-                        for (let y = 0; y < chunkSize; y++) {
-                            for (let x = 0; x < chunkSize; x++) {
-                                const idx = y * chunkSize + x;
-                                const v = caveMap.data[idx];
-                                if (typeof v !== 'number') continue;
+                    for (let y = 0; y < chunkSize; y++) {
+                        for (let x = 0; x < chunkSize; x++) {
+                            const idx = y * chunkSize + x;
+                            const v = caveMap.data[idx];
+                            if (typeof v !== 'number') continue;
 
-                                let carve = false;
-                                // If split was requested, perlinNoise produced a binary map (0/1)
-                                // NOTE: Invert carving logic so that 1 => cavity when using split
-                                if (Number.isFinite(nopts.split) && nopts.split >= 0) {
-                                    // treat 1 as cavity (air) and 0 as solid (inverted compared to previous behavior)
-                                    if (v === 1) carve = true;
-                                } else {
-                                    // Normalize raw output to 0..1 if the noise wasn't normalized
-                                    let val = v;
-                                    if (!nopts.normalize) val = (v + 1) / 2; // map [-1,1] -> [0,1]
-                                    // Inverted: carve when value is above the threshold
-                                    if (val > threshold) carve = true;
-                                }
-
-                                if (carve) arr[idx] = 'air';
+                            let carve = false;
+                            // If split was requested, perlinNoise produced a binary map (0/1)
+                            // NOTE: Invert carving logic so that 1 => cavity when using split
+                            if (Number.isFinite(nopts.split) && nopts.split >= 0) {
+                                // treat 1 as cavity (air) and 0 as solid (inverted compared to previous behavior)
+                                if (v === 1) carve = true;
+                            } else {
+                                // Normalize raw output to 0..1 if the noise wasn't normalized
+                                let val = v;
+                                if (!nopts.normalize) val = (v + 1) / 2; // map [-1,1] -> [0,1]
+                                // Inverted: carve when value is above the threshold
+                                if (val > threshold) carve = true;
                             }
+
+                            if (carve) arr[idx] = 'air';
                         }
                     }
                 }
+
             } catch (e) { /* ignore cave carve errors */ }
 
             // Apply region-local specials (e.g., ores defined inside a region)
@@ -616,11 +635,15 @@ export default class ChunkManager {
                 // Resolve tilesheet and draw using Draw.tile if available
                 const ts = lookupTileSheet(bid);
                 const pos = new Vector(sx * tileSize, sy * tileSize);
-                // Compute brightness if lighting provided
+                // Compute brightness if lighting provided. Force full brightness for sunlit tiles (sy < 0).
                 let brightness = 1;
-                if (opts.lighting && typeof opts.lighting.getBrightness === 'function') {
-                    try { brightness = opts.lighting.getBrightness(sx, sy); } catch (e) { brightness = 1; }
-                }
+                try {
+                    if (Number.isFinite(sy) && sy < 0) {
+                        brightness = 1.0;
+                    } else if (opts.lighting && typeof opts.lighting.getBrightness === 'function') {
+                        brightness = opts.lighting.getBrightness(sx, sy);
+                    }
+                } catch (e) { brightness = 1; }
                 // Apply brightness multiplier for subsequent draw calls
                 if (typeof draw.setBrightness === 'function') draw.setBrightness(brightness);
 
@@ -633,8 +656,14 @@ export default class ChunkManager {
                         draw.rect(pos, new Vector(tileSize, tileSize), '#ff00ff88', true);
                     }
                 } else {
-                    // No TileSheet available: draw a placeholder rect
-                    draw.rect(pos, new Vector(tileSize, tileSize), '#888888ff', true);
+                    // No TileSheet available: draw a placeholder rect. Use lighting to modulate color if possible.
+                    let fillCol = '#888888ff';
+                    try {
+                        if (opts.lighting && opts.lighting.constructor && typeof opts.lighting.constructor.modulateColor === 'function') {
+                            fillCol = opts.lighting.constructor.modulateColor('#888888ff', brightness);
+                        }
+                    } catch (e) { /* ignore */ }
+                    draw.rect(pos, new Vector(tileSize, tileSize), fillCol, true);
                 }
 
                 // Reset brightness to default for next tile

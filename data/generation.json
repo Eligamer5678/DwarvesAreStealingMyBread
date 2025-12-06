@@ -1,9 +1,32 @@
 {
-    "caves":{
+    "surface":{
         "type":"terrain",
-        "chunk_type":"ground",
+        "chunk_types":[
+            {"name":"desert1","chance":1},
+            {"name":"desert2","chance":1 }
+        ],
         "conditions":[
-            {"type":"y","data":{"meta":["below",0]}}
+            {"type":"y","data":{"meta":["equal",-16]}}
+        ],
+        "special":[ ]
+    },
+    "sand-ground":{
+        "type":"terrain",
+        "chunk_types":[
+            {"name":"sand-ground","chance":1}
+        ],
+        "conditions":[
+            {"type":"y","data":{"meta":["equal",0]}}
+        ],
+        "special":[]
+    },
+    "sand-ground2":{
+        "type":"terrain",
+        "chunk_types":[
+            {"name":"sand-ground2","chance":1}
+        ],
+        "conditions":[
+            {"type":"y","data":{"meta":["equal",16]}}
         ],
         "special":[
             {"type":"caves","data":{
@@ -23,12 +46,59 @@
             }}
         ]
     },
-    "surface":{
+    "ground":{
         "type":"terrain",
-        "chunk_type":"surface",
-        "conditions":[
-            {"type":"y","data":{"meta":["equal",0]}}
+        "chunk_types":[
+            {"name":"ground","chance":1}
         ],
-        "special":[]
+        "conditions":[
+            {"type":"y","data":{"meta":["equal",32]}}
+        ],
+        "special":[
+            {"type":"caves","data":{
+                "width":64,
+                "height":64,
+                "scale":24,
+                "octaves":4,
+                "seed":1337,
+                "normalize":false,
+                "split":0.2,
+                "offsetX":0,
+                "offsetY":0,
+                "bridgeWidth":2,
+                "connect":true,
+                "threshold":0.5,
+                "seedOffset":0
+            }}
+        ]
+    },
+    "caves":{
+        "type":"terrain",
+        "chunk_types":[
+            {"name":"ground","chance":1}
+        ],
+        "conditions":[
+            {"type":"y","data":{"meta":["above",32]}}
+        ],
+        "special":[
+            {"type":"caves","data":{
+                "width":64,
+                "height":64,
+                "scale":24,
+                "octaves":4,
+                "seed":1337,
+                "normalize":false,
+                "split":0.2,
+                "offsetX":0,
+                "offsetY":0,
+                "bridgeWidth":2,
+                "connect":true,
+                "threshold":0.5,
+                "seedOffset":0
+            }}
+        ]
     }
+    
+    
+    
 }

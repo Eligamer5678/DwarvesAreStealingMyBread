@@ -27,12 +27,70 @@
                 ]
             }
         },
-        "surface":{
-            "dependencies":["ores"],
+        "sand-ground":{
+            "dependencies":["ores","desert"],
+            "data":{
+                "bg":"sand",
+                "regions":[
+                    {
+                        "region":[[0,8],[15,15]],
+                        "block_type":"sand",
+                        "replace":["air","stone","sand"],
+                        "special":{
+                            "type":"ores",
+                            "data":{
+                                "spread":[
+                                    {"block_type":"stone","chance":0.25}
+                                ]
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        "sand-ground2":{
+            "dependencies":["ores","desert"],
+            "data":{
+                "bg":"stone",
+                "regions":[
+                    {
+                        "region":[[0,0],[15,15]],
+                        "block_type":"stone",
+                        "replace":["air","stone","sand"],
+                        "special":{
+                            "type":"ores",
+                            "data":{
+                                "spread":[
+                                    {"block_type":"rotirock","chance":0.01},
+                                    {"block_type":"briocheoid","chance":0.01},
+                                    {"block_type":"pumpernickel","chance":0.01},
+                                    {"block_type":"breadstone","chance":0.01},
+                                    {"block_type":"salt","chance":0.01},
+                                    {"block_type":"coal","chance":0.01},
+                                    {"block_type":"sand","chance":0.25}
+                                ]
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        "desert1":{
+            "dependencies":["desert"],
             "data":{
                 "bg":"air",
                 "regions":[
-                    {"region":[[0,14],[15,15]],"block_type":"stone","replace":["air"],"special":null}
+                    {"region":[[0,15],[15,15]],"block_type":"sand","replace":["air"],"special":{}}
+                ]
+            }
+        },
+        "desert2":{
+            "dependencies":["desert"],
+            "data":{
+                "bg":"air",
+                "regions":[
+                    {"region":[[0,15],[15,15]],"block_type":"sand","replace":["air"],"special":{}},
+                    {"region":[[1,14],[14,14]],"block_type":"sand","replace":["air"],"special":{}}
                 ]
             }
         }
