@@ -55,6 +55,7 @@ export default class Dwarf extends Sprite {
         this._lastMiningKey = null;
         // building state
         this.selectedItem = 'stone';
+        this.selectedIndex = 0;
         this._buildModeToggle = true; // toggled state via double-tap
         this._suppressAutoBuildAfterMine = false; // Ensure suppression flag is cleared when leaving build mode
         this.blockPlaced = false;
@@ -138,8 +139,29 @@ export default class Dwarf extends Sprite {
             this.pos.addS(this.vlos)
         }
         super.update(delta);
-        if(this.keys.pressed('o')) this.selectedItem = 'stone'
-        if(this.keys.pressed('p')) this.selectedItem = 'sand'
+        const blocks = [
+            'stone',
+            'sand',
+            'sandstone',
+            'polished_sandstone',
+            'pillar_sandstone',
+            'red_sand',
+            'red_sandstone',
+            'red_pillar_sandstone',
+            'red_polished_sandstone',
+            'deadbush',
+            'cobblestone',
+            'rotirock',
+            'briocheoid',
+            'pumpernickel',
+            'breadstone',
+            'salt',
+            'coal',
+            'pretzelstick',
+        ]
+        if(this.keys.pressed('o')) this.selectedIndex = (this.selectedIndex-1)%blocks.length
+        if(this.keys.pressed('p')) this.selectedIndex = (this.selectedIndex+1)%blocks.length
+        this.selectedItem = blocks[this.selectedIndex]
 
         // Ladder climbing: when on a ladder, gravity is suspended and vertical
         // movement is controlled by input.y (this.inputDir.y). Otherwise, apply gravity.
