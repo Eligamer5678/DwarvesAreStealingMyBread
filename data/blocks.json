@@ -179,6 +179,16 @@
                 "mode":"solid",
                 "hardness":0.3
             }
+        },
+        "ladder":{
+            "texture":{
+                "tilemap":"elevators",
+                "pos":[0,0]
+            },
+            "data":{
+                "mode":"ladder",
+                "hardness":0.3
+            }
         }
     }
 }

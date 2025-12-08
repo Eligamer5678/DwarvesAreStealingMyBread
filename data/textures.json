@@ -11,6 +11,12 @@
             "size":[3,3],
             "slicePx":16,
             "layer":"base"
+        },
+        "elevators":{
+            "path":"Assets/Tilemaps/elevators.png",
+            "size":[1,1],
+            "slicePx":16,
+            "layer":"base"
         }
     },
     "spriteSheets":{

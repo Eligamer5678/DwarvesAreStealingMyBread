@@ -165,7 +165,7 @@ export default class ChunkManager {
         if (lx < 0 || ly < 0 || lx >= chunk.width || ly >= chunk.height) return null;
 
         const raw = chunk.data[ly * chunk.width + lx];
-        // New JSON-driven format: chunk.data can store block id strings (e.g. 'stone' or 'air')
+        // New JSON-driven format: chunk.data can store block id strings or objects with metadata
         if (typeof raw === 'string') {
             if (raw === 'air' || raw === '' || raw === null) return null;
             // lookup block definition if available to determine solidity
@@ -176,6 +176,22 @@ export default class ChunkManager {
                 return { type: mode || 'solid', id: raw, meta: def || null };
             } catch (e) {
                 return { type: 'solid', id: raw };
+            }
+        } else if (typeof raw === 'object' && raw !== null && raw.id) {
+            // Object format with id, rot, invert, etc.
+            if (raw.id === 'air' || raw.id === '') return null;
+            try {
+                const def = (this.blockDefs && this.blockDefs instanceof Map) ? this.blockDefs.get(raw.id) : null;
+                const mode = def && def.data && def.data.mode ? def.data.mode : 'solid';
+                return { 
+                    type: mode, 
+                    id: raw.id, 
+                    meta: def || null,
+                    rot: raw.rot !== undefined ? raw.rot : 0,
+                    invert: raw.invert !== undefined ? raw.invert : false
+                };
+            } catch (e) {
+                return { type: 'solid', id: raw.id, rot: raw.rot || 0, invert: raw.invert || false };
             }
         }
 
@@ -188,7 +204,7 @@ export default class ChunkManager {
      * Set a tile to a specific value (mining, placing, etc.)
      * @param {number} sx - Sample X coordinate
      * @param {number} sy - Sample Y coordinate
-     * @param {Object|null} value - Tile data or null for empty
+     * @param {String|Object|null} value - Tile data or null for empty
      */
     setTileValue(sx, sy, value) {
         const key = `${sx},${sy}`;
@@ -206,12 +222,16 @@ export default class ChunkManager {
             if (lx >= 0 && ly >= 0 && lx < chunk.width && ly < chunk.height) {
                 // Write block ids into the JSON-driven chunk data.
                 // Accept several value shapes: null -> 'air', string -> use as block id,
-                // object -> use `.id` if present, otherwise default to 'stone'.
+                // object -> preserve full metadata including rot/invert
                 let out;
                 if (value === null) out = 'air';
                 else if (typeof value === 'string') out = value;
-                else if (typeof value === 'object' && value.id) out = value.id;
-                else out = 'stone';
+                else if (typeof value === 'object' && value.id) {
+                    // Preserve rotation and invert if present
+                    out = { id: value.id };
+                    if (value.rot !== undefined) out.rot = value.rot;
+                    if (value.invert !== undefined) out.invert = value.invert;
+                } else out = 'stone';
                 chunk.data[ly * chunk.width + lx] = out;
             }
         }
@@ -366,9 +386,18 @@ export default class ChunkManager {
                 const ex = Math.max(0, Math.min(chunkSize-1, r1[0]));
                 const ey = Math.max(0, Math.min(chunkSize-1, r1[1]));
                 const blockType = reg.block_type || 'stone';
+                // Check for rotation/invert in special metadata
+                const rot = reg.special && reg.special.rot !== undefined ? reg.special.rot : 0;
+                const invert = reg.special && reg.special.invert !== undefined ? reg.special.invert : false;
+                const hasTransform = rot !== 0 || invert !== false;
+                
                 for (let y = by; y <= ey; y++) {
                     for (let x = bx; x <= ex; x++) {
-                        arr[y * chunkSize + x] = blockType;
+                        if (hasTransform) {
+                            arr[y * chunkSize + x] = { id: blockType, rot: rot, invert: invert };
+                        } else {
+                            arr[y * chunkSize + x] = blockType;
+                        }
                     }
                 }
             }
@@ -512,6 +541,7 @@ export default class ChunkManager {
     /**
      * Set/override a chunk at chunk-coordinates `cx,cy` with provided data.
      * `data` may be either:
+     * - a string (chunk type name from chunks.json, will generate chunk data using that spec)
      * - an object { width, height, data } where data is an array of length width*height
      * - a flat numeric array (length will be interpreted as chunkSize*chunkSize)
      * This allows user code to programmatically place structures/surfaces by
@@ -523,7 +553,75 @@ export default class ChunkManager {
 
         if (!data) return null;
 
-        if (Array.isArray(data)) {
+        if (typeof data === 'string') {
+            // Treat as chunk type name and generate using that spec
+            const chunkSize = this.chunkSize;
+            const startX = cx * chunkSize;
+            const startY = cy * chunkSize;
+            const arr = new Array(chunkSize * chunkSize).fill('air');
+            const spec = (this.chunkSpecs && this.chunkSpecs.chunks && this.chunkSpecs.chunks[data]) ? this.chunkSpecs.chunks[data] : null;
+            
+            if (!spec) {
+                // No spec found for this chunk name, return empty chunk
+                chunk = { x: cx, y: cy, width: chunkSize, height: chunkSize, data: arr };
+            } else {
+                // Fill with background
+                arr.fill(spec.data.bg || 'air');
+                
+                // Fill regions
+                try {
+                    const regions = spec.data && spec.data.regions ? spec.data.regions : [];
+                    for (const reg of regions) {
+                        const r0 = reg.region && reg.region[0] ? reg.region[0] : [0,0];
+                        const r1 = reg.region && reg.region[1] ? reg.region[1] : [chunkSize-1, chunkSize-1];
+                        const bx = Math.max(0, Math.min(chunkSize-1, r0[0]));
+                        const by = Math.max(0, Math.min(chunkSize-1, r0[1]));
+                        const ex = Math.max(0, Math.min(chunkSize-1, r1[0]));
+                        const ey = Math.max(0, Math.min(chunkSize-1, r1[1]));
+                        const blockType = reg.block_type || 'stone';
+                        // Check for rotation/invert in special metadata
+                        const rot = reg.special && reg.special.rot !== undefined ? reg.special.rot : 0;
+                        const invert = reg.special && reg.special.invert !== undefined ? reg.special.invert : false;
+                        const hasTransform = rot !== 0 || invert !== false;
+                        
+                        for (let y = by; y <= ey; y++) {
+                            for (let x = bx; x <= ex; x++) {
+                                if (hasTransform) {
+                                    arr[y * chunkSize + x] = { id: blockType, rot: rot, invert: invert };
+                                } else {
+                                    arr[y * chunkSize + x] = blockType;
+                                }
+                            }
+                        }
+                        
+                        // Apply region-local specials (e.g., ores)
+                        if (reg.special && reg.special.type === 'ores') {
+                            const s = reg.special;
+                            const spread = (s.data && s.data.spread) ? s.data.spread : [];
+                            const seed = (this.noiseOptions && Number.isFinite(this.noiseOptions.seed)) ? this.noiseOptions.seed : 1337;
+                            const pseudo = (a, x, y) => { const n = x * 374761393 + y * 668265263 + (a|0) * 1274126177; const v = Math.sin(n) * 43758.5453123; return v - Math.floor(v); };
+                            for (let y = by; y <= ey; y++) {
+                                for (let x = bx; x <= ex; x++) {
+                                    const idx = y * chunkSize + x;
+                                    const cur = arr[idx];
+                                    if (typeof cur === 'string' && cur !== 'air') {
+                                        for (let i = 0; i < spread.length; i++) {
+                                            const sopt = spread[i];
+                                            const chance = Number(sopt.chance || 0);
+                                            const pick = sopt.block_type;
+                                            const r = pseudo(seed + i * 2654435761, startX + x, startY + y);
+                                            if (r < chance) { arr[idx] = pick; break; }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (e) { /* ignore region errors */ }
+                
+                chunk = { x: cx, y: cy, width: chunkSize, height: chunkSize, data: arr };
+            }
+        } else if (Array.isArray(data)) {
             // assume square chunk of chunkSize unless array length matches chunkSize*chunkSize
             const w = this.chunkSize;
             const h = Math.max(1, Math.floor(data.length / w));
@@ -587,14 +685,14 @@ export default class ChunkManager {
 
         // Compute world-space rectangle for visible area
         let topLeft = { x: 0, y: 0 };
-        let bottomRight = { x: canvas.width, y: canvas.height };
+        let bottomRight = { x: 1920, y: 1080 };
         if (camera && typeof camera.screenToWorld === 'function') {
             topLeft = camera.screenToWorld({ x: 0, y: 0 });
-            bottomRight = camera.screenToWorld({ x: canvas.width, y: canvas.height });
+            bottomRight = camera.screenToWorld({ x: 1920, y: 1080 });
         } else {
             // Convert pixel extents to world units using Draw.Scale
             topLeft = { x: 0, y: 0 };
-            bottomRight = { x: canvas.width / (draw.Scale.x || 1), y: canvas.height / (draw.Scale.y || 1) };
+            bottomRight = { x: 1920 / (draw.Scale.x || 1), y: 1080 / (draw.Scale.y || 1) };
         }
 
         const sx0 = Math.floor(topLeft.x / tileSize) - 1;
@@ -631,43 +729,49 @@ export default class ChunkManager {
                 const tile = this.getTileValue(sx, sy);
                 if (!tile || !tile.id) continue;
                 const bid = tile.id;
-
+                const rot = tile.rot !== undefined ? tile.rot : 0;
+                const invert = tile.invert !== undefined ? tile.invert : false;
                 // Resolve tilesheet and draw using Draw.tile if available
                 const ts = lookupTileSheet(bid);
                 const pos = new Vector(sx * tileSize, sy * tileSize);
+
                 // Compute brightness if lighting provided. Force full brightness for sunlit tiles (sy < 0).
                 let brightness = 1;
                 try {
-                    if (Number.isFinite(sy) && sy < 0) {
+                    if (sy < 0) {
                         brightness = 1.0;
-                    } else if (opts.lighting && typeof opts.lighting.getBrightness === 'function') {
+                    } else {
                         brightness = opts.lighting.getBrightness(sx, sy);
                     }
                 } catch (e) { brightness = 1; }
                 // Apply brightness multiplier for subsequent draw calls
-                if (typeof draw.setBrightness === 'function') draw.setBrightness(brightness);
+                draw.setBrightness(brightness);
 
                 if (ts && ts.sheet) {
                     try {
-                        // disable smoothing for block textures to avoid antialiasing
-                        draw.tile(ts, pos, tileSize, bid, 0, null, 1, false);
+                        // Convert rotation from degrees to integer steps (0-3)
+                        // 0°=0, 90°=1, 180°=2, 270°=3
+                        const rotSteps = Math.floor((rot % 360) / 90) % 4;
+                        // Convert boolean invert to Vector for horizontal flip
+                        const invertVec = invert ? new Vector(-1, 1) : null;
+                        draw.tile(ts, pos, tileSize, bid, rotSteps, invertVec, 1, false);
                     } catch (e) {
                         // fallback to simple rect if tile draw fails
-                        draw.rect(pos, new Vector(tileSize, tileSize), '#ff00ff88', true);
+                        draw.rect(pos, new Vector(tileSize, tileSize), '#ff00ff88', false);
                     }
                 } else {
                     // No TileSheet available: draw a placeholder rect. Use lighting to modulate color if possible.
-                    let fillCol = '#888888ff';
+                    let fillCol = '#ff00e1ff';
                     try {
                         if (opts.lighting && opts.lighting.constructor && typeof opts.lighting.constructor.modulateColor === 'function') {
-                            fillCol = opts.lighting.constructor.modulateColor('#888888ff', brightness);
+                            fillCol = opts.lighting.constructor.modulateColor('#f700ffff', brightness);
                         }
                     } catch (e) { /* ignore */ }
                     draw.rect(pos, new Vector(tileSize, tileSize), fillCol, true);
                 }
 
                 // Reset brightness to default for next tile
-                if (typeof draw.setBrightness === 'function') draw.setBrightness(1);
+                draw.setBrightness(1);
             }
         }
     }

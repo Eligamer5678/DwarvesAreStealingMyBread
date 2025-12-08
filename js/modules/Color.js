@@ -82,7 +82,6 @@ export default class Color {
 
     toHex(alpha = this.d) {
         const rgb = this.type === 'rgb' ? this : this.toRgb();
-
         const toHex = (c) => {
             const hex = Math.round(c).toString(16);
             return hex.length === 1 ? '0' + hex : hex;

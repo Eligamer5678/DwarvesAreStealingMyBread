@@ -80,7 +80,7 @@
             "data":{
                 "bg":"air",
                 "regions":[
-                    {"region":[[0,15],[15,15]],"block_type":"sand","replace":["air"],"special":{}}
+                    {"region":[[0,15],[15,15]],"block_type":"pillar_sandstone","replace":["air"],"special":{"rot":90}}
                 ]
             }
         },

@@ -60,6 +60,8 @@ export default class Dwarf extends Sprite {
         this._suppressAutoBuildAfterMine = false; // Ensure suppression flag is cleared when leaving build mode
         this.blockPlaced = false;
         this.blockMined = false;
+        this.placementRotation = 0; // rotation for placed blocks (0, 90, 180, 270)
+        this.placementInvert = false; // flip state for placed blocks
 
         // Wire jump input (Input.onJump emits when jump key pressed)
         this.input.onJump.connect((k) => {
@@ -97,8 +99,8 @@ export default class Dwarf extends Sprite {
         const ts = this.chunkManager.noiseTileSize;
         const left = this.pos.x + 4;
         const right = this.pos.x + this.size.x - 4;
-        const top = this.pos.y + 0;
-        const bottom = this.pos.y + this.size.y - 0;
+        const top = this.pos.y + 4;
+        const bottom = this.pos.y + this.size.y - 4;
         const sx0 = Math.floor(left / ts);
         const sx1 = Math.floor((right - 1) / ts);
         const sy0 = Math.floor(top / ts);
@@ -108,7 +110,15 @@ export default class Dwarf extends Sprite {
         const existing = this.chunkManager.getTileValue(sx, sy);
         if (existing && existing.id) return false; // occupied
 
-        this.chunkManager.setTileValue(sx, sy, blockId);
+        // Build tile value with rotation and invert if they are non-default
+        let tileValue = blockId;
+        if (this.placementRotation !== 0 || this.placementInvert !== false) {
+            tileValue = { id: blockId };
+            if (this.placementRotation !== 0) tileValue.rot = this.placementRotation;
+            if (this.placementInvert !== false) tileValue.invert = this.placementInvert;
+        }
+
+        this.chunkManager.setTileValue(sx, sy, tileValue);
         this.scene.lighting.markDirty();
 
         return true;
@@ -142,6 +152,7 @@ export default class Dwarf extends Sprite {
         const blocks = [
             'stone',
             'sand',
+            'ladder',
             'sandstone',
             'polished_sandstone',
             'pillar_sandstone',
@@ -163,9 +174,20 @@ export default class Dwarf extends Sprite {
         if(this.keys.pressed('p')) this.selectedIndex = (this.selectedIndex+1)%blocks.length
         this.selectedItem = blocks[this.selectedIndex]
 
+        if(this.keys.pressed('o')) this.selectedIndex = (this.selectedIndex-1)%blocks.length
+        if(this.keys.pressed('p')) this.selectedIndex = (this.selectedIndex+1)%blocks.length
+        this.selectedItem = blocks[this.selectedIndex]
+
+        // Rotation and flip controls (r = rotate 90°, f = flip horizontally)
+        if(this.keys.pressed('r')) {
+            this.placementRotation = (this.placementRotation + 90) % 360;
+        }
+        if(this.keys.pressed('f')) {
+            this.placementInvert = !this.placementInvert;
+        }
         // Ladder climbing: when on a ladder, gravity is suspended and vertical
         // movement is controlled by input.y (this.inputDir.y). Otherwise, apply gravity.
-        if (this.onLadder) {
+        if (this.onLadder&&this.enablePhysicsUpdate) {
             // prefer environment input for vertical control when on ladder
             const env = (this.envInputDir && typeof this.envInputDir.y === 'number') ? this.envInputDir.y : (this.inputDir && typeof this.inputDir.y === 'number' ? this.inputDir.y : 0);
             // input: -1 up, +1 down
@@ -190,7 +212,7 @@ export default class Dwarf extends Sprite {
         // Build mode activation: hold Control OR double-tap Shift toggles build mode
         let buildModeActive = false;
         try {
-            if (this.keys && this.keys.held && this.keys.held('Control')) buildModeActive = true;
+            if (this.keys.held('Control')) buildModeActive = true;
             // double-tap Shift toggles persistent build mode
             if (this.keys.doubleTapped('Shift')) {
                 this._buildModeToggle = !this._buildModeToggle;
@@ -312,8 +334,8 @@ export default class Dwarf extends Sprite {
         if (allowInputDir) {
             dir = this.envInputDir.clone();
             // Prevent diagonal upward aiming unless Shift is held.
-            if (dir.y < 0 && !shiftHeld) {
-                if (wantsUp) dir = new Vector(0, -1);
+            if (dir.y < 0 && (!shiftHeld)) {
+                if (wantsUp||(this.onLadder&&this.selectedItem==='ladder')) dir = new Vector(0, -1);
                 else dir = new Vector(fx, 0);
             }
         }
@@ -326,7 +348,7 @@ export default class Dwarf extends Sprite {
         const sample = this._worldToSample(targetWorld.x, targetWorld.y);
         // ensure we don't target the tile we're standing on
         const selfSample = this._worldToSample(center.x, center.y);
-        if (sample.sx === selfSample.sx && sample.sy === selfSample.sy) {
+        if ((sample.sx === selfSample.sx && sample.sy === selfSample.sy)&&!this.onLadder) {
             this.miningTarget = null;
             return;
         }
