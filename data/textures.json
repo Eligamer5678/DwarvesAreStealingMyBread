@@ -17,6 +17,12 @@
             "size":[1,1],
             "slicePx":16,
             "layer":"base"
+        },
+        "stone":{
+            "path":"Assets/Tilemaps/stone.png",
+            "size":[5,4],
+            "slicePx":16,
+            "layer":"base"
         }
     },
     "spriteSheets":{
