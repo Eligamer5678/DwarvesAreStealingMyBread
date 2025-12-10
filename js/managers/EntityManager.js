@@ -1,5 +1,8 @@
 import Geometry from '../modules/Geometry.js';
 import Vector from '../modules/Vector.js';
+import Slime from '../entities/Slime.js';
+import Bat from '../entities/Bat.js';
+import Moth from '../entities/Moth.js';
 
 /**
  * @typedef {import('../systems/LightingSystem.js').default} LightingSystemType
@@ -21,6 +24,12 @@ export default class EntityManager {
         this.entities = [];
         this.player = null;
         this.lightingSystem = null;
+        // Spawning controls
+        this._spawnAccumulator = 0;
+        this._spawnInterval = options.spawnInterval || 1.0; // seconds between spawn attempts
+        this._spawnRadius = options.spawnRadius || 30; // tiles
+        this._spawnAttempts = options.spawnAttempts || 6; // tries per interval
+        this._maxNearbyEntities = options.maxNearbyEntities || 12; // cap nearby
     }
 
     /**
@@ -171,6 +180,9 @@ export default class EntityManager {
         // Clean up dead entities after the update pass so removals don't
         // interfere with the active iteration above.
         this.killEntities();
+
+        // Attempt natural spawning in nearby caves/low-light areas
+        try { this.spawnMonsters(delta); } catch (e) { /* ignore spawn errors */ }
     }
 
     /**
@@ -226,6 +238,105 @@ export default class EntityManager {
                 if(e.dead){
                     this.entities.splice(i, 1);
                 }
+            }
+        }
+    }
+    
+    /**
+     * Attempt to spawn monsters naturally near the player, preferring dark
+     * or cave-like tiles. Called periodically from `update`.
+     * @param {number} delta - seconds
+     */
+    spawnMonsters(delta) {
+        if (!this.player || !this.chunkManager) return;
+        this._spawnAccumulator += delta;
+        if (this._spawnAccumulator < this._spawnInterval) return;
+        this._spawnAccumulator = 0;
+
+        const ts = this.noiseTileSize || 16;
+        // Player sample/tile coordinates
+        const px = Math.floor((this.player.pos.x + this.player.size.x * 0.5) / ts);
+        const py = Math.floor((this.player.pos.y + this.player.size.y * 0.5) / ts);
+
+        // Count nearby entities to avoid overcrowding
+        let nearbyCount = 0;
+        for (const e of this.entities) {
+            if (!e || !e.pos) continue;
+            const ex = Math.floor((e.pos.x + (e.size?e.size.x*0.5:0)) / ts);
+            const ey = Math.floor((e.pos.y + (e.size?e.size.y*0.5:0)) / ts);
+            const d = Math.hypot((ex - px), (ey - py));
+            if (d <= 8) nearbyCount++;
+        }
+        if (nearbyCount >= this._maxNearbyEntities) return;
+
+        // Try a few candidate tiles and spawn one if suitable
+        for (let attempt = 0; attempt < this._spawnAttempts; attempt++) {
+            const rx = Math.floor((Math.random() * 2 - 1) * this._spawnRadius) + px;
+            const ry = Math.floor((Math.random() * 2 - 1) * this._spawnRadius) + py;
+
+            // Only spawn below a small depth (avoid surface) and within generated area
+            if (ry < 4) continue;
+
+            // Tile must be empty (air)
+            const tile = this.chunkManager.getTileValue(rx, ry);
+            if (tile && tile.id) continue;
+
+            // Prefer locations adjacent to solid tiles (cave edges)
+            let adjSolid = 0;
+            for (let oy = -1; oy <= 1; oy++) {
+                for (let ox = -1; ox <= 1; ox++) {
+                    if (ox === 0 && oy === 0) continue;
+                    const t = this.chunkManager.getTileValue(rx + ox, ry + oy);
+                    if (t && t.type === 'solid') adjSolid++;
+                }
+            }
+            if (adjSolid === 0) continue;
+
+            // If lighting system present, ensure location is dark enough
+            if (this.lightingSystem && typeof this.lightingSystem.getBrightnessForWorld === 'function') {
+                const wx = rx * ts + ts * 0.5;
+                const wy = ry * ts + ts * 0.5;
+                const bright = this.lightingSystem.getBrightnessForWorld(wx, wy, ts);
+                if (bright > 0.3) continue; // too bright to spawn
+            }
+
+            // Ensure no entity already very close
+            let collision = false;
+            for (const e of this.entities) {
+                if (!e || !e.pos) continue;
+                const ex = (e.pos.x || 0) + ((e.size && e.size.x) ? e.size.x * 0.5 : 0);
+                const ey = (e.pos.y || 0) + ((e.size && e.size.y) ? e.size.y * 0.5 : 0);
+                const wx = rx * ts + ts * 0.5;
+                const wy = ry * ts + ts * 0.5;
+                const dist = Math.hypot(wx - ex, wy - ey);
+                if (dist < ts * 0.8) { collision = true; break; }
+            }
+            if (collision) continue;
+
+            // Choose monster type by simple weighting
+            const r = Math.random();
+            let ent = null;
+            const worldPos = new Vector(rx * ts, ry * ts);
+            const size = new Vector(ts, ts);
+            try {
+                if (r < 0.5) {
+                    const sheet = (this.SpriteImages && this.SpriteImages.get) ? this.SpriteImages.get('slime') : null;
+                    ent = new Slime(this.draw, worldPos, size, sheet, { scene: this.player && this.player.scene ? this.player.scene : null });
+                } else if (r < 0.8) {
+                    const sheet = (this.SpriteImages && this.SpriteImages.get) ? this.SpriteImages.get('bat') : null;
+                    ent = new Bat(this.draw, worldPos, size, sheet, { scene: this.player && this.player.scene ? this.player.scene : null });
+                } else {
+                    const sheet = (this.SpriteImages && this.SpriteImages.get) ? this.SpriteImages.get('moth') : null;
+                    ent = new Moth(this.draw, worldPos, size, sheet, { scene: this.player && this.player.scene ? this.player.scene : null });
+                }
+            } catch (e) {
+                // If instantiation fails, skip
+                continue;
+            }
+
+            if (ent) {
+                this.addEntity(ent);
+                break; // spawn only one per interval
             }
         }
     }

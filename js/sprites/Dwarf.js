@@ -217,7 +217,45 @@ export default class Dwarf extends Sprite {
         } catch (e) { /* ignore */ }
 
         // If in build mode and space was pressed, place the selected item at target
-        if (buildModeActive && this.miningTarget && (this.keys.held(' ') && this.keys.held('Shift') || this.keys.pressed(' ')) && !this.blockMined) {
+        // Special-case: when placing ladders, place at the dwarf's position
+        // and allow holding space to repeat placements.
+        if (buildModeActive && this.selectedItem === 'ladder') {
+            if (this.keys.held(' ')) {
+                if (this._ladderPlaceCooldown === undefined) this._ladderPlaceCooldown = 0;
+                this._ladderPlaceCooldown -= delta;
+                if (this._ladderPlaceCooldown <= 0 && !this.blockMined) {
+                    const cx = this.pos.x + this.size.x * 0.5;
+                    const cy = this.pos.y + this.size.y * 0.5;
+                    const placed = this.buildAtWorld(cx, cy, 'ladder', { allowOverlap: true });
+                    if (this.keys.pressed(' ')) this.blockPlaced = placed;
+                    if (placed) {
+                        this.blockPlaced = true;
+                        this.mining = false;
+                        this.miningProgress = 0;
+                        this._lastMiningKey = null;
+                        this._ladderPlaceCooldown = 0.12;
+                    } else {
+                        this._ladderPlaceCooldown = 0.08;
+                    }
+                }
+            } else {
+                this._ladderPlaceCooldown = 0;
+            }
+            // also respond to single-press immediately
+            if (this.keys.pressed(' ') && !this.blockMined) {
+                const cx = this.pos.x + this.size.x * 0.5;
+                const cy = this.pos.y + this.size.y * 0.5;
+                const placed = this.buildAtWorld(cx, cy, 'ladder', { allowOverlap: true });
+                if (placed) {
+                    this.blockPlaced = true;
+                    this.mining = false;
+                    this.miningProgress = 0;
+                    this._lastMiningKey = null;
+                }
+            }
+        }
+
+        if (buildModeActive && this.selectedItem !== 'ladder' && this.miningTarget && (this.keys.held(' ') && this.keys.held('Shift') || this.keys.pressed(' ')) && !this.blockMined) {
             let placed = this.buildAtWorld(this.miningTarget.worldPos.x + this.chunkManager.noiseTileSize*0.5, this.miningTarget.worldPos.y + this.chunkManager.noiseTileSize*0.5, this.selectedItem);
             if(this.keys.pressed(' ')) {
                 this.blockPlaced = placed;
@@ -316,7 +354,7 @@ export default class Dwarf extends Sprite {
         return true;
     }
 
-    buildAtWorld(worldX, worldY, blockId) {
+    buildAtWorld(worldX, worldY, blockId, opts = {}) {
         if (!this.chunkManager || typeof this.chunkManager.setTileValue !== 'function') return false;
         const { sx, sy } = this._worldToSample(worldX, worldY);
 
@@ -330,7 +368,10 @@ export default class Dwarf extends Sprite {
         const sx1 = Math.floor((right - 1) / ts);
         const sy0 = Math.floor(top / ts);
         const sy1 = Math.floor((bottom - 1) / ts);
-        if (sx >= sx0 && sx <= sx1 && sy >= sy0 && sy <= sy1) return false;
+        // Normally prevent placing a block in any tile overlapped by the dwarf's
+        // bounding box. Allow an override for cases like ladder placement where
+        // placing at the player's tile is desired.
+        if (!opts.allowOverlap && sx >= sx0 && sx <= sx1 && sy >= sy0 && sy <= sy1) return false;
 
         const existing = this.chunkManager.getTileValue(sx, sy);
         if (existing && existing.id) return false; // occupied
