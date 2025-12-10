@@ -221,7 +221,7 @@ export default class AerialPathfindComponent {
 
     update(dt){
         if (!this._entity) return; // ensure this is attached to an object
-        
+        if(this._entity.health <=0) return;
         // Face the correct direction
         if (this._entity.vlos.x < -0.1) this._entity.invert = new Vector(-1, 1);
         else if (this._entity.vlos.x > 0.1) this._entity.invert = new Vector(1, 1);

@@ -32,6 +32,7 @@
             "animations":{
                 "idle":{"row":0,"frameCount":2,"fps":8,"buffer":0,"onStop":"loop","swapName":""},
                 "walk":{"row":0,"frameCount":2,"fps":8,"buffer":0,"onStop":"loop","swapName":""},
+                "hit":{"row":3,"frameCount":9,"fps":32,"buffer":0,"onStop":"swapTo","swapName":"walk"},
                 "defeat":{"row":1,"frameCount":6,"fps":8,"buffer":0,"onStop":"stop","swapName":""},
                 "attack":{"row":2,"frameCount":8,"fps":8,"buffer":0,"onStop":"swapTo","swapName":"walk"}
             }
@@ -43,14 +44,17 @@
                 "idle":{"row":0,"frameCount":7,"fps":32,"buffer":0,"onStop":"loop","swapName":""},
                 "fly":{"row":0,"frameCount":7,"fps":32,"buffer":0,"onStop":"loop","swapName":""},
                 "attack":{"row":0,"frameCount":7,"fps":32,"buffer":0,"onStop":"loop","swapName":""},
-                "defeat":{"row":1,"frameCount":11,"fps":8,"buffer":0,"onStop":"stop","swapName":""}
+                "defeat":{"row":1,"frameCount":11,"fps":8,"buffer":0,"onStop":"stop","swapName":""},
+                "hit":{"row":2,"frameCount":10,"fps":32,"buffer":0,"onStop":"swapTo","swapName":"fly"}
             }
         },
         "torch":{
             "path":"Assets/Sprites/torch.png",
             "slicePx":16,
             "animations":{
-                "idle":{"row":0,"frameCount":5,"fps":8,"buffer":0,"onStop":"loop","swapName":""}
+                "idle":{"row":0,"frameCount":5,"fps":8,"buffer":0,"onStop":"loop","swapName":""},
+                "defeat":{"row":0,"frameCount":5,"fps":8,"buffer":0,"onStop":"stop","swapName":""},
+                "hit":{"row":0,"frameCount":5,"fps":8,"buffer":0,"onStop":"swapTo","swapName":"idle"}
             }
         },
         "moth":{
@@ -60,7 +64,8 @@
                 "idle":{"row":0,"frameCount":6,"fps":32,"buffer":0,"onStop":"loop","swapName":""},
                 "fly":{"row":0,"frameCount":6,"fps":32,"buffer":0,"onStop":"loop","swapName":""},
                 "attack":{"row":0,"frameCount":6,"fps":32,"buffer":0,"onStop":"loop","swapName":""},
-                "defeat":{"row":1,"frameCount":11,"fps":8,"buffer":0,"onStop":"stop","swapName":""}
+                "defeat":{"row":1,"frameCount":11,"fps":8,"buffer":0,"onStop":"stop","swapName":""},
+                "hit":{"row":2,"frameCount":10,"fps":32,"buffer":0,"onStop":"swapTo","swapName":"fly"}
             }
         },
         "dwarf":{
@@ -72,8 +77,10 @@
                 "walk_and_point":{"row":2,"frameCount":5,"fps":8,"buffer":0,"onStop":"loop","swapName":""},
                 "look":{"row":3,"frameCount":5,"fps":8,"buffer":0,"onStop":"loop","swapName":""},
                 "mine":{"row":4,"frameCount":5,"fps":24,"buffer":0,"onStop":"loop","swapName":""},
+                "attack":{"row":4,"frameCount":5,"fps":24,"buffer":0,"onStop":"swapTo","swapName":"idle"},
                 "idle":{"row":5,"frameCount":1,"fps":8,"buffer":0,"onStop":"loop","swapName":""},
-                "hold_pick":{"row":6,"frameCount":1,"fps":8,"buffer":0,"onStop":"loop","swapName":""},
+                "hit":{"row":9,"frameCount":2,"fps":8,"buffer":0,"onStop":"loop","swapName":""},
+                "hold_pick":{"row":6,"frameCount":1,"fps":8,"buffer":0,"onStop":"swapTo","swapName":"idle"},
                 "walk_and_hold_pick":{"row":7,"frameCount":5,"fps":8,"buffer":0,"onStop":"loop","swapName":""},
                 "walk_and_hold_pick_as_sheild":{"row":8,"frameCount":5,"fps":8,"buffer":0,"onStop":"loop","swapName":""}
                 

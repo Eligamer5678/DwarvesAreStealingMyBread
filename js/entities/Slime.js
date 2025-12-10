@@ -19,18 +19,21 @@ export default class Slime extends Sprite {
         this.components.push(pf);
         // Ensure this sprite has a per-entity connected sheet instance so
         // animation updates don't interfere across entities (avoids double-advance).
-        try {
-            if (this.sheet && typeof this.sheet.connect === 'function') {
-                this.sheet = this.sheet.connect();
-            }
-        } catch (e) { /* ignore */ }
+        this.sheet = this.sheet.connect();
 
         // Some entity defaults (match old slime defaults)
+        this.team = "monster"
         this.speed = opts.speed || pf.speed;
         this.gravity = opts.gravity || pf.gravity;
         this.jumpSpeed = opts.jumpSpeed || pf.jumpSpeed;
         this.mass = opts.mass || 1;
         this.onGround = 1;
+        this.health = 3;
+        this.dead = false;
+        this.sheet.onStop.connect((name)=>{if(name='defeat')this.dead=true})
+    }
+    defeat(){
+        this.sheet.playAnimation('defeat')
     }
 
     // Keep Sprite.update behavior; components are updated by EntityManager

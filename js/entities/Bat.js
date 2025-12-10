@@ -1,6 +1,7 @@
 import Sprite from '../sprites/Sprite.js';
 import Vector from '../modules/Vector.js';
 import AerialPathfindComponent from '../components/AerialPathfindComponent.js';
+import Signal from '../modules/Signal.js';
 
 export default class Bat extends Sprite {
     constructor(Draw, pos = new Vector(0,0), size = new Vector(16,16), sheet = null, options = {}){
@@ -14,23 +15,32 @@ export default class Bat extends Sprite {
             attackCooldown: opts.attackCooldown || 2.0,
             lungeSpeed: opts.lungeSpeed || 3
         }, opts);
-
+        this.team = "monster"
+        
+        
         this.components = this.components || [];
         this._aerial = new AerialPathfindComponent(compOpts);
         this.components.push(this._aerial);
-
+        
         // keep a per-entity spritesheet connection to avoid shared updates
-        try { if (this.sheet && typeof this.sheet.connect === 'function') this.sheet = this.sheet.connect(); } catch(e){}
-
+        this.sheet = this.sheet.connect(); 
+        
         // carry scene reference so component can access chunkManager/player
         if (opts.scene) this.scene = opts.scene;
         // Randomly shrink the bat to give variety
-        try {
-            const scale = 0.4 + Math.random() * 0.4; // 0.4 - 0.8
-            if (this.size && typeof this.size.mult === 'function') this.size = this.size.mult(scale);
-        } catch (e) {}
+        const scale = 0.4 + Math.random() * 0.4; // 0.4 - 0.8
+        this.size = this.size.mult(scale);
         // set initial animation
-        try { if (this.sheet && typeof this.sheet.playAnimation === 'function') this.sheet.playAnimation('fly', true); } catch(e){}
+        this.sheet.playAnimation('fly', true);
+        
+        // Monster stuff
+        this.health = 10
+        this.damage = 1 // we'll add this in later
+        this.dead = false;
+        this.sheet.onStop.connect((name)=>{if(name='defeat')this.dead=true})
+    }
+    defeat(){
+        this.sheet.playAnimation('defeat')
     }
 
     draw(levelOffset) {

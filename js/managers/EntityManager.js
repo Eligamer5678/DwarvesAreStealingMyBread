@@ -93,6 +93,44 @@ export default class EntityManager {
     }
 
     /**
+     * Get enemy entities within a tile-radius around a sample coordinate.
+     * - If `opts.predicate` is provided it is used to test entities.
+     * - Otherwise entities are considered enemies when `isEnemy` or `hostile`
+     *   is truthy, or when they have a `team` that is not `'player'`.
+     *
+     * @param {Object} center - Vector-like {x, y} in sample/tile coordinates
+     * @param {number} rangeTiles - radius in tiles
+     * @param {Function} pred - function to call on entities in range
+     * @returns {Array} Filtered list of entities considered enemies
+     */
+    getEnemiesInRange(center, rangeTiles, pred) {
+        const out = [];
+        const radiusTiles = Math.max(0, Number(rangeTiles) || 0);
+        const maxDist = radiusTiles * this.noiseTileSize;
+
+        // Accept either a Vector-like object or fallback to {x:0,y:0}
+        const tx = center.x;
+        const ty = center.y;
+
+        // center in world coordinates (tile center)
+        const cx = (tx + 0.5) * this.noiseTileSize;
+        const cy = (ty + 0.5) * this.noiseTileSize;
+
+        for (const e of this.entities) {
+            if (!e || !e.pos) continue;
+            const ex = (e.pos.x || 0) + ((e.size && e.size.x) ? e.size.x * 0.5 : 0);
+            const ey = (e.pos.y || 0) + ((e.size && e.size.y) ? e.size.y * 0.5 : 0);
+            const dist = Math.hypot(cx - ex, cy - ey);
+            if (dist <= maxDist) out.push(e);
+            else continue;
+            try {pred(e)} catch (e) {}
+            
+        }
+        
+        return out;
+    }
+
+    /**
      * Update all entities
      * @param {number} delta - Time delta in seconds
      */
@@ -130,6 +168,9 @@ export default class EntityManager {
                 console.warn('Entity update failed', e);
             }
         }
+        // Clean up dead entities after the update pass so removals don't
+        // interfere with the active iteration above.
+        this.killEntities();
     }
 
     /**
@@ -171,6 +212,23 @@ export default class EntityManager {
      * Resolve collisions for a sprite against the tile world
      * @param {Object} sprite - Sprite to resolve collisions for
      */
+    /**
+     * Remove entities whose `health` is <= 0. Calls an entity's `destroy`
+     * method if present before removing it from the manager.
+     */
+    killEntities() {
+        for (let i = this.entities.length - 1; i >= 0; i--) {
+            const e = this.entities[i];
+            if (!e) continue;
+            const hp = e.health;
+            if (hp <= 0) {
+                e.defeat();
+                if(e.dead){
+                    this.entities.splice(i, 1);
+                }
+            }
+        }
+    }
     resolveCollisions(sprite) {
         if (!sprite || !sprite.pos || !this.noiseTileSize) return;
 

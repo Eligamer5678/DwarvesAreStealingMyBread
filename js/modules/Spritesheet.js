@@ -144,17 +144,17 @@ export default class SpriteSheet{
 
         if(this.currentFrame < this.currentAnimation.frameCount-1) return;
         if(this.currentAnimation.onStop === 'stop') {
-            this.onStop.emit();
+            this.onStop.emit(this.currentAnimation.name);
             this.updateFrame = false; 
             return;
         }
         if(this.currentAnimation.onStop === 'loop') {
-            this.onLoop.emit();
+            this.onLoop.emit(this.currentAnimation.name);
             this.currentFrame = this.currentAnimation.buffer; 
             return;
         }
         if(this.currentAnimation.onStop === 'swapTo'){
-            this.onSwap.emit(this.currentAnimation.swapName);
+            this.onSwap.emit(this.currentAnimation.name,this.currentAnimation.swapName);
             this.playAnimation(this.currentAnimation.swapName);
             return;
         }

@@ -116,6 +116,7 @@ export default class PathfindComponent {
         if (!this._entity || !this._manager) return;
         const player = this._manager.player;
         if (!player) return;
+        if(this._entity.health <=0) return;
 
         // basic engage check
         const pPos = player.pos.add(player.size.mult(0.5));

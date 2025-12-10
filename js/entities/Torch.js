@@ -14,6 +14,8 @@ export default class Torch {
         this.size = size.clone ? size.clone() : new Vector(size.x || 16, size.y || 16);
         this.vlos = new Vector(0,0);
         this.components = [];
+        this.health = 1000000000000;
+        this.team = "17.08 wild buffalos"
         // Attach a light component by default
         const level = (opts.level !== undefined) ? opts.level : 8;
         const offset = opts.offset || new Vector(0,0);
@@ -25,27 +27,11 @@ export default class Torch {
     }
 
     update(dt){
-        // EntityManager is responsible for calling component.update on entities.
-        // Avoid updating components here to prevent double-updating connected
-        // spritesheets (which causes animations to advance twice per frame).
-        // Keep this method available for any Torch-specific logic in the future.
         return;
     }
 
     draw(levelOffset){
         // Prefer drawing via sheet component when available
-        try {
-            const pos = this.pos.clone ? this.pos.clone() : new Vector(this.pos.x, this.pos.y);
-            if (this._sheetComp) {
-                this._sheetComp.draw(this.Draw, pos, this.size);
-                return;
-            }
-            // fallback: simple glowing rect
-            const color = '#FFD76BFF';
-            this.Draw.rect(pos, this.size, color, true);
-            this.Draw.rect(pos, this.size, '#00000022', false, true, 1, '#00000022', false);
-        } catch (e) {
-            console.warn('Torch.draw failed', e);
-        }
+        this._sheetComp.draw(this.Draw, this.pos, this.size);
     }
 }

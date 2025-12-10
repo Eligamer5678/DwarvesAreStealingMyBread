@@ -17,16 +17,22 @@ export default class Moth extends Sprite {
         this.components = this.components || [];
         this._aerial = new AerialPathfindComponent(compOpts);
         this.components.push(this._aerial);
-
-        try { if (this.sheet && typeof this.sheet.connect === 'function') this.sheet = this.sheet.connect(); } catch(e){}
-
+        
+        this.sheet = this.sheet.connect();
+        
         if (opts.scene) this.scene = opts.scene;
         // Randomly shrink the moth to give variety
-        try {
-            const scale = 0.4 + Math.random() * 0.4; // 0.4 - 0.8
-            if (this.size && typeof this.size.mult === 'function') this.size = this.size.mult(scale);
-        } catch (e) {}
-        try { if (this.sheet && typeof this.sheet.playAnimation === 'function') this.sheet.playAnimation('fly', true); } catch(e){}
+        const scale = 0.4 + Math.random() * 0.4; // 0.4 - 0.8
+        this.size = this.size.mult(scale);
+        this.sheet.playAnimation('fly', true);
+        
+        this.team = "monster"
+        this.health = 3;
+        this.dead = false;
+        this.sheet.onStop.connect((name)=>{if(name='defeat')this.dead=true})
+    }
+    defeat(){
+        this.sheet.playAnimation('defeat')
     }
 
     draw(levelOffset) {
