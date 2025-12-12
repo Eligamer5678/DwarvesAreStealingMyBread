@@ -80,7 +80,19 @@
             "data":{
                 "bg":"air",
                 "regions":[
-                    {"region":[[0,15],[15,15]],"block_type":"pillar_sandstone","replace":["air"],"special":{"rot":90}}
+                    {"region":[[0,15],[15,15]],"block_type":"pillar_sandstone","replace":["air"],"special":{"rot":90}},
+                    {"region":[[0,0],[15,15]],"block_type":"air","replace":["air"],"special":{
+                        "type":"entities",
+                        "data":{
+                            "types":["slime"],
+                            "placement":[
+                                {"pos":[5,5],"type":"slime","data":{
+                                    "team":"monster",
+                                    "size":[16,16]
+                                }}
+                            ]
+                        }
+                    }}
                 ]
             }
         },
@@ -91,6 +103,28 @@
                 "regions":[
                     {"region":[[0,15],[15,15]],"block_type":"sand","replace":["air"],"special":{}},
                     {"region":[[1,14],[14,14]],"block_type":"sand","replace":["air"],"special":{}}
+                ]
+            }
+        },
+        "bagel_village1":{
+            "dependencies":["desert"],
+            "data":{
+                "bg":"air",
+                "regions":[
+                    {"region":[[0,15],[15,15]],"block_type":"sand","replace":["air"],"special":{}},
+                    {"region":[[1,14],[14,14]],"block_type":"sand","replace":["air"],"special":{}},
+                    {"region":[[0,0],[15,15]],"block_type":"air","replace":["air"],"special":{
+                        "type":"entities",
+                        "data":{
+                            "types":["slime"],
+                            "placement":[
+                                {"pos":[5,5],"type":"slime","data":{
+                                    "team":"monster",
+                                    "size":[16,16]
+                                }}
+                            ]
+                        }
+                    }}
                 ]
             }
         }

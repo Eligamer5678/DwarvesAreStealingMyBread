@@ -1,87 +1,84 @@
 import Vector from '../modules/Vector.js';
+import Component from './Component.js';
+import { mergeObjects,pickDefaults } from '../utils/Support.js';
 
 /**
  * LightComponent: when attached to an entity, registers a torch/light
  * with the LightingSystem. It's modular and can be attached to any entity.
  */
-export default class LightComponent {
-    constructor(opts = {}) {
-        this.level = Number.isFinite(opts.level) ? opts.level : 15;
-        this.offset = opts.offset ? opts.offset : new Vector(0,0); // offset from entity pos
+export default class LightComponent extends Component{
+    constructor(entity, chunkManager, opts = {}) {
+        super(entity)
+        const defaults = {
+            level:15,
+            offset: new Vector(0,0),
+        }
+        const mergedOpts = mergeObjects(opts,defaults)
+        Object.assign(this, mergedOpts)
+
         this._key = null;
-        this._entity = null;
-        this._manager = null;
+        this.manager = chunkManager;
     }
 
-    init(entity, manager) {
-        this._entity = entity;
-        this._manager = manager;
-        // If LightingSystem available, register torch
-        try {
-            if (manager && manager.lightingSystem) {
-                const ls = manager.lightingSystem;
-                const s = this._sampleCoords();
-                const key = `${s.sx},${s.sy}`;
-                this._key = key;
-                ls.torches.set(key, { level: this.level });
-                if (typeof ls._updateTorchCacheAdd === 'function') ls._updateTorchCacheAdd(s.sx, s.sy, this.level);
-                if (typeof ls.markDirty === 'function') ls.markDirty();
-            }
-        } catch (e) {
-            console.warn('LightComponent.init failed', e);
-        }
+    init() {
+        const ls = this.manager.lightingSystem;
+        const s = this._sampleCoords();
+        const key = `${s.sx},${s.sy}`;
+        this._key = key;
+        ls.torches.set(key, {level: this.level});
+        ls._updateTorchCacheAdd(s.sx, s.sy, this.level);
+        ls.markDirty();
     }
 
     _sampleCoords() {
-        // compute tile sample coordinates from entity pos + offset
-        const em = this._entity;
-        const px = (em.pos && em.pos.x) ? em.pos.x + (this.offset.x || 0) : 0;
-        const py = (em.pos && em.pos.y) ? em.pos.y + (this.offset.y || 0) : 0;
-        const tileSize = (this._manager && this._manager.noiseTileSize) ? this._manager.noiseTileSize : 16;
+        const em = this.entity;
+        const px = em.pos.x + (this.offset.x);
+        const py = em.pos.y + (this.offset.y);
+        const tileSize = this.manager.noiseTileSize;
         const sx = Math.floor(px / tileSize);
         const sy = Math.floor(py / tileSize);
-        return { sx, sy };
+        return {sx,sy};
     }
 
     update(dt) {
-        // If entity moves, update torch registration
-        if (!this._entity || !this._manager || !this._manager.lightingSystem) return;
-        try {
-            const ls = this._manager.lightingSystem;
-            const s = this._sampleCoords();
-            const key = `${s.sx},${s.sy}`;
-            if (key !== this._key) {
-                // remove old
-                if (this._key && ls.torches.has(this._key)) {
-                    ls.torches.delete(this._key);
-                    if (typeof ls._updateTorchCacheRemove === 'function') {
-                        const parts = this._key.split(',').map(n => parseInt(n,10));
-                        ls._updateTorchCacheRemove(parts[0], parts[1]);
-                    }
-                }
-                // add new
-                ls.torches.set(key, { level: this.level });
-                if (typeof ls._updateTorchCacheAdd === 'function') ls._updateTorchCacheAdd(s.sx, s.sy, this.level);
-                if (typeof ls.markDirty === 'function') ls.markDirty();
-                this._key = key;
+        const ls = this.manager.lightingSystem;
+        const s = this._sampleCoords();
+        const key = `${s.sx},${s.sy}`;
+        if (key !== this._key) {
+            if (this._key && ls.torches.has(this._key)) {
+                ls.torches.delete(this._key);
+                const parts = this._key.split(',').map(n => parseInt(n,10));
+                ls._updateTorchCacheRemove(parts[0], parts[1]);
             }
-        } catch (e) {
-            console.warn('LightComponent.update failed', e);
+            // add new
+            ls.torches.set(key, { level: this.level });
+            ls._updateTorchCacheAdd(s.sx, s.sy, this.level);
+            ls.markDirty();
+            this._key = key;
         }
     }
 
     destroy() {
         // Remove torch from lighting system
-        try {
-            if (this._manager && this._manager.lightingSystem && this._key) {
-                const ls = this._manager.lightingSystem;
-                if (ls.torches.has(this._key)) ls.torches.delete(this._key);
-                if (typeof ls._updateTorchCacheRemove === 'function') {
-                    const parts = this._key.split(',').map(n => parseInt(n,10));
-                    ls._updateTorchCacheRemove(parts[0], parts[1]);
-                }
-                if (typeof ls.markDirty === 'function') ls.markDirty();
-            }
-        } catch (e) { /* ignore */ }
+        if(!this.key) return;
+        const ls = this.manager.lightingSystem;
+        if (ls.torches.has(this._key)) ls.torches.delete(this._key);
+        const parts = this._key.split(',').map(n => parseInt(n,10));
+        ls._updateTorchCacheRemove(parts[0], parts[1]);
+        ls.markDirty();
+    }
+    /**
+     * Clone this component
+     * @param {EntityType} entity The entity to attach the clone onto
+     * @returns {LightComponent}
+     */
+    clone (entity){
+        const defaults = {
+            level:15,
+            offset: new Vector(0,0),
+        }
+        const opts = pickDefaults(defaults,this)
+        const cloned = new LightComponent(entity,this.manager,opts);
+        return cloned;
     }
 }

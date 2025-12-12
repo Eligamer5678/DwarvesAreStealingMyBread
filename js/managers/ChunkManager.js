@@ -58,7 +58,7 @@ export default class ChunkManager {
         this.modifiedTiles = new Map(); // key: "sx,sy" -> tile data or null
         this.blockMap = new Map(); // key: "sx,sy" -> { type: 'solid'|'ladder' }
         this.lastGeneratedChunk = null;
-
+        this.lightingSystem = null;
         // Signals
         this.onChunkGenerated = new Signal();
         this.onTileModified = new Signal();

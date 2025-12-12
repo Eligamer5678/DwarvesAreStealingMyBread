@@ -1,12 +1,12 @@
 import Vector from '../modules/Vector.js';
 
-function getCallerLocation(stackShift = 3) {
+function getCallerLocation(stackShift = 4) {
     // Create a new error to get the stack trace
     const err = new Error();
     if (!err.stack)
         return '';
     const lines = err.stack.split('\n');
-    // stackShift: 0=Error, 1=this function, 2=log/error, 3=caller
+    // stackShift: 0=Error, 1=this function, 2=log/error, 3=caller, 4=caller-of-caller
     if (lines.length > stackShift) {
         const match = lines[stackShift].match(/\(?([^\s\)]+):(\d+):(\d+)\)?$/);
         if (match) {
@@ -228,13 +228,13 @@ class Debug {
         this._addLog(content, null, false);
     }
     error(content) {
-        const location = getCallerLocation(3);
+        const location = getCallerLocation();
         this._addLog('[ERROR] ' + content, location, true);
         this.element.style.background = '#6d0000ff';
     }
     // Add warning support
     warn(content) {
-        const location = getCallerLocation(3);
+        const location = getCallerLocation();
         this._addLog('[WARN] ' + content, location, true);
     }
     _setupInput() {

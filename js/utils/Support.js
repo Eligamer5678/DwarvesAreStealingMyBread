@@ -1,3 +1,5 @@
+import Vector from '../modules/Vector.js';
+
 export const getID = document.getElementById.bind(document);
 
 export function addEvent(target, item, event, func) {
@@ -12,6 +14,23 @@ export function addEvent(target, item, event, func) {
     } else {
         console.warn("Invalid target/item provided to addEvent.");
     }
+}
+/**
+ * @function
+ * @description Deep clone a class instance.
+ * @param {object} instance The class instance you want to clone.
+ * @returns {object} A new cloned instance.
+ */
+export function clone(instance) {
+  return Object.assign(
+    Object.create(
+      // Set the prototype of the new object to the prototype of the instance.
+      // Used to allow new object behave like class instance.
+      Object.getPrototypeOf(instance),
+    ),
+    // Prevent shallow copies of nested structures like arrays, etc
+    JSON.parse(JSON.stringify(instance)),
+  );
 }
 /*Tetration*/
 export function TET(a, n) {
@@ -64,7 +83,10 @@ export function mergeObjects(obj, defaults) {
     for (const k of Object.keys(defaults)) {
         if (obj[k] === undefined) {
             const v = defaults[k];
-            if (v && typeof v === 'object' && typeof v.clone === 'function') {
+            // If the default is a Vector, clone it using Vector.clone()
+            if (v instanceof Vector) {
+                obj[k] = v.clone();
+            } else if (v && typeof v === 'object' && typeof v.clone === 'function') {
                 obj[k] = v.clone();
             } else if (v && typeof v === 'object') {
                 // shallow copy for plain objects/arrays
@@ -75,4 +97,37 @@ export function mergeObjects(obj, defaults) {
         }
     }
     return obj;
+}
+
+/**
+ * Create a new plain object containing properties taken from `instance`
+ * but limited to the keys present in `defaults`.
+ * - Vector values are cloned using `Vector.clone()`.
+ * - If a property exposes `.clone()` it will be used.
+ * - Plain objects/arrays are shallow-copied.
+ *
+ * @param {object} defaults - template object whose keys determine which properties to pick
+ * @param {object} instance - class instance to read values from
+ * @returns {object} new object with picked (and cloned when appropriate) properties
+ */
+export function pickDefaults(defaults, instance) {
+    const out = {};
+    if (!defaults || typeof defaults !== 'object') return out;
+    if (!instance || typeof instance !== 'object') return out;
+
+    for (const k of Object.keys(defaults)) {
+        if (instance[k] === undefined) continue;
+        const v = instance[k];
+        if (v instanceof Vector) {
+            out[k] = v.clone();
+        } else if (v && typeof v === 'object' && typeof v.clone === 'function') {
+            out[k] = v.clone();
+        } else if (v && typeof v === 'object') {
+            out[k] = Array.isArray(v) ? v.slice() : Object.assign({}, v);
+        } else {
+            out[k] = v;
+        }
+    }
+
+    return out;
 }

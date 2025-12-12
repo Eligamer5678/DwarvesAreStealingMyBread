@@ -3,9 +3,12 @@ import Vector from '../modules/Vector.js';
 import Slime from '../entities/Slime.js';
 import Bat from '../entities/Bat.js';
 import Moth from '../entities/Moth.js';
+import Entity from '../entities/Entity.js';
 
 /**
  * @typedef {import('../systems/LightingSystem.js').default} LightingSystemType
+ * @typedef {import('../entities/Entity.js').default} EntityType
+ * @typedef {import('../components/Component.js').default} ComponentType
  */
 
 /**
@@ -15,13 +18,14 @@ import Moth from '../entities/Moth.js';
  * entities via the provided Draw helper, and resolves tile collisions.
  */
 export default class EntityManager {
-    constructor(chunkManager, draw, options = {}) {
+    constructor(chunkManager, draw, spriteImages, options = {}) {
         this.chunkManager = chunkManager;
         this.draw = draw;
         this.noiseTileSize = options.noiseTileSize || 8;
         this.activeRadius = options.activeRadius || 100; // tiles
         
         this.entities = [];
+        this.spriteImages = spriteImages
         this.player = null;
         this.lightingSystem = null;
         // Spawning controls
@@ -30,7 +34,35 @@ export default class EntityManager {
         this._spawnRadius = options.spawnRadius || 30; // tiles
         this._spawnAttempts = options.spawnAttempts || 6; // tries per interval
         this._maxNearbyEntities = options.maxNearbyEntities || 12; // cap nearby
+
+        this.entityTypes = new Map()
+
     }
+    /**
+     * Adds an entity type
+     * @param {string} name Name of the entity type
+     * @param {EntityType} entity The entity
+     */
+    addEntityType(name,entity){
+        this.entityTypes.set(name,entity)
+    }
+    /**
+     * Adds an entity from entity type
+     * @param {string} name 
+     * @param {EntityType} entity 
+     */
+    addEntity(name, pos = null, size = null, options = {}){
+        const preset = this.entityTypes.get(name);
+        if (!preset) return null;
+
+        const newEntity = preset.clone();
+        newEntity.pos = pos.clone();
+        newEntity.size = size.clone();
+
+        this.entities.push(newEntity);
+        return newEntity;
+    }
+
 
     /**
      * Set the player reference
@@ -41,24 +73,8 @@ export default class EntityManager {
     }
 
     /**
-     * Add an entity to the manager
-     * @param {Object} entity - Entity sprite
-     */
-    addEntity(entity) {
-        this.entities.push(entity);
-        // initialize components if present
-        if (entity && Array.isArray(entity.components)) {
-            for (const c of entity.components) {
-                try {
-                    if (c && typeof c.init === 'function') c.init(entity, this);
-                } catch (e) { console.warn('Entity component init failed', e); }
-            }
-        }
-    }
-
-    /**
      * Set lighting system reference so entity rendering can query nearby torches.
-     * @param {LightingSystem} ls
+     * @param {LightingSystemType} ls
      */
     setLightingSystem(ls) {
         this.lightingSystem = ls;
@@ -82,12 +98,12 @@ export default class EntityManager {
      */
     removeEntity(entity) {
         const index = this.entities.indexOf(entity);
-        if (index !== -1) {
+        if (index !== -1 && entity) {
             // destroy components
-            if (entity && Array.isArray(entity.components)) {
-                for (const c of entity.components) {
-                    try { if (c && typeof c.destroy === 'function') c.destroy(); } catch (e) { /* ignore */ }
-                }
+            if (entity) {
+                entity.getComponents().forEach((c) => {
+                    if(typeof c.destroy === 'function') c.destroy();
+                });
             }
             this.entities.splice(index, 1);
         }
@@ -107,7 +123,7 @@ export default class EntityManager {
      * - Otherwise entities are considered enemies when `isEnemy` or `hostile`
      *   is truthy, or when they have a `team` that is not `'player'`.
      *
-     * @param {Object} center - Vector-like {x, y} in sample/tile coordinates
+     * @param {Object} center - Radius Center
      * @param {number} rangeTiles - radius in tiles
      * @param {Function} pred - function to call on entities in range
      * @returns {Array} Filtered list of entities considered enemies
@@ -121,15 +137,11 @@ export default class EntityManager {
         const tx = center.x;
         const ty = center.y;
 
-        // center in world coordinates (tile center)
-        const cx = (tx + 0.5) * this.noiseTileSize;
-        const cy = (ty + 0.5) * this.noiseTileSize;
-
         for (const e of this.entities) {
             if (!e || !e.pos) continue;
             const ex = (e.pos.x || 0) + ((e.size && e.size.x) ? e.size.x * 0.5 : 0);
             const ey = (e.pos.y || 0) + ((e.size && e.size.y) ? e.size.y * 0.5 : 0);
-            const dist = Math.hypot(cx - ex, cy - ey);
+            const dist = Math.hypot(tx - ex, ty - ey);
             if (dist <= maxDist) out.push(e);
             else continue;
             try {pred(e)} catch (e) {}
@@ -151,30 +163,14 @@ export default class EntityManager {
         const py = this.player.pos.y + this.player.size.y * 0.5;
 
         for (const entity of this.entities) {
-            try {
-                const ex = entity.pos.x + entity.size.x * 0.5;
-                const ey = entity.pos.y + entity.size.y * 0.5;
-                const dist = Math.hypot(px - ex, py - ey);
+            const ex = entity.pos.x + entity.size.x * 0.5;
+            const ey = entity.pos.y + entity.size.y * 0.5;
+            const dist = Math.hypot(px - ex, py - ey);
 
-                // Only update entities within active radius
-                if (dist <= maxDist) {
-                    // Call the entity's update first (applies friction, animations,
-                    // and integrates existing velocity), then run component updates.
-                    if (typeof entity.update === 'function') {
-                        entity.update(delta);
-                    }
-                    // update components after entity update so they can set new
-                    // velocities and optionally perform immediate one-time
-                    // position integration (matching original sprite behavior).
-                    if (entity && Array.isArray(entity.components)) {
-                        for (const c of entity.components) {
-                            try { if (c && typeof c.update === 'function') c.update(delta); } catch (e) { console.warn('Entity component update failed', e); }
-                        }
-                    }
-                    this.resolveCollisions(entity);
-                }
-            } catch (e) {
-                console.warn('Entity update failed', e);
+            // Only update entities within active radius
+            if (dist <= maxDist) {
+                entity.update(delta);
+                this.resolveCollisions(entity);
             }
         }
         // Clean up dead entities after the update pass so removals don't
@@ -182,7 +178,7 @@ export default class EntityManager {
         this.killEntities();
 
         // Attempt natural spawning in nearby caves/low-light areas
-        try { this.spawnMonsters(delta); } catch (e) { /* ignore spawn errors */ }
+        //try { this.spawnMonsters(delta); } catch (e) { /* ignore spawn errors */ }
     }
 
     /**

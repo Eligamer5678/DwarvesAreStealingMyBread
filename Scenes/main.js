@@ -13,6 +13,13 @@ import Slime from '../js/entities/Slime.js';
 import Bat from '../js/entities/Bat.js';
 import Moth from '../js/entities/Moth.js';
 
+import Entity from '../js/entities/Entity.js';
+import SheetComponent from '../js/components/SheetComponent.js';
+import SpriteSheet from '../js/modules/Spritesheet.js';
+import PathfindComponent from '../js/components/PathfindComponent.js';
+import AerialPathfindComponent from '../js/components/AerialPathfindComponent.js';
+import LightComponent from '../js/components/LightComponent.js';
+
 export class MainScene extends Scene {
     constructor(...args) {
         super('main', ...args);
@@ -55,22 +62,9 @@ export class MainScene extends Scene {
             }
 
             // Initialize chunk manager and load generation/chunk/block definitions
-            try {
-                this.chunkManager = new ChunkManager();
-                await this.chunkManager.loadDefinitions('./data');
-                
-                // If AssetManager provided a blocks map, prefer that as blockDefs
-                try {
-                    if (this.SpriteImages && this.SpriteImages.has && this.SpriteImages.has('blocks')) {
-                        const bmap = this.SpriteImages.get('blocks');
-                        if (bmap && bmap instanceof Map) this.chunkManager.blockDefs = bmap;
-                    }
-                } catch (e) { /* ignore */ }
-            } catch (e) {
-                console.warn('MainScene: chunk manager init failed', e);
-            }
+            this.chunkManager = new ChunkManager();
+            await this.chunkManager.loadDefinitions('./data');
 
-            // Defer player/entity initialization to the new component system
             this.isPreloaded = true;
             return true;
         } catch (err) {
@@ -113,46 +107,8 @@ export class MainScene extends Scene {
             this.player = new Dwarf(this.keys, this.Draw, startPos, size, dwarfSheet, { type: 'platformer', chunkManager: this.chunkManager, scene: this });
             // simple fallback so player remains visible while collisions aren't implemented
             this.player.onGround = 1;
-            this.camera.track(this.player, { offset: new Vector(0,0) });
-
-            // ensure generation around player's start position
-            if (this.chunkManager && typeof this.chunkManager.generateChunksAround === 'function') {
-                this.chunkManager.generateChunksAround(this.player.pos.x, this.player.pos.y, 3);
-            }
-
-            
-            // Create collision system and wire it to use the chunk manager's tile size
-            try {
-                this.collision = new CollisionSystem(this.chunkManager, { noiseTileSize: this.chunkManager.noiseTileSize });
-            } catch (e) { console.warn('Failed to create CollisionSystem', e); }
-            // Create entity manager and wire lighting
-            try {
-                this.entityManager = new EntityManager(this.chunkManager, this.Draw, { noiseTileSize: this.chunkManager.noiseTileSize });
-                this.entityManager.setPlayer(this.player);
-                if (this.lighting) this.entityManager.setLightingSystem(this.lighting);
-                // expose loaded sprite images so components can resolve sheets
-                try { this.entityManager.SpriteImages = this.SpriteImages; } catch (e) {}
-                // debug list for spawned torches
-                this._debugTorches = [];
-                
-            } catch (e) { console.warn('Failed to create EntityManager', e); }
-            // Create lighting system and set initial options
-            try {
-                this.lighting = new LightingSystem(this.chunkManager, {});
-                // Force initial compute
-                this.lighting.markDirty();
-                this.lighting.update();
-                // If an entity manager already exists, wire it to the lighting system
-                if (this.entityManager) this.entityManager.setLightingSystem(this.lighting);
-                // Connect chunk modifications to lighting so edits (mine/build) mark lighting dirty
-                try {
-                    if (this.chunkManager && this.chunkManager.onTileModified && typeof this.chunkManager.onTileModified.connect === 'function') {
-                        this.chunkManager.onTileModified.connect((sx, sy, val) => { try { if (this.lighting && typeof this.lighting.markDirty === 'function') this.lighting.markDirty(); } catch (e) {} });
-                    }
-                } catch (e) { /* ignore */ }
-                
-            } catch (e) { console.warn('Failed to create LightingSystem', e); }
-            // Zoom in camera a bunch for close-up view
+            this.camera.track(this.player, { offset: new Vector(0,0) });            
+            // Zoom in camera a bunch
             try {
                 if (this.camera) {
                     // immediate zoom to 3x for clarity
@@ -163,12 +119,71 @@ export class MainScene extends Scene {
                     this.camera.targetOffset = this.camera.targetOffset;
                 }
             } catch (e) { /* ignore zoom errors */ }
-            // Debug helpers: enable path debug drawing by default for development
-            this.debugBatPaths = true;
-            this.debugMothPaths = true;
         } catch (e) { console.warn('Failed to create player', e); }
 
+            
+        this.createManagers()
+        this.chunkManager.generateChunksAround(this.player.pos.x, this.player.pos.y, 3);
+
+        this.addSlimePrefab()
+        this.addBatPrefab()
+        this.addMothPrefab()
+        this.addTorchPrefab()
         this.isReady = true;
+    }
+    createManagers(){
+        // collision system
+        this.collision = new CollisionSystem(this.chunkManager, { noiseTileSize: this.chunkManager.noiseTileSize });
+        // lighting system
+        this.lighting = new LightingSystem(this.chunkManager, {});
+        this.chunkManager.lightingSystem = this.lighting
+
+        // entity manager
+        this.entityManager = new EntityManager(this.chunkManager, this.Draw, this.SpriteImages, { noiseTileSize: this.chunkManager.noiseTileSize });
+        this.entityManager.setPlayer(this.player);
+        this.entityManager.setLightingSystem(this.lighting);                
+        this.lighting.markDirty();
+        this.lighting.update();
+        this.entityManager.setLightingSystem(this.lighting);
+        this.chunkManager.onTileModified.connect((sx, sy, val) => {this.lighting.markDirty()});
+    }
+    addSlimePrefab(){
+        const slime = new Entity(new Vector(0,-16),new Vector(16,16))
+        const sheet = this.SpriteImages.get('slime');
+        const sheetComponent = new SheetComponent(sheet,this.Draw,slime)
+        slime.setComponent("sheet",sheetComponent)
+        const pathFindingComponent = new PathfindComponent(slime,this.player,this.chunkManager)
+        slime.setComponent("AI",pathFindingComponent)
+        this.entityManager.addEntityType("slime",slime)
+    }
+    addBatPrefab(){
+        const bat = new Entity(new Vector(0,-16),new Vector(16,16))
+        const sheet = this.SpriteImages.get('bat');
+        const sheetComponent = new SheetComponent(sheet,this.Draw,bat)
+        bat.setComponent("sheet",sheetComponent)
+        const pathFindingComponent = new AerialPathfindComponent(bat,this.player,this.chunkManager)
+        bat.setComponent("AI",pathFindingComponent)
+        this.entityManager.addEntityType("bat",bat)
+    }
+    addMothPrefab(){
+        const moth = new Entity(new Vector(0,-16),new Vector(16,16))
+        const sheet = this.SpriteImages.get('moth');
+        const sheetComponent = new SheetComponent(sheet,this.Draw,moth)
+        moth.setComponent("sheet",sheetComponent)
+        const pathFindingComponent = new AerialPathfindComponent(moth,this.player,this.chunkManager)
+        moth.setComponent("AI",pathFindingComponent)
+        this.entityManager.addEntityType("moth",moth)
+    }
+    addTorchPrefab(){
+        const torch = new Entity(new Vector(0,-16),new Vector(16,16))
+        const sheet = this.SpriteImages.get('torch');
+        const sheetComponent = new SheetComponent(sheet,this.Draw,torch)
+        torch.setComponent("sheet",sheetComponent)
+        const LightComp = new LightComponent(torch,this.chunkManager)
+        torch.setComponent("light",LightComp)
+        torch.team = 'light'
+
+        this.entityManager.addEntityType("torch",torch)
     }
 
     sceneTick(tickDelta) {
@@ -184,88 +199,45 @@ export class MainScene extends Scene {
         // Debug: press 't' to spawn an extra torch at the player's tile (multiple allowed)
 
         if (this.keys.released('t')) {
-            try {
-                const px = Math.floor((this.player.pos.x + this.player.size.x * 0.5));
-                const py = Math.floor((this.player.pos.y + this.player.size.y * 0.5));
-                const tileSize = (this.chunkManager && this.chunkManager.noiseTileSize) ? this.chunkManager.noiseTileSize : 16;
-                const sx = Math.floor(px / tileSize);
-                const sy = Math.floor(py / tileSize);
-                const pos = new Vector(sx * tileSize, sy * tileSize);
+            const tileSize = this.chunkManager.noiseTileSize;
+            const px = Math.floor((this.player.pos.x + this.player.size.x * 0.5));
+            const py = Math.floor((this.player.pos.y + this.player.size.y * 0.5));
+            const sx = Math.floor(px / tileSize);
+            const sy = Math.floor(py / tileSize);
+            const pos = new Vector(sx * tileSize, sy * tileSize);
 
-                // If a torch already exists at this tile, remove it (toggle behavior)
-                const ls = this.lighting;
-                if (ls && ls.torches && ls.torches.has(`${sx},${sy}`)) {
-                    // Remove torch from lighting system
-                    try { ls.removeTorch(sx, sy); } catch (e) { /* ignore */ }
-                    // Also remove any entity at this tile managed by entityManager
-                    try {
-                        if (this.entityManager) {
-                            const ents = this.entityManager.getEntities();
-                            for (let i = ents.length - 1; i >= 0; i--) {
-                                const e = ents[i];
-                                if (!e || !e.pos || !e.size) continue;
-                                const ex = Math.floor((e.pos.x + e.size.x * 0.5) / tileSize);
-                                const ey = Math.floor((e.pos.y + e.size.y * 0.5) / tileSize);
-                                if (ex === sx && ey === sy) {
-                                    this.entityManager.removeEntity(e);
-                                    // remove from debug list if present
-                                    if (this._debugTorches) {
-                                        const idx = this._debugTorches.indexOf(e);
-                                        if (idx !== -1) this._debugTorches.splice(idx, 1);
-                                    }
-                                }
-                            }
-                        }
-                    } catch (e) { /* ignore */ }
-                    if (this.lighting && typeof this.lighting.markDirty === 'function') this.lighting.markDirty();
-                } else {
-                    // Otherwise spawn a new torch entity
-                    const torch = new Torch(this.Draw, pos, new Vector(tileSize, tileSize));
-                    if (this.entityManager) this.entityManager.addEntity(torch);
-                    if (!this._debugTorches) this._debugTorches = [];
-                    this._debugTorches.push(torch);
-                    if (this.lighting && typeof this.lighting.markDirty === 'function') this.lighting.markDirty();
-                }
-            } catch (e) { console.warn('Torch spawn failed', e); }
+            // If a torch already exists at this tile, remove it (toggle behavior)
+            const ls = this.lighting;
+            if (ls.torches.has(`${sx},${sy}`)) {
+                // Remove torch from lighting system
+                try { ls.removeTorch(sx, sy); } catch (e) {}
+                // Also remove any entity at this tile managed by entityManager
+                this.entityManager.getEnemiesInRange(pos,1,(torch)=>{
+                    this.entityManager.removeEntity(torch)
+                })
+                this.lighting.markDirty();
+            } else {
+                if (this.entityManager) this.entityManager.addEntity("torch",pos,new Vector(16,16));
+                this.lighting.markDirty();
+            }
         }
 
 
         this.collision.updateSprite(this.player);
         
         // Spawn monsters: 1 = Slime, 2 = Bat, 3 = Moth
-        try {
-            const tileSize = this.chunkManager.noiseTileSize;
-            // Slime (1)
-            if (this.keys.released('1')) {
-                try {
-                    const sheet = this.SpriteImages.get('slime');
-                    const pos = new Vector(this.player.pos.x + tileSize * 2, this.player.pos.y);
-                    const size = new Vector(tileSize, tileSize);
-                    const slime = new Slime(this.Draw, pos, size, sheet, { scene: this });
-                    this.entityManager.addEntity(slime);
-                } catch (e) { console.warn('Spawn slime failed', e); }
-            }
-            // Bat (2)
-            if (this.keys.released('2')) {
-                try {
-                    const sheet = this.SpriteImages.get('bat');
-                    const pos = new Vector(this.player.pos.x + tileSize * 2, this.player.pos.y - tileSize);
-                    const size = new Vector(tileSize, tileSize);
-                    const bat = new Bat(this.Draw, pos, size, sheet, { scene: this });
-                    this.entityManager.addEntity(bat);
-                } catch (e) { console.warn('Spawn bat failed', e); }
-            }
-            // Moth (3)
-            if (this.keys.released('3')) {
-                try {
-                    const sheet = this.SpriteImages.get('moth');
-                    const pos = new Vector(this.player.pos.x + tileSize * 2, this.player.pos.y - tileSize);
-                    const size = new Vector(tileSize, tileSize);
-                    const moth = new Moth(this.Draw, pos, size, sheet, { scene: this });
-                    if (this.entityManager) this.entityManager.addEntity(moth);
-                } catch (e) { console.warn('Spawn moth failed', e); }
-            }
-        } catch (e) { /* ignore */ }
+        // Slime (1)
+        if (this.keys.released('1')) {
+            this.entityManager.addEntity("slime",this.player.pos,new Vector(16,16))
+        }
+        // Bat (2)
+        if (this.keys.released('2')) {
+            this.entityManager.addEntity("bat",this.player.pos,new Vector(16,16));
+        }
+        // Moth (3)
+        if (this.keys.released('3')) {
+            this.entityManager.addEntity("moth",this.player.pos,new Vector(16,16));
+        }
 
         // Toggle debug path drawing with 'b' (bats) and 'm' (moths)
         if (this.keys.released('b')) this.debugBatPaths = !this.debugBatPaths;
@@ -316,8 +288,8 @@ export class MainScene extends Scene {
 
 
         // UI layer
-        this.UIDraw && this.UIDraw.clear && this.UIDraw.clear();
-        if (this.mainUI && typeof this.mainUI.draw === 'function') this.mainUI.draw();
+        this.UIDraw.clear();
+        this.mainUI.draw();
     }
 }
 

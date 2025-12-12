@@ -314,8 +314,7 @@ export default class Dwarf extends Sprite {
          * @type EntityManager
         */
         const entityMan = this.scene.entityManager
-        entityMan.getEnemiesInRange(this.getTilePos(),2,(entity)=>{
-            console.log('hello')
+        entityMan.getEnemiesInRange(this.pos,2,(entity)=>{
             if(entity.team==="player") return;
             if(this.keys.pressed(" ") && this.atkCooldown < 0){
                 this.attacking = true;

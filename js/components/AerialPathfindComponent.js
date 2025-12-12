@@ -1,15 +1,23 @@
 import Vector from "../modules/Vector.js";
+import Component from "./Component.js";
+import { pickDefaults,mergeObjects } from "../utils/Support.js";
 
 // Lightweight heuristics
 function heuristic(ax, ay, bx, by) {
     const dx = ax - bx, dy = ay - by;
     return Math.hypot(dx, dy);
 }
-
-export default class AerialPathfindComponent {
-    constructor(opts = {}){
+/**
+ * More advanced AI for flying enimies
+ * 
+ *! Dependencies: SheetComponent
+ */
+export default class AerialPathfindComponent extends Component{
+    constructor(entity,target,chunkManager,opts = {}){
+        super(entity)
+        this.sheet = entity.getComponent("sheet")
         const defaults = {
-            flightSpeed: 5, // Basic flight speed used
+            flightSpeed: 1, // Basic flight speed used
             pathRecalc: 0.6,
             attackCooldown: 5.0, // Time between consecutive attack attempts
             
@@ -18,17 +26,17 @@ export default class AerialPathfindComponent {
             windupDuration: 0.5, // Windup time, conveys the attack before attacking
             swoopDuration: 1.5, // Time before basic movement takes over again
 
-            lungeSpeed: 20, // Velocity given during lunge
+            lungeSpeed: 3, // Velocity given during lunge
             roamRadius: 3, // Radius from current spot to next position
             roamAttempts: 24, // Attempts to find a valid posiiton
         };
-        this.opts = Object.assign({}, defaults, opts || {});
-
-        this._entity = null;
-        this._manager = null;
+        const mergedOpts = mergeObjects(opts,defaults)
+        Object.assign(this, mergedOpts)
+        this._manager = chunkManager;
 
         // runtime
         this.path = null;
+        this.target = target
         this.pathIdx = 0;
         this.pathTimer = 0;
         this.gravity = 5;
@@ -37,24 +45,15 @@ export default class AerialPathfindComponent {
         
         this.swoopTimer = 0;
         this.windupTimer = 0;
-        this.attackCooldown = 0;
+        this.maxAttackCooldown = 5;
         this.yAccel = 0 // when swooping, this is what makes it flow
 
         this.roamTarget = null;
     }
 
-    init(entity, manager){
-        this._entity = entity;
-        this._manager = manager;
-        // expose convenience pointers
-        this.scene = (entity && entity.scene) ? entity.scene : (manager && manager.scene) ? manager.scene : null;
-        // desync initial timers a bit
-        this.attackCooldown = Math.random() * this.opts.attackCooldown;
-    }
-
     // A* pathfinder adapted from sprite implementations
     findPath(startX, startY, goalX, goalY, maxNodes = 2000) {
-        const cm = (this.scene && this.scene.chunkManager) ? this.scene.chunkManager : (this._manager && this._manager.chunkManager ? this._manager.chunkManager : null);
+        const cm = this._manager;
         const keyOf = (x,y)=>`${x},${y}`;
         const open = new Map();
         const closed = new Set();
@@ -98,7 +97,7 @@ export default class AerialPathfindComponent {
                     if (closed.has(nk)) continue;
 
                     try {
-                        const tile = cm && typeof cm.getTileValue === 'function' ? cm.getTileValue(nx, ny) : null;
+                        const tile = cm.getTileValue(nx, ny);
                         if (tile && tile.type === 'solid') continue;
                         if (dx !== 0 && dy !== 0) {
                             const t1 = cm.getTileValue(current.x + dx, current.y);
@@ -123,10 +122,10 @@ export default class AerialPathfindComponent {
 
     // Choose a roam target reachable within roamRadius
     chooseRoamTarget() {
-        const ts = (this.scene && this.scene.noiseTileSize) ? this.scene.noiseTileSize : (this._manager && this._manager.noiseTileSize) ? this._manager.noiseTileSize : 16;
-        const startX = Math.floor((this._entity.pos.x + this._entity.size.x*0.5) / ts);
-        const startY = Math.floor((this._entity.pos.y + this._entity.size.y*0.5) / ts);
-        const cm = this.scene ? this.scene.chunkManager : (this._manager ? this._manager.chunkManager : null);
+        const ts = this._manager.noiseTileSize;
+        const startX = Math.floor((this.entity.pos.x + this.entity.size.x*0.5) / ts);
+        const startY = Math.floor((this.entity.pos.y + this.entity.size.y*0.5) / ts);
+        const cm = this._manager;
 
         const keyOf = (x,y)=>`${x},${y}`;
         const visited = new Set();
@@ -136,18 +135,18 @@ export default class AerialPathfindComponent {
         q.push({x:startX,y:startY,d:0});
 
         const candidates = [];
-        const maxNodes = Math.max(300, (this.opts.roamAttempts || 24) * 20);
+        const maxNodes = Math.max(300, (this.roamAttempts || 24) * 20);
         let nodes = 0;
 
         while (q.length && nodes < maxNodes) {
             const cur = q.shift(); nodes++;
             if (!(cur.x === startX && cur.y === startY)) {
                 try {
-                    const t = cm && typeof cm.getTileValue === 'function' ? cm.getTileValue(cur.x, cur.y) : null;
+                    const t = cm.getTileValue(cur.x, cur.y);
                     if (!t || t.type !== 'solid') candidates.push({x:cur.x,y:cur.y});
                 } catch (e) { candidates.push({x:cur.x,y:cur.y}); }
             }
-            if (cur.d >= (this.opts.roamRadius || 3)) continue;
+            if (cur.d >= (this.roamRadius || 3)) continue;
             for (let dy=-1; dy<=1; dy++){
                 for (let dx=-1; dx<=1; dx++){
                     if (dx===0 && dy===0) continue;
@@ -156,7 +155,7 @@ export default class AerialPathfindComponent {
                     const kk = keyOf(nx,ny);
                     if (visited.has(kk)) continue;
                     try {
-                        const t = cm && typeof cm.getTileValue === 'function' ? cm.getTileValue(nx, ny) : null;
+                        const t = cm.getTileValue(nx, ny);
                         if (t && t.type === 'solid') continue;
                         if (dx !== 0 && dy !== 0) {
                             const t1 = cm.getTileValue(cur.x + dx, cur.y);
@@ -172,7 +171,7 @@ export default class AerialPathfindComponent {
         }
 
         if (candidates.length === 0) { this.roamTarget = null; return false; }
-        const playerCenter = this.scene && this.scene.player ? this.scene.player.pos.add(this.scene.player.size.mult(0.5)) : null;
+        const playerCenter = this.target.pos.add(this.target.size.mult(0.5));
         const suitable = candidates.filter(c => {
             if (!playerCenter) return true;
             const px = c.x * ts + ts*0.5;
@@ -189,7 +188,7 @@ export default class AerialPathfindComponent {
         if (!cameFrom.has(curKey)) {
             const direct = this.findPath(startX, startY, pick.x, pick.y, 1200);
             if (direct && direct.length > 0) {
-                this.path = direct; this.pathIdx = 0; this.roamTarget = { x: pick.x, y: pick.y }; this.pathTimer = this.opts.pathRecalc; return true;
+                this.path = direct; this.pathIdx = 0; this.roamTarget = { x: pick.x, y: pick.y }; this.pathTimer = this.pathRecalc; return true;
             }
             this.roamTarget = null; return false;
         }
@@ -199,32 +198,32 @@ export default class AerialPathfindComponent {
             curKey = cameFrom.get(curKey);
         }
         if (path.length === 0) { this.roamTarget = null; return false; }
-        this.path = path; this.pathIdx = 0; this.roamTarget = { x: pick.x, y: pick.y }; this.pathTimer = this.opts.pathRecalc; return true;
+        this.path = path; this.pathIdx = 0; this.roamTarget = { x: pick.x, y: pick.y }; this.pathTimer = this.pathRecalc; return true;
     }
 
     _followPath(delta) {
         if (!this.path || this.path.length === 0) return;
         while (this.pathIdx < this.path.length) {
             const node = this.path[this.pathIdx];
-            const ts = (this.scene && this.scene.noiseTileSize) ? this.scene.noiseTileSize : (this._manager && this._manager.noiseTileSize ? this._manager.noiseTileSize : 16);
+            const ts = this._manager.noiseTileSize;
             const target = new Vector(node.x * ts + ts*0.5, node.y * ts + ts*0.5);
-            const disp = target.sub(this._entity.pos);
+            const disp = target.sub(this.entity.pos);
             const dist = Math.hypot(disp.x, disp.y);
             if (dist < Math.max(4, ts*0.3)) { this.pathIdx++; continue; }
-            const want = disp.div(dist).mult(this.opts.flightSpeed);
-            this._entity.vlos.x += (want.x - this._entity.vlos.x) * Math.min(1, delta * 6);
-            this._entity.vlos.y += (want.y - this._entity.vlos.y) * Math.min(1, delta * 6);
+            const want = disp.div(dist).mult(this.flightSpeed);
+            this.entity.vlos.x += (want.x - this.entity.vlos.x) * Math.min(1, delta * 6);
+            this.entity.vlos.y += (want.y - this.entity.vlos.y) * Math.min(1, delta * 6);
             return;
         }
         this.path = null; this.pathIdx = 0;
     }
 
     update(dt){
-        if (!this._entity) return; // ensure this is attached to an object
-        if(this._entity.health <=0) return;
+        if (!this.entity) return; // ensure this is attached to an object
+        if(this.entity.health <=0) return;
         // Face the correct direction
-        if (this._entity.vlos.x < -0.1) this._entity.invert = new Vector(-1, 1);
-        else if (this._entity.vlos.x > 0.1) this._entity.invert = new Vector(1, 1);
+        if (this.entity.vlos.x < -0.1) this.sheet.invert = new Vector(-1, 1);
+        else if (this.entity.vlos.x > 0.1) this.sheet.invert = new Vector(1, 1);
 
         // timers
         this.pathTimer -= dt;
@@ -232,46 +231,52 @@ export default class AerialPathfindComponent {
         this.windupTimer -= dt;
         this.attackCooldown -=dt;
         if(this.state!=='windup'){
-            this._entity.vlos.y += this.yAccel * dt
-            this._entity.vlos.y += this.gravity * dt 
+            this.entity.vlos.y += this.gravity * dt 
+            this.entity.vlos.y += this.yAccel * dt
         }
         // Get data
-        const player = (this._manager && this._manager.player) ? this._manager.player : (this.scene && this.scene.player ? this.scene.player : null);
+        const player = this.target;
         if (!player) return;
         const pCenter = player.pos.add(player.size.mult(0.5));
-        const meCenter = this._entity.pos.add(this._entity.size.mult(0.5));
+        const meCenter = this.entity.pos.add(this.entity.size.mult(0.5));
         const dist = pCenter.distanceTo(meCenter);
-
-        if(dist <= this.opts.attackRange && this.attackCooldown <= 0 && this.state === 'default') {
-            this.state = 'windup'; 
-            console.log('hola')
-            this.windupTimer = this.opts.windupDuration;
-        };
+        if(dist <= this.attackRange){
+            if(this.attackCooldown <= 0 && this.state === 'default') {
+                this.state = 'windup'; 
+                console.log('hola')
+                this.windupTimer = this.windupDuration;
+            };
+        }else{
+            this.yAccel = 0;
+        }
         this.windup(dt,pCenter,meCenter)
         if(this.swoopTimer<=0 && this.state === 'swoop'){
             this.state = 'default'
             console.log('back to basic')
-            this.attackCooldown = this.opts.attackCooldown
+            this.attackCooldown = this.maxAttackCooldown
         }
 
         if(this.state === 'default') {
             this.basicMovement(dt)
-            this._entity.vlos.mult(0.8)
+            this.entity.vlos.mult(0.8)
+            this.entity.vlos.y -= this.gravity * dt / 2
         }
-        this._entity.pos.addS(this._entity.vlos.mult(dt))
-        this._entity.enablePhysicsUpdate = false;
+        this.entity.pos.addS(this.entity.vlos.mult(dt))
+        this.entity.enablePhysicsUpdate = false;
         if(this.state !== 'windup'){
-            this._entity.enablePhysicsUpdate = true;
+            this.entity.enablePhysicsUpdate = true;
         }
+        this.entity.pos.addS(this.entity.vlos)
+        this.entity.vlos.x*=0.98
     }
     windup(dt,pPos,mePos){
         if(this.state !== 'windup') return;
-        this._entity.vlos.mult(0);
+        this.entity.vlos.mult(0);
         if(this.windupTimer < 0){
             this.state = 'swoop';
             console.log('swoop')
             this.swoop(pPos,mePos)
-            this.swoopTimer = this.opts.swoopDuration
+            this.swoopTimer = this.swoopDuration
         }
     }
     swoop(pPos,mePos){
@@ -284,8 +289,8 @@ export default class AerialPathfindComponent {
          * netA in the above equasion is the net y-acceleration, i.e. (gravity + a)) - a = wing force downward
          * 
          * In our case:
-         * t = this.opts.swoopDuration
-         * vYI = this.opts.lungeSpeed
+         * t = this.swoopDuration
+         * vYI = this.lungeSpeed
          * g = this.gravity
          * 
          * Solution:
@@ -339,18 +344,17 @@ export default class AerialPathfindComponent {
          * 
         */
 
-        this.yAccel = (-2 * this.opts.lungeSpeed) / this.opts.swoopDuration - this.gravity;
-        this._entity.vlos.y = this.opts.lungeSpeed
-        this._entity.vlos.x = (pPos.x-mePos.x)/(8*this.opts.swoopDuration)
+        this.yAccel = (-2 * this.lungeSpeed) / this.swoopDuration - this.gravity;
+        this.entity.vlos.y = this.lungeSpeed
+        this.entity.vlos.x = (pPos.x-mePos.x)/(8*this.swoopDuration)
     }
 
     basicMovement(dt){
-
         // Get data
-        const player = (this._manager && this._manager.player) ? this._manager.player : (this.scene && this.scene.player ? this.scene.player : null);
-        if (!player) return;
+        const player = this.target;
+
         const pCenter = player.pos.add(player.size.mult(0.5));
-        const meCenter = this._entity.pos.add(this._entity.size.mult(0.5));
+        const meCenter = this.entity.pos.add(this.entity.size.mult(0.5));
         const dist = pCenter.distanceTo(meCenter);
 
 
@@ -358,9 +362,9 @@ export default class AerialPathfindComponent {
             return;
         }
         if (!this.path || this.pathTimer <= 0) {
-            const ts = (this.scene && this.scene.noiseTileSize) ? this.scene.noiseTileSize : (this._manager && this._manager.noiseTileSize ? this._manager.noiseTileSize : 16);
-            const sx = Math.floor((this._entity.pos.x + this._entity.size.x*0.5) / ts);
-            const sy = Math.floor((this._entity.pos.y + this._entity.size.y*0.5) / ts);
+            const ts = this._manager.noiseTileSize;
+            const sx = Math.floor((this.entity.pos.x + this.entity.size.x*0.5) / ts);
+            const sy = Math.floor((this.entity.pos.y + this.entity.size.y*0.5) / ts);
 
             if (this.attackCooldown > 0) {
                 if (!this.roamTarget) this.chooseRoamTarget();
@@ -371,8 +375,8 @@ export default class AerialPathfindComponent {
                     else this.roamTarget = null;
                 } else {
                     const dir = pCenter.sub(meCenter).div(Math.max(1, dist));
-                    this._entity.vlos.x += (dir.x * this.opts.flightSpeed - this._entity.vlos.x) * Math.min(1, dt*2);
-                    this._entity.vlos.y += (dir.y * this.opts.flightSpeed - this._entity.vlos.y) * Math.min(1, dt*2);
+                    this.entity.vlos.x += (dir.x * this.flightSpeed - this.entity.vlos.x) * Math.min(1, dt*2);
+                    this.entity.vlos.y += (dir.y * this.flightSpeed - this.entity.vlos.y) * Math.min(1, dt*2);
                 }
             } else {
                 const px = Math.floor(pCenter.x / ts); const py = Math.floor(pCenter.y / ts);
@@ -380,14 +384,65 @@ export default class AerialPathfindComponent {
                 if (newPath && newPath.length > 0) { this.path = newPath; this.pathIdx = 0; this.roamTarget = null; }
                 else {
                     const dir = pCenter.sub(meCenter).div(Math.max(1, dist));
-                    this._entity.vlos.x += (dir.x * this.opts.flightSpeed - this._entity.vlos.x) * Math.min(1, dt*4);
-                    this._entity.vlos.y += (dir.y * this.opts.flightSpeed - this._entity.vlos.y) * Math.min(1, dt*4);
+                    this.entity.vlos.x += (dir.x * this.flightSpeed - this.entity.vlos.x) * Math.min(1, dt*4);
+                    this.entity.vlos.y += (dir.y * this.flightSpeed - this.entity.vlos.y) * Math.min(1, dt*4);
                 }
             }
-            this.pathTimer = this.opts.pathRecalc;
+            this.pathTimer = this.pathRecalc;
         }
         this._followPath(dt);
     }
 
-    destroy(){ this._entity = null; this._manager = null; this.scene = null; }
+    draw() {
+        const Draw = this.sheet.Draw;
+        const ts = this._manager.noiseTileSize;
+        const p = this.path || null;
+        const startIdx = (typeof this.pathIdx === 'number') ? this.pathIdx : 0;
+        if (p && p.length) {
+            let prev = this.entity.pos.add(this.entity.size.mult(0.5));
+            for (let i = startIdx; i < p.length; i++) {
+                const node = p[i];
+                const nx = node.x * ts + ts * 0.5;
+                const ny = node.y * ts + ts * 0.5;
+                const next = new Vector(nx, ny);
+                Draw.line(prev, next, 'rgba(255, 179, 0, 0.3)', 1);
+                prev = next;
+            }
+
+            const rt = this.roamTarget || null;
+            if (rt) {
+                const cx = rt.x * ts + ts * 0.5;
+                const cy = rt.y * ts + ts * 0.5;
+                Draw.circle(new Vector(cx, cy), Math.max(2, ts * 0.2), 'rgba(255,0,0,0.3)', true);
+                Draw.circle(new Vector(cx, cy), Math.max(2, ts * 0.2), 'rgba(255,255,255,0.3)', false, 2);
+            }
+            if (this.state === 'windup') {
+                const playerCenter = this.target.pos.add(this.target.size.mult(0.5));
+                const meCenter = this.entity.pos.add(this.entity.size.mult(0.5));
+                Draw.line(meCenter, playerCenter, 'rgba(255,0,0,0.5)', 1);
+            }
+        }
+    }
+
+    destroy(){ this.entity = null; this._manager = null; this.scene = null; }
+
+    clone (entity){
+        const defaults = {
+            flightSpeed: 5, // Basic flight speed used
+            pathRecalc: 0.6,
+            attackCooldown: 5.0, // Time between consecutive attack attempts
+            
+            attackRange: 50, // Range from target to start windup
+            detectRange: 70, // Range to try and attack target
+            windupDuration: 0.5, // Windup time, conveys the attack before attacking
+            swoopDuration: 1.5, // Time before basic movement takes over again
+
+            lungeSpeed: 20, // Velocity given during lunge
+            roamRadius: 3, // Radius from current spot to next position
+            roamAttempts: 24, // Attempts to find a valid posiiton
+        };
+        const opts = pickDefaults(defaults,this)
+        const cloned = new AerialPathfindComponent(entity,this.target,this._manager,opts);
+        return cloned;
+    }
 }
