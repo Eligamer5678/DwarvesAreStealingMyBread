@@ -14,9 +14,11 @@ import { mergeObjects,pickDefaults } from '../utils/Support.js';
  * - gravity, jumpSpeed, attackRange, attackSpeed, attackCooldown, speed
  */
 export default class PathfindComponent extends Component{
-    constructor(entity,target,chunkManager,opts = {}){
-        super(entity)
-        this.sheet = entity.getComponent("sheet")
+    constructor(entity,data,opts = {}){
+        const Dependencies = {
+            target:null,
+            chunkManager:null,
+        }
         const defaults = {
             type:'simple',
             detection:300,
@@ -28,11 +30,11 @@ export default class PathfindComponent extends Component{
             attackCooldownTime: 1.2,
             speed: 20,
         }
+        super(entity,Dependencies,data)
         const mergedOpts = mergeObjects(opts,defaults)
         Object.assign(this, mergedOpts)
 
-        this.target = target
-        this._manager = chunkManager;
+        this.sheet = entity.getComponent("sheet")
         this.isAttacking = false;
         this.attackTimer = 0;
         this.attackCooldown = 0;
@@ -68,7 +70,7 @@ export default class PathfindComponent extends Component{
 
     _move(delta, desired, dir){
         // simple ground movement with obstacle check using chunkManager
-        const cm = this._manager;
+        const cm = this.chunkManager;
         const tsz = (cm && cm.noiseTileSize) ? cm.noiseTileSize : 16;
         const footY = this.entity.pos.y + this.entity.size.y - 1;
         const footSy = Math.floor(footY / tsz);
@@ -125,7 +127,7 @@ export default class PathfindComponent extends Component{
     }
 
     destroy(){
-        this.entity = null; this._manager = null;
+        this.entity = null; this.chunkManager = null;
     }
     /**
      * Clone this component
@@ -145,7 +147,8 @@ export default class PathfindComponent extends Component{
             speed: 20,
         }
         const opts = pickDefaults(defaults,this)
-        const cloned = new PathfindComponent(entity,this.target,this._manager,opts);
+        const data = pickDefaults(this.Dependencies,this)
+        const cloned = new PathfindComponent(entity,data,opts);
         return cloned;
     }
 }

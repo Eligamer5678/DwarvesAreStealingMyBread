@@ -7,17 +7,19 @@ import { mergeObjects,pickDefaults } from '../utils/Support.js';
  * with the LightingSystem. It's modular and can be attached to any entity.
  */
 export default class LightComponent extends Component{
-    constructor(entity, chunkManager, opts = {}) {
-        super(entity)
+    constructor(entity, data, opts = {}) {
+        const Dependencies = {
+            chunkManager:null,
+        }
         const defaults = {
             level:15,
             offset: new Vector(0,0),
         }
+        super(entity,Dependencies,data)
         const mergedOpts = mergeObjects(opts,defaults)
         Object.assign(this, mergedOpts)
 
         this._key = null;
-        this.manager = chunkManager;
     }
 
     init() {
@@ -78,7 +80,8 @@ export default class LightComponent extends Component{
             offset: new Vector(0,0),
         }
         const opts = pickDefaults(defaults,this)
-        const cloned = new LightComponent(entity,this.manager,opts);
+        const data = pickDefaults(this.Dependencies,this)
+        const cloned = new LightComponent(entity,data,opts);
         return cloned;
     }
 }

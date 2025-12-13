@@ -1,5 +1,6 @@
 import Vector from "../modules/Vector.js";
 import Component from "./Component.js";
+import { pickDefaults, mergeObjects} from "../utils/Support.js";
 /** Type Imports
  * @typedef {import('../managers/Draw.js').default} DrawType
  * @typedef {import('../modules/Vector.js').default} VectorType
@@ -13,20 +14,32 @@ import Component from "./Component.js";
  */
 export default class SheetComponent extends Component{
     /**
-     * @param {SheetType} sheet 
-     * @param {DrawType} Draw 
+     * @param {SheetType} entity
+     * @param {Object} data 
      * @param {EntityType} entity 
      */
-    constructor(sheet,Draw,entity){
-        super(entity)
-        this.baseSheet = sheet;
-        this.sheet = sheet.connect();
-        // Ensure a default animation is active to avoid null access during draw
+    constructor(entity,data,opts={}){
+        const Dependencies = {
+            Draw:null,
+            baseSheet:null
+        }
+        const defaults = {
+            opacity:1,
+            invert:new Vector(1,1),
+            rotation:0,
+        }
+        super(entity,Dependencies,data)
+        const mergedOpts = mergeObjects(opts,defaults)
+        Object.assign(this, mergedOpts)
+        if(this.baseSheet){
+            this.sheet = this.baseSheet.connect();
+            this.sheet.playAnimation('idle', false);
+        }
+    }
+    init(baseSheet){
+        this.baseSheet = baseSheet
+        this.sheet = this.baseSheet.connect();
         this.sheet.playAnimation('idle', false);
-        this.Draw = Draw;
-        this.rotation = 0;
-        this.invert = new Vector(1,1);
-        this.opacity = 1;
     }
     /**
      * Updates the sheet.
@@ -50,11 +63,14 @@ export default class SheetComponent extends Component{
      * @returns {SheetComponent}
      */
     clone (entity){
-        const cloned = new SheetComponent(this.baseSheet,this.Draw,entity);
-        cloned.Draw = this.Draw;
-        cloned.rotation = this.rotation;
-        cloned.invert = this.invert.clone();
-        cloned.opacity = this.opacity;
+        const defaults = {
+            opacity:1,
+            invert:new Vector(1,1),
+            rotation:0,
+        }
+        const data = pickDefaults(this.Dependencies,this)
+        const opts = pickDefaults(defaults,this)
+        const cloned = new SheetComponent(entity,data,opts);
         return cloned;
     }
 }

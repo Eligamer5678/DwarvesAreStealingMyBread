@@ -19,6 +19,7 @@ import SpriteSheet from '../js/modules/Spritesheet.js';
 import PathfindComponent from '../js/components/PathfindComponent.js';
 import AerialPathfindComponent from '../js/components/AerialPathfindComponent.js';
 import LightComponent from '../js/components/LightComponent.js';
+import PrefabLoader from '../js/utils/PrefabLoader.js';
 
 export class MainScene extends Scene {
     constructor(...args) {
@@ -99,36 +100,37 @@ export class MainScene extends Scene {
         })
 
         // Create player and attach to camera
-        try {
-            const dwarfSheet = (this.SpriteImages && this.SpriteImages.get) ? this.SpriteImages.get('dwarf') : null;
-            const tilePx = (this.chunkManager && this.chunkManager.noiseTileSize) ? this.chunkManager.noiseTileSize : 16;
-            const startPos = new Vector(tilePx * 2, tilePx * 2-128);
-            const size = new Vector(tilePx, tilePx);
-            this.player = new Dwarf(this.keys, this.Draw, startPos, size, dwarfSheet, { type: 'platformer', chunkManager: this.chunkManager, scene: this });
-            // simple fallback so player remains visible while collisions aren't implemented
-            this.player.onGround = 1;
-            this.camera.track(this.player, { offset: new Vector(0,0) });            
-            // Zoom in camera a bunch
-            try {
-                if (this.camera) {
-                    // immediate zoom to 3x for clarity
-                    this.camera.zoom.x = 10; 
-                    this.camera.zoom.y = 10;
-                    this.camera.targetZoom.x = 10; 
-                    this.camera.targetZoom.y = 10;
-                    this.camera.targetOffset = this.camera.targetOffset;
-                }
-            } catch (e) { /* ignore zoom errors */ }
-        } catch (e) { console.warn('Failed to create player', e); }
-
+        const dwarfSheet = (this.SpriteImages && this.SpriteImages.get) ? this.SpriteImages.get('dwarf') : null;
+        const tilePx = (this.chunkManager && this.chunkManager.noiseTileSize) ? this.chunkManager.noiseTileSize : 16;
+        const startPos = new Vector(tilePx * 2, tilePx * 2-128);
+        const size = new Vector(tilePx, tilePx);
+        this.player = new Dwarf(this.keys, this.Draw, startPos, size, dwarfSheet, { type: 'platformer', chunkManager: this.chunkManager, scene: this });
+        // simple fallback so player remains visible while collisions aren't implemented
+        this.player.onGround = 1;
+        this.camera.track(this.player, { offset: new Vector(0,0) });            
+        // Zoom in camera a bunch
+        if (this.camera) {
+            // immediate zoom to 3x for clarity
+            this.camera.zoom.x = 10; 
+            this.camera.zoom.y = 10;
+            this.camera.targetZoom.x = 10; 
+            this.camera.targetZoom.y = 10;
+            this.camera.targetOffset = this.camera.targetOffset;
+        }
             
         this.createManagers()
         this.chunkManager.generateChunksAround(this.player.pos.x, this.player.pos.y, 3);
-
-        this.addSlimePrefab()
-        this.addBatPrefab()
-        this.addMothPrefab()
-        this.addTorchPrefab()
+        this.data = {
+            chunkManager:this.chunkManager,
+            target: new Vector(0,0),
+        }
+        // Dynamically load prefabs from data/entities.json
+        const data = {
+            chunkManager:this.chunkManager,
+            target: this.player,
+            Draw: this.Draw
+        }
+        PrefabLoader.loadAndRegister('./data/entities.json', this.entityManager,data,this.SpriteImages);
         this.isReady = true;
     }
     createManagers(){
@@ -146,44 +148,6 @@ export class MainScene extends Scene {
         this.lighting.update();
         this.entityManager.setLightingSystem(this.lighting);
         this.chunkManager.onTileModified.connect((sx, sy, val) => {this.lighting.markDirty()});
-    }
-    addSlimePrefab(){
-        const slime = new Entity(new Vector(0,-16),new Vector(16,16))
-        const sheet = this.SpriteImages.get('slime');
-        const sheetComponent = new SheetComponent(sheet,this.Draw,slime)
-        slime.setComponent("sheet",sheetComponent)
-        const pathFindingComponent = new PathfindComponent(slime,this.player,this.chunkManager)
-        slime.setComponent("AI",pathFindingComponent)
-        this.entityManager.addEntityType("slime",slime)
-    }
-    addBatPrefab(){
-        const bat = new Entity(new Vector(0,-16),new Vector(16,16))
-        const sheet = this.SpriteImages.get('bat');
-        const sheetComponent = new SheetComponent(sheet,this.Draw,bat)
-        bat.setComponent("sheet",sheetComponent)
-        const pathFindingComponent = new AerialPathfindComponent(bat,this.player,this.chunkManager)
-        bat.setComponent("AI",pathFindingComponent)
-        this.entityManager.addEntityType("bat",bat)
-    }
-    addMothPrefab(){
-        const moth = new Entity(new Vector(0,-16),new Vector(16,16))
-        const sheet = this.SpriteImages.get('moth');
-        const sheetComponent = new SheetComponent(sheet,this.Draw,moth)
-        moth.setComponent("sheet",sheetComponent)
-        const pathFindingComponent = new AerialPathfindComponent(moth,this.player,this.chunkManager)
-        moth.setComponent("AI",pathFindingComponent)
-        this.entityManager.addEntityType("moth",moth)
-    }
-    addTorchPrefab(){
-        const torch = new Entity(new Vector(0,-16),new Vector(16,16))
-        const sheet = this.SpriteImages.get('torch');
-        const sheetComponent = new SheetComponent(sheet,this.Draw,torch)
-        torch.setComponent("sheet",sheetComponent)
-        const LightComp = new LightComponent(torch,this.chunkManager)
-        torch.setComponent("light",LightComp)
-        torch.team = 'light'
-
-        this.entityManager.addEntityType("torch",torch)
     }
 
     sceneTick(tickDelta) {

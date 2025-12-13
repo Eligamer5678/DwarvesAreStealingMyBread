@@ -13,8 +13,12 @@ function heuristic(ax, ay, bx, by) {
  *! Dependencies: SheetComponent
  */
 export default class AerialPathfindComponent extends Component{
-    constructor(entity,target,chunkManager,opts = {}){
-        super(entity)
+    constructor(entity,data,opts = {}){
+        const Dependencies = {
+            target:null,
+            chunkManager:null,
+        }
+        super(entity,Dependencies,data)
         this.sheet = entity.getComponent("sheet")
         const defaults = {
             flightSpeed: 1, // Basic flight speed used
@@ -32,11 +36,8 @@ export default class AerialPathfindComponent extends Component{
         };
         const mergedOpts = mergeObjects(opts,defaults)
         Object.assign(this, mergedOpts)
-        this._manager = chunkManager;
-
         // runtime
         this.path = null;
-        this.target = target
         this.pathIdx = 0;
         this.pathTimer = 0;
         this.gravity = 5;
@@ -53,7 +54,7 @@ export default class AerialPathfindComponent extends Component{
 
     // A* pathfinder adapted from sprite implementations
     findPath(startX, startY, goalX, goalY, maxNodes = 2000) {
-        const cm = this._manager;
+        const cm = this.chunkManager;
         const keyOf = (x,y)=>`${x},${y}`;
         const open = new Map();
         const closed = new Set();
@@ -122,10 +123,10 @@ export default class AerialPathfindComponent extends Component{
 
     // Choose a roam target reachable within roamRadius
     chooseRoamTarget() {
-        const ts = this._manager.noiseTileSize;
+        const ts = this.chunkManager.noiseTileSize;
         const startX = Math.floor((this.entity.pos.x + this.entity.size.x*0.5) / ts);
         const startY = Math.floor((this.entity.pos.y + this.entity.size.y*0.5) / ts);
-        const cm = this._manager;
+        const cm = this.chunkManager;
 
         const keyOf = (x,y)=>`${x},${y}`;
         const visited = new Set();
@@ -205,7 +206,7 @@ export default class AerialPathfindComponent extends Component{
         if (!this.path || this.path.length === 0) return;
         while (this.pathIdx < this.path.length) {
             const node = this.path[this.pathIdx];
-            const ts = this._manager.noiseTileSize;
+            const ts = this.chunkManager.noiseTileSize;
             const target = new Vector(node.x * ts + ts*0.5, node.y * ts + ts*0.5);
             const disp = target.sub(this.entity.pos);
             const dist = Math.hypot(disp.x, disp.y);
@@ -362,7 +363,7 @@ export default class AerialPathfindComponent extends Component{
             return;
         }
         if (!this.path || this.pathTimer <= 0) {
-            const ts = this._manager.noiseTileSize;
+            const ts = this.chunkManager.noiseTileSize;
             const sx = Math.floor((this.entity.pos.x + this.entity.size.x*0.5) / ts);
             const sy = Math.floor((this.entity.pos.y + this.entity.size.y*0.5) / ts);
 
@@ -395,7 +396,7 @@ export default class AerialPathfindComponent extends Component{
 
     draw() {
         const Draw = this.sheet.Draw;
-        const ts = this._manager.noiseTileSize;
+        const ts = this.chunkManager.noiseTileSize;
         const p = this.path || null;
         const startIdx = (typeof this.pathIdx === 'number') ? this.pathIdx : 0;
         if (p && p.length) {
@@ -424,7 +425,7 @@ export default class AerialPathfindComponent extends Component{
         }
     }
 
-    destroy(){ this.entity = null; this._manager = null; this.scene = null; }
+    destroy(){ this.entity = null; this.chunkManager = null; this.scene = null; }
 
     clone (entity){
         const defaults = {
@@ -442,7 +443,8 @@ export default class AerialPathfindComponent extends Component{
             roamAttempts: 24, // Attempts to find a valid posiiton
         };
         const opts = pickDefaults(defaults,this)
-        const cloned = new AerialPathfindComponent(entity,this.target,this._manager,opts);
+        const data = pickDefaults(this.Dependencies,this)
+        const cloned = new AerialPathfindComponent(entity,data,opts);
         return cloned;
     }
 }

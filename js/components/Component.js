@@ -1,3 +1,4 @@
+import { pickDefaults } from "../utils/Support.js"
 /**
  * Components are added to entities to add feutures. 
  * 
@@ -11,10 +12,13 @@
  * 
  * Must haves:
  * - Clone method
+ * - State dependancies in an object before calling super()
  */
 export default class Component{
-    constructor (entity){
+    constructor (entity,Dependencies,data){
         this.entity = entity
+        this.Dependencies = Dependencies // save reference for cloning later
+        Object.assign(this,pickDefaults(Dependencies,data))
     }
     /**
      * Clone this component
