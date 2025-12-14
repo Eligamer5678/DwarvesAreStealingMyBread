@@ -89,6 +89,11 @@
                                 {"pos":[5,5],"type":"slime","data":{
                                     "team":"monster",
                                     "size":[16,16]
+                                }},
+                                {"pos":"random","type":"slime","data":{
+                                    "team":"monster",
+                                    "size":[16,16],
+                                    "chance":0.1
                                 }}
                             ]
                         }

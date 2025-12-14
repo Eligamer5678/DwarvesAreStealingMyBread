@@ -39,20 +39,6 @@ export default class ChunkManager {
         };
         this.noiseOptions = Object.assign({}, defaultNoise, options.noiseOptions || {});
 
-        // Placeholder tilesheets for surface, structure and ore placement. These can
-        // be assigned real images later by the scene or asset loader. Use a sane
-        // default tile pixel size (`tilePx`) instead of referencing noiseOptions
-        // before it's initialized.
-        this.surfaceTileSheet = new TileSheet(null, tilePx);
-        this.structureTileSheet = new TileSheet(null, tilePx);
-        // NOTE: ore tiles are registered via `blocks.json` into TileSheets by AssetManager;
-        // do not maintain a separate oreTileSheet here.
-        // Add a few placeholder keys so user code can reference them safely
-        for (let i = 0; i < 5; i++) {
-            this.surfaceTileSheet.addTile(`place${i}`, 0, i);
-            this.structureTileSheet.addTile(`struct${i}`, 0, i);
-        }
-
         // Internal state
         this.chunks = new Map(); // key: "cx,cy" -> { x, y, data, width, height }
         this.modifiedTiles = new Map(); // key: "sx,sy" -> tile data or null

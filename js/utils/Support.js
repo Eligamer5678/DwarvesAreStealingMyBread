@@ -89,8 +89,21 @@ export function mergeObjects(obj, defaults) {
             } else if (v && typeof v === 'object' && typeof v.clone === 'function') {
                 obj[k] = v.clone();
             } else if (v && typeof v === 'object') {
-                // shallow copy for plain objects/arrays
-                obj[k] = Array.isArray(v) ? v.slice() : Object.assign({}, v);
+                // Preserve class instances (like SpriteSheet) by assigning the
+                // original object reference. For plain objects, make a shallow
+                // copy so callers don't accidentally mutate the defaults.
+                if (Array.isArray(v)) {
+                    obj[k] = v.slice();
+                } else {
+                    const proto = Object.getPrototypeOf(v);
+                    if (proto && proto !== Object.prototype) {
+                        // likely a class instance — keep reference
+                        obj[k] = v;
+                    } else {
+                        // plain object — shallow copy
+                        obj[k] = Object.assign({}, v);
+                    }
+                }
             } else {
                 obj[k] = v;
             }
@@ -123,7 +136,19 @@ export function pickDefaults(defaults, instance) {
         } else if (v && typeof v === 'object' && typeof v.clone === 'function') {
             out[k] = v.clone();
         } else if (v && typeof v === 'object') {
-            out[k] = Array.isArray(v) ? v.slice() : Object.assign({}, v);
+            // For class instances (non-plain objects) preserve the original
+            // reference so methods like `connect()` remain available. For
+            // plain objects/arrays, perform a shallow copy.
+            if (Array.isArray(v)) {
+                out[k] = v.slice();
+            } else {
+                const proto = Object.getPrototypeOf(v);
+                if (proto && proto !== Object.prototype) {
+                    out[k] = v;
+                } else {
+                    out[k] = Object.assign({}, v);
+                }
+            }
         } else {
             out[k] = v;
         }

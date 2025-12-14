@@ -59,6 +59,19 @@ export default class EntityManager {
         newEntity.pos = pos.clone();
         newEntity.size = size.clone();
 
+        // Ensure each component knows its manager and perform any zero-arg
+        // init() calls (used by components that register with systems
+        // via this.manager). We avoid calling init with arguments because
+        // some components (eg. SheetComponent) expect different init params.
+        for (const c of newEntity.getComponents()) {
+            try {
+                if (c && !c.manager) c.manager = this;
+                if (c && typeof c.init === 'function' && c.init.length === 0) {
+                    try { c.init(); } catch (e) { /* ignore init errors */ }
+                }
+            } catch (e) { /* ignore per-component errors */ }
+        }
+
         this.entities.push(newEntity);
         return newEntity;
     }

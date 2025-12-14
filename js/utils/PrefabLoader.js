@@ -48,10 +48,18 @@ export default class PrefabLoader {
                 if (moduleName === 'SheetComponent'){
                     const sheetKey = compData.sheet;
                     const baseSheet = spriteImages.get(sheetKey);
-                    const instance = new createdComponent(ent, mergeObjects(sceneData,{baseSheet:baseSheet}), compData.opts);
+                    // Do not mutate the shared `sceneData` object — create a
+                    // per-component dependency object so each SheetComponent
+                    // receives the correct `baseSheet` for its sprite key.
+                    const deps = Object.assign({}, sceneData, { baseSheet: baseSheet });
+                    const instance = new createdComponent(ent, deps, compData.opts);
+                    // Ensure prototype component knows its manager so clones
+                    // can inherit the reference (via pickDefaults during clone).
+                    instance.manager = entityManager;
                     ent.setComponent(name, instance);
                 }else{
                     const instance = new createdComponent(ent, sceneData, compData.opts);
+                    instance.manager = entityManager;
                     ent.setComponent(name, instance);
                 }
                 continue;

@@ -10,6 +10,7 @@ export default class LightComponent extends Component{
     constructor(entity, data, opts = {}) {
         const Dependencies = {
             chunkManager:null,
+            manager: null,
         }
         const defaults = {
             level:15,
@@ -23,7 +24,8 @@ export default class LightComponent extends Component{
     }
 
     init() {
-        const ls = this.manager.lightingSystem;
+        const ls = this.manager && this.manager.lightingSystem;
+        if (!ls) return;
         const s = this._sampleCoords();
         const key = `${s.sx},${s.sy}`;
         this._key = key;
@@ -62,8 +64,9 @@ export default class LightComponent extends Component{
 
     destroy() {
         // Remove torch from lighting system
-        if(!this.key) return;
-        const ls = this.manager.lightingSystem;
+        if(!this._key) return;
+        const ls = this.manager && this.manager.lightingSystem;
+        if (!ls) return;
         if (ls.torches.has(this._key)) ls.torches.delete(this._key);
         const parts = this._key.split(',').map(n => parseInt(n,10));
         ls._updateTorchCacheRemove(parts[0], parts[1]);

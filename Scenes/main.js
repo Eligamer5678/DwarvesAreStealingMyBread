@@ -180,7 +180,7 @@ export class MainScene extends Scene {
                     this.entityManager.removeEntity(torch)
                 })
                 this.lighting.markDirty();
-            } else {
+            } else {  
                 if (this.entityManager) this.entityManager.addEntity("torch",pos,new Vector(16,16));
                 this.lighting.markDirty();
             }
