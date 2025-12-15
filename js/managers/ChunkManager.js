@@ -38,7 +38,7 @@ export default class ChunkManager {
             seedOffset: 0,
         };
         this.noiseOptions = Object.assign({}, defaultNoise, options.noiseOptions || {});
-
+        this.entityManager = null;
         // Internal state
         // New chunk storage format: layer -> { "cx,cy": { tiles: [...], data: {...} } }
         this.chunks = { back: {}, base: {}, front: {} };
@@ -457,142 +457,174 @@ export default class ChunkManager {
         }
         
         // Fill regions
+        // Support `copyfrom` in chunk specs: copy regions from another named
+        // chunk spec before applying this spec's regions. This allows small
+        // variants to reuse a base chunk layout.
+        const resolveCopiedRegions = (name, seen = new Set()) => {
+            if (!name || typeof name !== 'string') return [];
+            if (name === 'none') return [];
+            if (!this.chunkSpecs || !this.chunkSpecs.chunks) return [];
+            if (seen.has(name)) return [];
+            seen.add(name);
+            const s = this.chunkSpecs.chunks[name];
+            if (!s || !s.data) return [];
+            // first, recursively resolve copyfrom on the source so chains work
+            const parentCopy = (s.data.copyfrom && typeof s.data.copyfrom === 'string') ? resolveCopiedRegions(s.data.copyfrom, seen) : [];
+            const srcRegions = Array.isArray(s.data.regions) ? s.data.regions.map(r => JSON.parse(JSON.stringify(r))) : [];
+            return parentCopy.concat(srcRegions);
+        };
+
+        let regions = [];
+        if (spec.data && typeof spec.data.copyfrom === 'string' && spec.data.copyfrom !== 'none') {
+            try {
+                regions = regions.concat(resolveCopiedRegions(spec.data.copyfrom));
+            } catch (e) { /* ignore copy errors */ }
+        }
+        // then append this spec's own regions (so they can override/extend)
+        if (spec.data && Array.isArray(spec.data.regions)) regions = regions.concat(spec.data.regions);
+
+        // Allow compact region specs to inherit certain fields from the
+        // previous region. Only `block_type`, `special.rot`/`special.invert`,
+        // and `layer` are inherited when not explicitly provided.
+        let prevBlockType = null;
+        let prevRot = 0;
+        let prevInvert = false;
+        let prevLayer = undefined;
+        for (const reg of regions) {
+            const r0 = reg.region && reg.region[0] ? reg.region[0] : [0,0];
+            const r1 = reg.region && reg.region[1] ? reg.region[1] : reg.region[0];
+            const bx = Math.max(0, Math.min(chunkSize-1, r0[0]));
+            const by = Math.max(0, Math.min(chunkSize-1, r0[1]));
+            const ex = Math.max(0, Math.min(chunkSize-1, r1[0]));
+            const ey = Math.max(0, Math.min(chunkSize-1, r1[1]));
+            // Inherit block_type if not present
+            const blockType = (reg.block_type !== undefined && reg.block_type !== null) ? reg.block_type : (prevBlockType || 'stone');
+            // Inherit rot/invert from previous region if not provided
+            const rot = (reg.special && reg.special.rot !== undefined) ? reg.special.rot : prevRot;
+            const invert = (reg.special && reg.special.invert !== undefined) ? reg.special.invert : prevInvert;
+            const hasTransform = rot !== 0 || invert !== false;
+            // Inherit layer from previous region when not set on this region
+            const layerVal = (reg.layer !== undefined) ? reg.layer : prevLayer;
+
+            for (let y = by; y <= ey; y++) {
+                for (let x = bx; x <= ex; x++) {
+                    const idx = y * chunkSize + x;
+                    const tlayer = layerVal || layerForChunk || 'base';
+                    if (hasTransform) {
+                        const obj = { id: blockType, rot: rot, invert: invert };
+                        layers[tlayer][idx] = obj;
+                    } else {
+                        layers[tlayer][idx] = blockType;
+                    }
+                }
+            }
+
+            // Update previous values for next region
+            prevBlockType = blockType;
+            prevRot = rot;
+            prevInvert = invert;
+            prevLayer = layerVal;
+        }
+        if(spec.data.entities){
+            for(let entity of spec.data.entities){
+                if(entity.pos === 'random'){
+                }else{
+                    this.entityManager.addEntity(entity.type,
+                        new Vector((cx+entity.pos[0])*this.noiseTileSize,(cy+entity.pos[1])*this.noiseTileSize),
+                        entity.data.size)
+                }
+            }
+        }
+        // After filling regions, apply cave carving as a post-process for ground chunks
         try {
-            const regions = spec.data && spec.data.regions ? spec.data.regions : [];
+            for (const s of selected.special) {
+                if (!s || s.type !== 'caves') continue;
+                const sd = s.data || {};
+                // Start from default noise options, then apply cave-specific overrides
+                const nopts = Object.assign({}, this.noiseOptions);
+                if (typeof sd.scale === 'number') nopts.scale = sd.scale;
+                if (typeof sd.octaves === 'number') nopts.octaves = sd.octaves;
+                if (typeof sd.persistence === 'number') nopts.persistence = sd.persistence;
+                if (typeof sd.lacunarity === 'number') nopts.lacunarity = sd.lacunarity;
+                if (typeof sd.normalize === 'boolean') nopts.normalize = sd.normalize;
+                if (typeof sd.split === 'number') nopts.split = sd.split;
+                if (typeof sd.connect === 'boolean') nopts.connect = sd.connect;
+                if (typeof sd.bridgeWidth === 'number') nopts.bridgeWidth = sd.bridgeWidth;
+                // seed: prefer explicit seed, otherwise apply seedOffset to base seed
+                if (Number.isFinite(sd.seed)) nopts.seed = sd.seed;
+                else if (Number.isFinite(sd.seedOffset)) nopts.seed = (this.noiseOptions.seed || 0) + sd.seedOffset;
+                // offsets: allow per-special offsets added to chunk start
+                const extraOX = Number.isFinite(sd.offsetX) ? sd.offsetX : 0;
+                const extraOY = Number.isFinite(sd.offsetY) ? sd.offsetY : 0;
+                nopts.offsetX = (startX || 0) + extraOX;
+                nopts.offsetY = (startY || 0) + extraOY;
 
-            // Allow compact region specs to inherit certain fields from the
-            // previous region. Only `block_type`, `special.rot`/`special.invert`,
-            // and `layer` are inherited when not explicitly provided.
-            let prevBlockType = null;
-            let prevRot = 0;
-            let prevInvert = false;
-            let prevLayer = undefined;
-            for (const reg of regions) {
-                const r0 = reg.region && reg.region[0] ? reg.region[0] : [0,0];
-                const r1 = reg.region && reg.region[1] ? reg.region[1] : reg.region[0];
-                const bx = Math.max(0, Math.min(chunkSize-1, r0[0]));
-                const by = Math.max(0, Math.min(chunkSize-1, r0[1]));
-                const ex = Math.max(0, Math.min(chunkSize-1, r1[0]));
-                const ey = Math.max(0, Math.min(chunkSize-1, r1[1]));
-                // Inherit block_type if not present
-                const blockType = (reg.block_type !== undefined && reg.block_type !== null) ? reg.block_type : (prevBlockType || 'stone');
-                // Inherit rot/invert from previous region if not provided
-                const rot = (reg.special && reg.special.rot !== undefined) ? reg.special.rot : prevRot;
-                const invert = (reg.special && reg.special.invert !== undefined) ? reg.special.invert : prevInvert;
-                const hasTransform = rot !== 0 || invert !== false;
-                // Inherit layer from previous region when not set on this region
-                const layerVal = (reg.layer !== undefined) ? reg.layer : prevLayer;
+                const caveMap = perlinNoise(chunkSize, chunkSize, nopts);
+                const threshold = (sd.threshold !== undefined) ? sd.threshold : 0.5;
 
+                for (let y = 0; y < chunkSize; y++) {
+                        for (let x = 0; x < chunkSize; x++) {
+                            const idx = y * chunkSize + x;
+                            const v = caveMap.data[idx];
+                            if (typeof v !== 'number') continue;
+
+                            let carve = false;
+                            if (Number.isFinite(nopts.split) && nopts.split >= 0) {
+                                if (v === 1) carve = true;
+                            } else {
+                                let val = v;
+                                if (!nopts.normalize) val = (v + 1) / 2;
+                                if (val > threshold) carve = true;
+                            }
+
+                            if (carve) {
+                                // carve only in the chunk's main layer
+                                const tgt = layers[layerForChunk] || layers.base;
+                                tgt[idx] = 'air';
+                            }
+                        }
+                    }
+            }
+
+        } catch (e) { /* ignore cave carve errors */ }
+
+        // Apply region-local specials (e.g., ores defined inside a region)
+        for (const reg of regions) {
+            if (!reg || !reg.special) continue;
+            const s = reg.special;
+            if (!s || !s.type) continue;
+            // compute region bounds again
+            const r0 = reg.region && reg.region[0] ? reg.region[0] : [0,0];
+            const r1 = reg.region && reg.region[1] ? reg.region[1] : [chunkSize-1, chunkSize-1];
+            const bx = Math.max(0, Math.min(chunkSize-1, r0[0]));
+            const by = Math.max(0, Math.min(chunkSize-1, r0[1]));
+            const ex = Math.max(0, Math.min(chunkSize-1, r1[0]));
+            const ey = Math.max(0, Math.min(chunkSize-1, r1[1]));
+
+            if (s.type === 'ores') {
+                const spread = (s.data && s.data.spread) ? s.data.spread : [];
+                const seed = (this.noiseOptions && Number.isFinite(this.noiseOptions.seed)) ? this.noiseOptions.seed : 1337;
+                const pseudo = (a, x, y) => { const n = x * 374761393 + y * 668265263 + (a|0) * 1274126177; const v = Math.sin(n) * 43758.5453123; return v - Math.floor(v); };
                 for (let y = by; y <= ey; y++) {
                     for (let x = bx; x <= ex; x++) {
                         const idx = y * chunkSize + x;
-                        const tlayer = layerVal || layerForChunk || 'base';
-                        if (hasTransform) {
-                            const obj = { id: blockType, rot: rot, invert: invert };
-                            layers[tlayer][idx] = obj;
-                        } else {
-                            layers[tlayer][idx] = blockType;
-                        }
-                    }
-                }
-
-                // Update previous values for next region
-                prevBlockType = blockType;
-                prevRot = rot;
-                prevInvert = invert;
-                prevLayer = layerVal;
-            }
-            // After filling regions, apply cave carving as a post-process for ground chunks
-            try {
-                for (const s of selected.special) {
-                    if (!s || s.type !== 'caves') continue;
-                    const sd = s.data || {};
-                    // Start from default noise options, then apply cave-specific overrides
-                    const nopts = Object.assign({}, this.noiseOptions);
-                    if (typeof sd.scale === 'number') nopts.scale = sd.scale;
-                    if (typeof sd.octaves === 'number') nopts.octaves = sd.octaves;
-                    if (typeof sd.persistence === 'number') nopts.persistence = sd.persistence;
-                    if (typeof sd.lacunarity === 'number') nopts.lacunarity = sd.lacunarity;
-                    if (typeof sd.normalize === 'boolean') nopts.normalize = sd.normalize;
-                    if (typeof sd.split === 'number') nopts.split = sd.split;
-                    if (typeof sd.connect === 'boolean') nopts.connect = sd.connect;
-                    if (typeof sd.bridgeWidth === 'number') nopts.bridgeWidth = sd.bridgeWidth;
-                    // seed: prefer explicit seed, otherwise apply seedOffset to base seed
-                    if (Number.isFinite(sd.seed)) nopts.seed = sd.seed;
-                    else if (Number.isFinite(sd.seedOffset)) nopts.seed = (this.noiseOptions.seed || 0) + sd.seedOffset;
-                    // offsets: allow per-special offsets added to chunk start
-                    const extraOX = Number.isFinite(sd.offsetX) ? sd.offsetX : 0;
-                    const extraOY = Number.isFinite(sd.offsetY) ? sd.offsetY : 0;
-                    nopts.offsetX = (startX || 0) + extraOX;
-                    nopts.offsetY = (startY || 0) + extraOY;
-
-                    const caveMap = perlinNoise(chunkSize, chunkSize, nopts);
-                    const threshold = (sd.threshold !== undefined) ? sd.threshold : 0.5;
-
-                    for (let y = 0; y < chunkSize; y++) {
-                            for (let x = 0; x < chunkSize; x++) {
-                                const idx = y * chunkSize + x;
-                                const v = caveMap.data[idx];
-                                if (typeof v !== 'number') continue;
-
-                                let carve = false;
-                                if (Number.isFinite(nopts.split) && nopts.split >= 0) {
-                                    if (v === 1) carve = true;
-                                } else {
-                                    let val = v;
-                                    if (!nopts.normalize) val = (v + 1) / 2;
-                                    if (val > threshold) carve = true;
-                                }
-
-                                if (carve) {
-                                    // carve only in the chunk's main layer
-                                    const tgt = layers[layerForChunk] || layers.base;
-                                    tgt[idx] = 'air';
-                                }
-                            }
-                        }
-                }
-
-            } catch (e) { /* ignore cave carve errors */ }
-
-            // Apply region-local specials (e.g., ores defined inside a region)
-            for (const reg of regions) {
-                if (!reg || !reg.special) continue;
-                const s = reg.special;
-                if (!s || !s.type) continue;
-                // compute region bounds again
-                const r0 = reg.region && reg.region[0] ? reg.region[0] : [0,0];
-                const r1 = reg.region && reg.region[1] ? reg.region[1] : [chunkSize-1, chunkSize-1];
-                const bx = Math.max(0, Math.min(chunkSize-1, r0[0]));
-                const by = Math.max(0, Math.min(chunkSize-1, r0[1]));
-                const ex = Math.max(0, Math.min(chunkSize-1, r1[0]));
-                const ey = Math.max(0, Math.min(chunkSize-1, r1[1]));
-
-                if (s.type === 'ores') {
-                    const spread = (s.data && s.data.spread) ? s.data.spread : [];
-                    const seed = (this.noiseOptions && Number.isFinite(this.noiseOptions.seed)) ? this.noiseOptions.seed : 1337;
-                    const pseudo = (a, x, y) => { const n = x * 374761393 + y * 668265263 + (a|0) * 1274126177; const v = Math.sin(n) * 43758.5453123; return v - Math.floor(v); };
-                    for (let y = by; y <= ey; y++) {
-                        for (let x = bx; x <= ex; x++) {
-                            const idx = y * chunkSize + x;
-                            // attempt to place ores in the region's effective layer
-                            const effLayer = reg.layer || layerForChunk || 'base';
-                            const cur = layers[effLayer][idx];
-                            if (typeof cur === 'string' && cur !== 'air') {
-                                for (let i = 0; i < spread.length; i++) {
-                                    const sopt = spread[i];
-                                    const chance = Number(sopt.chance || 0);
-                                    const pick = sopt.block_type;
-                                    // compute a per-ore random value so multiple ore types can be selected
-                                    const r = pseudo(seed + i * 2654435761, startX + x, startY + y);
-                                    if (r < chance) { layers[effLayer][idx] = pick; break; }
-                                }
+                        // attempt to place ores in the region's effective layer
+                        const effLayer = reg.layer || layerForChunk || 'base';
+                        const cur = layers[effLayer][idx];
+                        if (typeof cur === 'string' && cur !== 'air') {
+                            for (let i = 0; i < spread.length; i++) {
+                                const sopt = spread[i];
+                                const chance = Number(sopt.chance || 0);
+                                const pick = sopt.block_type;
+                                // compute a per-ore random value so multiple ore types can be selected
+                                const r = pseudo(seed + i * 2654435761, startX + x, startY + y);
+                                if (r < chance) { layers[effLayer][idx] = pick; break; }
                             }
                         }
                     }
                 }
             }
-        } catch (e) { /* ignore */ }
+        }
 
         // Apply special rules from selected generation rule
         try {
@@ -750,6 +782,7 @@ export default class ChunkManager {
                         try {
                             draw.setBrightness(it.brightness);
                             draw.tile(tsKey, it.pos, tileSize, it.bid, it.rotSteps, it.invertVec, 1, false);
+                            if(layerName === "back") draw.rect(it.pos,new Vector(tileSize,tileSize),"#00000022")
                         } catch (e) {
                             draw.rect(it.pos, new Vector(tileSize, tileSize), '#ff00ff88', false);
                         }
@@ -758,11 +791,7 @@ export default class ChunkManager {
                     // No tilesheet: draw placeholders
                     for (const it of items) {
                         let fillCol = '#ff00e1ff';
-                        try {
-                            if (opts.lighting && opts.lighting.constructor && typeof opts.lighting.constructor.modulateColor === 'function') {
-                                fillCol = opts.lighting.constructor.modulateColor('#f700ffff', it.brightness);
-                            }
-                        } catch (e) { /* ignore */ }
+                        fillCol = opts.lighting.constructor.modulateColor('#f700ffff', it.brightness);
                         draw.setBrightness(it.brightness);
                         draw.rect(it.pos, new Vector(tileSize, tileSize), fillCol, true);
                     }

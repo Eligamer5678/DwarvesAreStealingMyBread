@@ -40,7 +40,7 @@ export default class Dwarf extends Sprite {
         this.jumpSpeed = 1.6; // initial jump impulse (px/s)
         this.onGround = 0; // set by scene collision resolution
         this.onLadder = false; // set by scene when overlapping ladder
-        this.climbSpeed = 0.5; // px/s climb speed when on ladder (slower)
+        this.climbSpeed = 1; // px/s climb speed when on ladder (slower)
         this.mining = false;
         // Tool state (can be changed at runtime). `speed` scales mining time (1.0 = normal).
         this.currentTool = { type: 'pickaxe', speed: 1.0 };

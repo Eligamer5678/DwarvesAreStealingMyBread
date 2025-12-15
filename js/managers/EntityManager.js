@@ -52,6 +52,7 @@ export default class EntityManager {
      * @param {EntityType} entity 
      */
     addEntity(name, pos = null, size = null, options = {}){
+        console.log('adding entity')
         const preset = this.entityTypes.get(name);
         if (!preset) return null;
 
@@ -174,7 +175,6 @@ export default class EntityManager {
         const maxDist = this.noiseTileSize * this.activeRadius;
         const px = this.player.pos.x + this.player.size.x * 0.5;
         const py = this.player.pos.y + this.player.size.y * 0.5;
-
         for (const entity of this.entities) {
             const ex = entity.pos.x + entity.size.x * 0.5;
             const ey = entity.pos.y + entity.size.y * 0.5;

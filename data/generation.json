@@ -102,7 +102,8 @@
         "type":"structure",
         "root":[0,0],
         "chunks":[
-            {"pos":[0,-1],"type":["bagel_village1"]}
+            {"pos":[0,-1],"type":["bagel_village1"]},
+            {"pos":[1,-1],"type":["bagel_village2"]}
         ]
     }
     

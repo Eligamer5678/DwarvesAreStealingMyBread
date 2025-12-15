@@ -10,6 +10,9 @@
                 "name":"AI",
                 "opts":{}
             }
+        },
+        "data":{
+            "health":5
         }
     },
     "torch":{
@@ -23,7 +26,8 @@
                 "name":"light",
                 "opts":{}
             }
-        }
+        },
+        "data":{}
     },
     "moth":{
         "components":{
@@ -36,6 +40,9 @@
                 "name":"AI",
                 "opts":{}
             }
+        },
+        "data":{
+            "health":2
         }
     },
     "bat":{
@@ -49,6 +56,9 @@
                 "name":"AI",
                 "opts":{}
             }
+        },
+        "data":{
+            "health":5
         }
     }
 }

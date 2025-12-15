@@ -65,7 +65,11 @@ export class MainScene extends Scene {
             // Initialize chunk manager and load generation/chunk/block definitions
             this.chunkManager = new ChunkManager();
             await this.chunkManager.loadDefinitions('./data');
-
+            // entity manager
+            this.entityManager = new EntityManager(this.chunkManager, this.Draw, this.SpriteImages, { noiseTileSize: this.chunkManager.noiseTileSize });
+                        
+            // Allow chunk manager to spawn entities during generation when available
+            this.chunkManager.entityManager = this.entityManager;
             this.isPreloaded = true;
             return true;
         } catch (err) {
@@ -102,9 +106,10 @@ export class MainScene extends Scene {
         // Create player and attach to camera
         const dwarfSheet = (this.SpriteImages && this.SpriteImages.get) ? this.SpriteImages.get('dwarf') : null;
         const tilePx = (this.chunkManager && this.chunkManager.noiseTileSize) ? this.chunkManager.noiseTileSize : 16;
-        const startPos = new Vector(tilePx * 2, tilePx * 2-128);
+        const startPos = new Vector(tilePx * 2, tilePx * 2-96);
         const size = new Vector(tilePx, tilePx);
         this.player = new Dwarf(this.keys, this.Draw, startPos, size, dwarfSheet, { type: 'platformer', chunkManager: this.chunkManager, scene: this });
+        this.entityManager.setPlayer(this.player);   
         // simple fallback so player remains visible while collisions aren't implemented
         this.player.onGround = 1;
         this.camera.track(this.player, { offset: new Vector(0,0) });            
@@ -140,10 +145,8 @@ export class MainScene extends Scene {
         this.lighting = new LightingSystem(this.chunkManager, {});
         this.chunkManager.lightingSystem = this.lighting
 
-        // entity manager
-        this.entityManager = new EntityManager(this.chunkManager, this.Draw, this.SpriteImages, { noiseTileSize: this.chunkManager.noiseTileSize });
-        this.entityManager.setPlayer(this.player);
-        this.entityManager.setLightingSystem(this.lighting);                
+        
+        console.log('adding emanager')
         this.lighting.markDirty();
         this.lighting.update();
         this.entityManager.setLightingSystem(this.lighting);
