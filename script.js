@@ -51,7 +51,6 @@ class Game {
         this.program.addLayer('bg', false);
         this.program.addLayer('back', false);
         this.program.addLayer('base', false);
-        this.program.addLayer('front', false);
         this.program.addLayer('overlay', false);
         this.program.addLayer('UI', true);
         this.program.addLayer('overlays', true);

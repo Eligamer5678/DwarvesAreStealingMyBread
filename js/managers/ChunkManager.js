@@ -697,7 +697,7 @@ export default class ChunkManager {
         for (let sy = sy0; sy <= sy1; sy++) {
             for (let sx = sx0; sx <= sx1; sx++) {
                 // Collect tiles from each layer so back/base/front can coexist
-                const layerKeys = ['back','base','front'];
+                const layerKeys = ['back','base'];
                 for (const layerKey of layerKeys) {
                     const tile = this.getTileValue(sx, sy, layerKey);
                     if (!tile || !tile.id) continue;
@@ -727,7 +727,7 @@ export default class ChunkManager {
         }
 
         // Define rendering order and ensure base is drawn between bg and front
-        const preferredOrder = ['back','base','front'];
+        const preferredOrder = ['back','base'];
         const presentLayers = Array.from(layerBuckets.keys());
         const orderedLayers = [];
         for (const p of preferredOrder) if (presentLayers.includes(p)) orderedLayers.push(p);
