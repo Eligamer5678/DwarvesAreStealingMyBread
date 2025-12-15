@@ -36,10 +36,8 @@ export default class PrefabLoader {
             // create minimal entity; position/size will be set at spawn time
             const ent = new Entity(new Vector(0, -16), new Vector(16,16));
             // Apply any top-level data from the prefab (e.g., health, team)
-            if (def.data && typeof def.data === 'object') {
-                for (const k of Object.keys(def.data)) {
-                    try { ent[k] = def.data[k]; } catch (e) { /* ignore protected props */ }
-                }
+            for (const [k, v] of Object.entries(def.extra)) {
+                ent[k] = v;
             }
             const comps = def.components;
             for (const [compKey, compData] of Object.entries(comps)){

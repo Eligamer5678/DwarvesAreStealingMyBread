@@ -66,10 +66,20 @@ export class MainScene extends Scene {
             this.chunkManager = new ChunkManager();
             await this.chunkManager.loadDefinitions('./data');
             // entity manager
+            // Create a camera for world rendering
             this.entityManager = new EntityManager(this.chunkManager, this.Draw, this.SpriteImages, { noiseTileSize: this.chunkManager.noiseTileSize });
-                        
-            // Allow chunk manager to spawn entities during generation when available
-            this.chunkManager.entityManager = this.entityManager;
+            this.camera = new Camera(this.Draw, this.mouse);
+            this.createPlayer()
+
+            // Load and register prefabs now so entity types are available
+            // before chunk generation runs later in `onReady`.
+            try {
+                const pdata = { chunkManager: this.chunkManager, target: this.player, Draw: this.Draw };
+                await PrefabLoader.loadAndRegister('./data/entities.json', this.entityManager, pdata, this.SpriteImages);
+            } catch (e) {
+                console.warn('MainScene: PrefabLoader preload failed', e);
+            }
+
             this.isPreloaded = true;
             return true;
         } catch (err) {
@@ -85,12 +95,8 @@ export class MainScene extends Scene {
         // will be registered by the new component-based engine.
         this.mainUI = new MainUI(this.Draw, this.mouse, this.keys, null);
 
-        // Create a camera for world rendering
-        this.camera = new Camera(this.Draw, this.mouse);
-
-        // Prime initial chunks around origin
-        if (this.chunkManager) this.chunkManager.generateChunksAround(0, 0, 2);
-
+        
+        
         // Some debug commands
         window.Debug.createSignal('logPos',()=>{
             console.log('Player coordnates')
@@ -103,9 +109,22 @@ export class MainScene extends Scene {
             this.chunkManager.setTileValue(x,y,block)
         })
 
+        
+            
+        this.createManagers()
+        // Allow chunk manager to spawn entities during generation when available
+        this.chunkManager.entityManager = this.entityManager;
+        // Prime initial chunks around origin
+        this.chunkManager.generateChunksAround(this.player.pos.x, this.player.pos.y, 3);
+        console.log('update2')
+        this.isReady = true;
+        this.chunkManager.ready = true;
+
+    }
+    createPlayer(){
         // Create player and attach to camera
-        const dwarfSheet = (this.SpriteImages && this.SpriteImages.get) ? this.SpriteImages.get('dwarf') : null;
-        const tilePx = (this.chunkManager && this.chunkManager.noiseTileSize) ? this.chunkManager.noiseTileSize : 16;
+        const dwarfSheet = this.SpriteImages.get('dwarf');
+        const tilePx = this.chunkManager.noiseTileSize;
         const startPos = new Vector(tilePx * 2, tilePx * 2-96);
         const size = new Vector(tilePx, tilePx);
         this.player = new Dwarf(this.keys, this.Draw, startPos, size, dwarfSheet, { type: 'platformer', chunkManager: this.chunkManager, scene: this });
@@ -122,21 +141,6 @@ export class MainScene extends Scene {
             this.camera.targetZoom.y = 10;
             this.camera.targetOffset = this.camera.targetOffset;
         }
-            
-        this.createManagers()
-        this.chunkManager.generateChunksAround(this.player.pos.x, this.player.pos.y, 3);
-        this.data = {
-            chunkManager:this.chunkManager,
-            target: new Vector(0,0),
-        }
-        // Dynamically load prefabs from data/entities.json
-        const data = {
-            chunkManager:this.chunkManager,
-            target: this.player,
-            Draw: this.Draw
-        }
-        PrefabLoader.loadAndRegister('./data/entities.json', this.entityManager,data,this.SpriteImages);
-        this.isReady = true;
     }
     createManagers(){
         // collision system

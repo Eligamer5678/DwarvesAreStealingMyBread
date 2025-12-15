@@ -39,6 +39,7 @@ export default class ChunkManager {
         };
         this.noiseOptions = Object.assign({}, defaultNoise, options.noiseOptions || {});
         this.entityManager = null;
+        this.ready = false;
         // Internal state
         // New chunk storage format: layer -> { "cx,cy": { tiles: [...], data: {...} } }
         this.chunks = { back: {}, base: {}, front: {} };
@@ -94,6 +95,7 @@ export default class ChunkManager {
      * @param {number} radius - Chunk radius to generate
      */
     generateChunksAround(worldX, worldY, radius = 1) {
+        if(!this.ready)return;
         const sampleX = Math.floor(worldX / this.noiseTileSize);
         const sampleY = Math.floor(worldY / this.noiseTileSize);
         const cx = Math.floor(sampleX / this.chunkSize);
@@ -528,10 +530,14 @@ export default class ChunkManager {
         if(spec.data.entities){
             for(let entity of spec.data.entities){
                 if(entity.pos === 'random'){
-                }else{
-                    this.entityManager.addEntity(entity.type,
-                        new Vector((cx+entity.pos[0])*this.noiseTileSize,(cy+entity.pos[1])*this.noiseTileSize),
-                        entity.data.size)
+                    // place roughly in-chunk center (correct world tile coords)
+                    const wx = (cx * this.chunkSize + 5) * this.noiseTileSize;
+                    const wy = (cy * this.chunkSize + 5) * this.noiseTileSize;
+                    this.entityManager.addEntity(entity.type, new Vector(wx, wy), new Vector(entity.data.size[0], entity.data.size[1]));
+                } else {
+                    const wx = (cx * this.chunkSize + Number(entity.pos[0] || 0)) * this.noiseTileSize;
+                    const wy = (cy * this.chunkSize + Number(entity.pos[1] || 0)) * this.noiseTileSize;
+                    this.entityManager.addEntity(entity.type, new Vector(wx, wy), new Vector(entity.data.size[0], entity.data.size[1]));
                 }
             }
         }

@@ -84,7 +84,7 @@ export default class Dwarf extends Sprite {
 
     // --- Mining / Building helpers (high-level, Dwarf-centric logic) ---
     _worldToSample(worldX, worldY) {
-        const ts = (this.chunkManager && this.chunkManager.noiseTileSize) ? this.chunkManager.noiseTileSize : 16;
+        const ts = this.chunkManager.noiseTileSize;
         return { sx: Math.floor(worldX / ts), sy: Math.floor(worldY / ts), tilePx: ts };
     }
 
@@ -121,7 +121,7 @@ export default class Dwarf extends Sprite {
         // draw the mining target highlight (if any)
         try {
             if (this.miningTarget && this.Draw) {
-                const ts = (this.chunkManager && this.chunkManager.noiseTileSize) ? this.chunkManager.noiseTileSize : 16;
+                const ts = this.chunkManager.noiseTileSize;
                 const topLeft = new Vector(this.miningTarget.sx * ts, this.miningTarget.sy * ts).add(levelOffset || new Vector(0,0));
                 // outline (yellow for mining, green for build mode)
                 const buildActive = (this.keys.held('Control')&&!this.keys.held('Control')) || this._buildModeToggle;

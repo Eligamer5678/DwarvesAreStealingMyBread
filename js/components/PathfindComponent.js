@@ -108,7 +108,6 @@ export default class PathfindComponent extends Component{
         const dirSign = Math.sign(dirVec.x || 0) || 1;
         const desired = dirVec.mult(this.speed).multS(dt);
         const absDisp = { x: Math.abs(disp.x), y: Math.abs(disp.y) };
-
         // timers
         this.attackCooldown -= dt;
         this.attackTimer -= dt;

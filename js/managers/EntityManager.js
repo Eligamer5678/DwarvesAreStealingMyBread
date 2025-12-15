@@ -52,25 +52,22 @@ export default class EntityManager {
      * @param {EntityType} entity 
      */
     addEntity(name, pos = null, size = null, options = {}){
-        console.log('adding entity')
         const preset = this.entityTypes.get(name);
         if (!preset) return null;
-
+        
         const newEntity = preset.clone();
         newEntity.pos = pos.clone();
         newEntity.size = size.clone();
-
+        
         // Ensure each component knows its manager and perform any zero-arg
         // init() calls (used by components that register with systems
         // via this.manager). We avoid calling init with arguments because
         // some components (eg. SheetComponent) expect different init params.
         for (const c of newEntity.getComponents()) {
-            try {
-                if (c && !c.manager) c.manager = this;
-                if (c && typeof c.init === 'function' && c.init.length === 0) {
-                    try { c.init(); } catch (e) { /* ignore init errors */ }
-                }
-            } catch (e) { /* ignore per-component errors */ }
+            if (c && !c.manager) c.manager = this;
+            if (c && typeof c.init === 'function' && c.init.length === 0) {
+                try { c.init(); } catch (e) { /* ignore init errors */ }
+            }
         }
 
         this.entities.push(newEntity);
@@ -171,7 +168,7 @@ export default class EntityManager {
      */
     update(delta) {
         if (!this.player) return;
-
+        
         const maxDist = this.noiseTileSize * this.activeRadius;
         const px = this.player.pos.x + this.player.size.x * 0.5;
         const py = this.player.pos.y + this.player.size.y * 0.5;
