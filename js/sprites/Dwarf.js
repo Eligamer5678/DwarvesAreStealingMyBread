@@ -124,13 +124,13 @@ export default class Dwarf extends Sprite {
                 const ts = (this.chunkManager && this.chunkManager.noiseTileSize) ? this.chunkManager.noiseTileSize : 16;
                 const topLeft = new Vector(this.miningTarget.sx * ts, this.miningTarget.sy * ts).add(levelOffset || new Vector(0,0));
                 // outline (yellow for mining, green for build mode)
-                const buildActive = (this.keys && this.keys.held && this.keys.held('Control')) || this._buildModeToggle;
+                const buildActive = (this.keys.held('Control')&&!this.keys.held('Control')) || this._buildModeToggle;
                 const col = buildActive ? new Color(0,200,0,Math.min(this.brightness,1),'rgb') : new Color(255,255,0,Math.min(this.brightness,1),'rgb');
                 this.Draw.rect(topLeft, new Vector(ts, ts), '#00000000', false, true, 1, col);
                 // progress bar (bottom of tile)
                 // Determine required time from the block's hardness (fallback to this.miningRequired)
                 let visualRequired = this.miningRequired;
-                const t = this.chunkManager.getTileValue(this.miningTarget.sx, this.miningTarget.sy,this.placeLayer);
+                const t = this.chunkManager.getTileValue(this.miningTarget.sx, this.miningTarget.sy, this._getActivePlaceLayer());
                 if (t) t.meta.data.hardness;
                 const frac = Math.max(0, Math.min(1, this.miningProgress / Math.max(1e-6, visualRequired / (this.currentTool?.speed || 1))));
                 if (frac > 0) {
@@ -334,19 +334,35 @@ export default class Dwarf extends Sprite {
         return center.div(ts).floorS();
     }
 
+    // Determine the effective layer to place/mine into based on modifier keys.
+    // - Hold Alt => 'back'
+    // - Hold Alt + Control => 'overlays'
+    // - Otherwise use this.placeLayer (usually 'base')
+    _getActivePlaceLayer() {
+        try {
+            const alt = this.keys && this.keys.held && this.keys.held('Alt');
+            const ctrl = this.keys && this.keys.held && this.keys.held('Control');
+            if (alt) return (ctrl ? 'overlays' : 'back');
+        } catch (e) { /* ignore key errors */ }
+        return this.placeLayer;
+    }
+
 
 
     // Mining code
     mineAtWorld(worldX, worldY) {
         const { sx, sy } = this._worldToSample(worldX, worldY);
-        const cur = this.chunkManager.getTileValue(sx, sy,this.placeLayer);
+        const layer = this._activeMiningLayer || this._getActivePlaceLayer();
+        const cur = this.chunkManager.getTileValue(sx, sy, layer);
         if (!cur || !cur.id) return false; // nothing to mine
         try {
             // remove tile (set to null / air)
-            this.chunkManager.setTileValue(sx, sy, null,this.placeLayer);
+            this.chunkManager.setTileValue(sx, sy, null, layer);
             // optional: notify lighting/chunk updates elsewhere
             this.scene.lighting.markDirty();
-        } catch (e) { return false; }
+            // clear captured mining layer after successful mine
+            this._activeMiningLayer = null;
+        } catch (e) { this._activeMiningLayer = null; return false; }
         return true;
     }
 
@@ -368,7 +384,8 @@ export default class Dwarf extends Sprite {
         // placing at the player's tile is desired.
         if (!opts.allowOverlap && sx >= sx0 && sx <= sx1 && sy >= sy0 && sy <= sy1) return false;
 
-        const existing = this.chunkManager.getTileValue(sx, sy,this.placeLayer);
+        const layer = opts.layer || this._getActivePlaceLayer();
+        const existing = this.chunkManager.getTileValue(sx, sy, layer);
         if (existing && existing.id) return false; // occupied
 
         // Build tile value with rotation and invert if they are non-default
@@ -379,7 +396,7 @@ export default class Dwarf extends Sprite {
             if (this.placementInvert !== false) tileValue.invert = this.placementInvert;
         }
 
-        this.chunkManager.setTileValue(sx, sy, tileValue,this.placeLayer);
+        this.chunkManager.setTileValue(sx, sy, tileValue, layer);
         this.scene.lighting.markDirty();
 
         return true;
@@ -417,7 +434,7 @@ export default class Dwarf extends Sprite {
             const tsCheck = this.chunkManager.noiseTileSize;
             const center = this.pos.add(this.size.mult(0.5));
             const sampleAbove = this._worldToSample(center.x, center.y - tsCheck);
-            const aboveTile = this.chunkManager.getTileValue(sampleAbove.sx, sampleAbove.sy,this.placeLayer);
+            const aboveTile = this.chunkManager.getTileValue(sampleAbove.sx, sampleAbove.sy, this._getActivePlaceLayer());
             if (aboveTile && aboveTile.id) allowInputDir = true;
         }
 
@@ -465,11 +482,15 @@ export default class Dwarf extends Sprite {
             // If the captured target is air, abort starting mining
             try {
                 if (!this.miningTarget) { this.miningProgress = 0; this._lastMiningKey = null; return; }
-                const maybeTile = this.chunkManager.getTileValue(this.miningTarget.sx, this.miningTarget.sy,this.placeLayer);
-                if (!maybeTile || !maybeTile.id) { this.miningProgress = 0; this._lastMiningKey = null; return; }
+                // capture the active layer at the start of the mining action so
+                // subsequent modifier changes don't move the mining to another layer
+                const layer = this._getActivePlaceLayer();
+                this._activeMiningLayer = layer;
+                const maybeTile = this.chunkManager.getTileValue(this.miningTarget.sx, this.miningTarget.sy, layer);
+                if (!maybeTile || !maybeTile.id) { this.miningProgress = 0; this._lastMiningKey = null; this._activeMiningLayer = null; return; }
                 // initialize last key for this mining action
                 this._lastMiningKey = `${this.miningTarget.sx},${this.miningTarget.sy}`;
-            } catch (e) { this._lastMiningKey = null; return; }
+            } catch (e) { this._lastMiningKey = null; this._activeMiningLayer = null; return; }
         }
         if (!this.miningTarget) { this.miningProgress = 0; this._lastMiningKey = null; return; }
 
@@ -492,9 +513,9 @@ export default class Dwarf extends Sprite {
             // Determine required time from the block's hardness (if present), otherwise fall back
             let requiredBase = this.miningRequired;
             if (this.miningTarget) {
-                const t = this.chunkManager.getTileValue(this.miningTarget.sx, this.miningTarget.sy,this.placeLayer);
+                const t = this.chunkManager.getTileValue(this.miningTarget.sx, this.miningTarget.sy, this._activeMiningLayer || this._getActivePlaceLayer());
                 // if tile became air while mining, abort the mining action
-                if (!t || !t.id) { this.miningProgress = 0; this.mining = false; this._lastMiningKey = null; return; }
+                if (!t || !t.id) { this.miningProgress = 0; this.mining = false; this._lastMiningKey = null; this._activeMiningLayer = null; return; }
                 if (t && t.meta && t.meta.data && typeof t.meta.data.hardness === 'number') requiredBase = t.meta.data.hardness;
             }
             const required = requiredBase / toolSpeed;

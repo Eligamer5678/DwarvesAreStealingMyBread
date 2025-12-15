@@ -1,6 +1,6 @@
 import Vector from '../modules/Vector.js';
 
-function getCallerLocation(stackShift = 4) {
+function getCallerLocation(stackShift = 3) {
     // Create a new error to get the stack trace
     const err = new Error();
     if (!err.stack)
