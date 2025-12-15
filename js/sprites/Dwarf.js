@@ -61,6 +61,7 @@ export default class Dwarf extends Sprite {
         this._buildModeToggle = true; // toggled state via double-tap
         this._suppressAutoBuildAfterMine = false; // Ensure suppression flag is cleared when leaving build mode
         this.blockPlaced = false;
+        this.placeLayer = "base"
         this.blockMined = false;
         this.placementRotation = 0; // rotation for placed blocks (0, 90, 180, 270)
         this.placementInvert = false; // flip state for placed blocks
@@ -129,12 +130,8 @@ export default class Dwarf extends Sprite {
                 // progress bar (bottom of tile)
                 // Determine required time from the block's hardness (fallback to this.miningRequired)
                 let visualRequired = this.miningRequired;
-                try {
-                    if (this.chunkManager && typeof this.chunkManager.getTileValue === 'function') {
-                        const t = this.chunkManager.getTileValue(this.miningTarget.sx, this.miningTarget.sy);
-                        if (t && t.meta && t.meta.data && typeof t.meta.data.hardness === 'number') visualRequired = Number(t.meta.data.hardness);
-                    }
-                } catch (e) { /* ignore */ }
+                const t = this.chunkManager.getTileValue(this.miningTarget.sx, this.miningTarget.sy,this.placeLayer);
+                if (t) t.meta.data.hardness;
                 const frac = Math.max(0, Math.min(1, this.miningProgress / Math.max(1e-6, visualRequired / (this.currentTool?.speed || 1))));
                 if (frac > 0) {
                     const barH = Math.max(2, Math.floor(ts * 0.12));
@@ -342,11 +339,11 @@ export default class Dwarf extends Sprite {
     // Mining code
     mineAtWorld(worldX, worldY) {
         const { sx, sy } = this._worldToSample(worldX, worldY);
-        const cur = this.chunkManager.getTileValue(sx, sy);
+        const cur = this.chunkManager.getTileValue(sx, sy,this.placeLayer);
         if (!cur || !cur.id) return false; // nothing to mine
         try {
             // remove tile (set to null / air)
-            this.chunkManager.setTileValue(sx, sy, null);
+            this.chunkManager.setTileValue(sx, sy, null,this.placeLayer);
             // optional: notify lighting/chunk updates elsewhere
             this.scene.lighting.markDirty();
         } catch (e) { return false; }
@@ -354,7 +351,6 @@ export default class Dwarf extends Sprite {
     }
 
     buildAtWorld(worldX, worldY, blockId, opts = {}) {
-        if (!this.chunkManager || typeof this.chunkManager.setTileValue !== 'function') return false;
         const { sx, sy } = this._worldToSample(worldX, worldY);
 
         // Prevent placing a block in any tile overlapped by the dwarf's bounding box
@@ -372,7 +368,7 @@ export default class Dwarf extends Sprite {
         // placing at the player's tile is desired.
         if (!opts.allowOverlap && sx >= sx0 && sx <= sx1 && sy >= sy0 && sy <= sy1) return false;
 
-        const existing = this.chunkManager.getTileValue(sx, sy);
+        const existing = this.chunkManager.getTileValue(sx, sy,this.placeLayer);
         if (existing && existing.id) return false; // occupied
 
         // Build tile value with rotation and invert if they are non-default
@@ -383,7 +379,7 @@ export default class Dwarf extends Sprite {
             if (this.placementInvert !== false) tileValue.invert = this.placementInvert;
         }
 
-        this.chunkManager.setTileValue(sx, sy, tileValue);
+        this.chunkManager.setTileValue(sx, sy, tileValue,this.placeLayer);
         this.scene.lighting.markDirty();
 
         return true;
@@ -421,7 +417,7 @@ export default class Dwarf extends Sprite {
             const tsCheck = this.chunkManager.noiseTileSize;
             const center = this.pos.add(this.size.mult(0.5));
             const sampleAbove = this._worldToSample(center.x, center.y - tsCheck);
-            const aboveTile = this.chunkManager.getTileValue(sampleAbove.sx, sampleAbove.sy);
+            const aboveTile = this.chunkManager.getTileValue(sampleAbove.sx, sampleAbove.sy,this.placeLayer);
             if (aboveTile && aboveTile.id) allowInputDir = true;
         }
 
@@ -469,7 +465,7 @@ export default class Dwarf extends Sprite {
             // If the captured target is air, abort starting mining
             try {
                 if (!this.miningTarget) { this.miningProgress = 0; this._lastMiningKey = null; return; }
-                const maybeTile = this.chunkManager.getTileValue(this.miningTarget.sx, this.miningTarget.sy);
+                const maybeTile = this.chunkManager.getTileValue(this.miningTarget.sx, this.miningTarget.sy,this.placeLayer);
                 if (!maybeTile || !maybeTile.id) { this.miningProgress = 0; this._lastMiningKey = null; return; }
                 // initialize last key for this mining action
                 this._lastMiningKey = `${this.miningTarget.sx},${this.miningTarget.sy}`;
@@ -496,7 +492,7 @@ export default class Dwarf extends Sprite {
             // Determine required time from the block's hardness (if present), otherwise fall back
             let requiredBase = this.miningRequired;
             if (this.miningTarget) {
-                const t = (this.chunkManager && typeof this.chunkManager.getTileValue === 'function') ? this.chunkManager.getTileValue(this.miningTarget.sx, this.miningTarget.sy) : null;
+                const t = this.chunkManager.getTileValue(this.miningTarget.sx, this.miningTarget.sy,this.placeLayer);
                 // if tile became air while mining, abort the mining action
                 if (!t || !t.id) { this.miningProgress = 0; this.mining = false; this._lastMiningKey = null; return; }
                 if (t && t.meta && t.meta.data && typeof t.meta.data.hardness === 'number') requiredBase = t.meta.data.hardness;

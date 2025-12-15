@@ -49,6 +49,7 @@ class Game {
         this.delta = 0;
         // Add game layers here!  false=default, true=UI version (has div container)
         this.program.addLayer('bg', false);
+        this.program.addLayer('back', false);
         this.program.addLayer('base', false);
         this.program.addLayer('overlay', false);
         this.program.addLayer('UI', true);

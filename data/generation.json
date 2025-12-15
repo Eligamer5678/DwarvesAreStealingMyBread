@@ -97,6 +97,13 @@
                 "seedOffset":0
             }}
         ]
+    },
+    "bagelvillage":{
+        "type":"structure",
+        "root":[0,0],
+        "chunks":[
+            {"pos":[0,-1],"type":["bagel_village1"]}
+        ]
     }
     
     

@@ -43,6 +43,7 @@ export default class ChunkManager {
         this.chunks = new Map(); // key: "cx,cy" -> { x, y, data, width, height }
         this.modifiedTiles = new Map(); // key: "sx,sy" -> tile data or null
         this.blockMap = new Map(); // key: "sx,sy" -> { type: 'solid'|'ladder' }
+
         this.lastGeneratedChunk = null;
         this.lightingSystem = null;
         // Signals
@@ -117,27 +118,38 @@ export default class ChunkManager {
      * @param {number} sy - Sample Y coordinate
      * @returns {Object|null} Tile data { type: 'solid'|'ladder' } or null
      */
-    getTileValue(sx, sy) {
+    getTileValue(sx, sy, layer = 'base') {
         if (!Number.isFinite(sx) || !Number.isFinite(sy)) return null;
 
-        const mkey = `${sx},${sy}`;
+        const mkey = `${sx},${sy},${layer}`;
 
-        // Check explicit modifications first
+        // Check explicit modifications first. Modified entries may be stored
+        // as legacy values (string/object/null) or as wrapper objects
+        // { v: <value>, layer: <layer> } introduced by setTileValue.
         if (this.modifiedTiles.has(mkey)) {
-            const v = this.modifiedTiles.get(mkey);
+            const entry = this.modifiedTiles.get(mkey);
+            let v = entry;
+            let entryLayer = 'base';
+            if (entry && ('v' in entry) && ('layer' in entry)) {
+                v = entry.v;
+                entryLayer = entry.layer || 'base';
+            }
+            // If caller requested a specific layer and it doesn't match, ignore
+            if (layer !== 'any' && entryLayer !== layer) return null;
             if (v === null) return null;
-            if (typeof v === 'object') return v;
-            if (typeof v === 'string') {
-                const def = (this.blockDefs && this.blockDefs instanceof Map) ? this.blockDefs.get(v) : null;
+            if (typeof v === 'object' && v.id) {
+                const def = (this.blockDefs && this.blockDefs instanceof Map) ? this.blockDefs.get(v.id) : null;
                 const mode = def && def.data && def.data.mode ? def.data.mode : 'solid';
-                return { type: mode, id: v, meta: def || null };
+                return { type: mode, id: v.id, meta: def || null, rot: v.rot !== undefined ? v.rot : 0, invert: v.invert !== undefined ? v.invert : false, layer: entryLayer };
             }
             return null;
         }
 
         // Check explicit block placements
         if (this.blockMap.has(mkey)) {
-            return this.blockMap.get(mkey);
+            const bm = this.blockMap.get(mkey);
+            // blockMap entries are assumed to be base-layer by default
+            return Object.assign({ layer: (bm.layer || 'base') }, bm);
         }
 
         // Query chunk data
@@ -145,6 +157,8 @@ export default class ChunkManager {
         const cy = Math.floor(sy / this.chunkSize);
         const chunk = this._ensureChunk(cx, cy);
         if (!chunk) return null;
+        // Chunk default layer (can be overridden per-tile by region `layer`)
+        const chunkLayer = chunk.layer || 'base';
 
         const lx = sx - cx * this.chunkSize;
         const ly = sy - cy * this.chunkSize;
@@ -158,10 +172,14 @@ export default class ChunkManager {
             try {
                 const def = (this.blockDefs && this.blockDefs instanceof Map) ? this.blockDefs.get(raw) : null;
                 const mode = def && def.data && def.data.mode ? def.data.mode : 'solid';
-                if (mode === 'solid') return { type: 'solid', id: raw, meta: def || null };
-                return { type: mode || 'solid', id: raw, meta: def || null };
+                const tileLayer = chunkLayer;
+                if (layer !== 'any' && tileLayer !== layer) return null;
+                if (mode === 'solid') return { type: 'solid', id: raw, meta: def || null, layer: tileLayer };
+                return { type: mode || 'solid', id: raw, meta: def || null, layer: tileLayer };
             } catch (e) {
-                return { type: 'solid', id: raw };
+                const tileLayer = chunkLayer;
+                if (layer !== 'any' && tileLayer !== layer) return null;
+                return { type: 'solid', id: raw, layer: tileLayer };
             }
         } else if (typeof raw === 'object' && raw !== null && raw.id) {
             // Object format with id, rot, invert, etc.
@@ -169,15 +187,20 @@ export default class ChunkManager {
             try {
                 const def = (this.blockDefs && this.blockDefs instanceof Map) ? this.blockDefs.get(raw.id) : null;
                 const mode = def && def.data && def.data.mode ? def.data.mode : 'solid';
-                return { 
-                    type: mode, 
-                    id: raw.id, 
+                const tileLayer = (raw.layer || chunkLayer);
+                if (layer !== 'any' && tileLayer !== layer) return null;
+                return {
+                    type: mode,
+                    id: raw.id,
                     meta: def || null,
                     rot: raw.rot !== undefined ? raw.rot : 0,
-                    invert: raw.invert !== undefined ? raw.invert : false
+                    invert: raw.invert !== undefined ? raw.invert : false,
+                    layer: tileLayer
                 };
             } catch (e) {
-                return { type: 'solid', id: raw.id, rot: raw.rot || 0, invert: raw.invert || false };
+                const tileLayer = (raw.layer || chunkLayer);
+                if (layer !== 'any' && tileLayer !== layer) return null;
+                return { type: 'solid', id: raw.id, rot: raw.rot || 0, invert: raw.invert || false, layer: tileLayer };
             }
         }
 
@@ -192,9 +215,10 @@ export default class ChunkManager {
      * @param {number} sy - Sample Y coordinate
      * @param {String|Object|null} value - Tile data or null for empty
      */
-    setTileValue(sx, sy, value) {
+    setTileValue(sx, sy, value, layer = 'base') {
         const key = `${sx},${sy}`;
-        this.modifiedTiles.set(key, value);
+        // Store a wrapper so we can remember which layer this modification belongs to.
+        this.modifiedTiles.set(key, { v: value, layer: layer });
 
         // Update chunk data if already generated
         const cx = Math.floor(sx / this.chunkSize);
@@ -206,23 +230,32 @@ export default class ChunkManager {
             const lx = sx - cx * this.chunkSize;
             const ly = sy - cy * this.chunkSize;
             if (lx >= 0 && ly >= 0 && lx < chunk.width && ly < chunk.height) {
-                // Write block ids into the JSON-driven chunk data.
-                // Accept several value shapes: null -> 'air', string -> use as block id,
-                // object -> preserve full metadata including rot/invert
-                let out;
-                if (value === null) out = 'air';
-                else if (typeof value === 'string') out = value;
-                else if (typeof value === 'object' && value.id) {
-                    // Preserve rotation and invert if present
-                    out = { id: value.id };
-                    if (value.rot !== undefined) out.rot = value.rot;
-                    if (value.invert !== undefined) out.invert = value.invert;
-                } else out = 'stone';
-                chunk.data[ly * chunk.width + lx] = out;
+                // Only write into the chunk data if the chunk's layer matches
+                // the requested modification layer. Otherwise keep the
+                // modification in `modifiedTiles` so drawing can show it but
+                // collision queries (base layer) won't be affected.
+                const chunkLayer = chunk.layer || 'base';
+                if (chunkLayer === layer) {
+                    // Write block ids into the JSON-driven chunk data.
+                    // Accept several value shapes: null -> 'air', string -> use as block id,
+                    // object -> preserve full metadata including rot/invert
+                    let out;
+                    if (value === null) out = 'air';
+                    else if (typeof value === 'string') out = value;
+                    else if (typeof value === 'object' && value.id) {
+                        // Preserve rotation and invert if present
+                        out = { id: value.id };
+                        if (value.rot !== undefined) out.rot = value.rot;
+                        if (value.invert !== undefined) out.invert = value.invert;
+                    } else out = 'stone';
+                    chunk.data[ly * chunk.width + lx] = out;
+                    // Also update modifiedTiles wrapper to reflect the applied change
+                    this.modifiedTiles.set(key, { v: out, layer: layer });
+                }
             }
         }
 
-        this.onTileModified.emit(sx, sy, value);
+        this.onTileModified.emit(sx, sy, value, layer);
     }
 
     /**
@@ -312,9 +345,44 @@ export default class ChunkManager {
         const startY = cy * chunkSize;
 
         
-        // Select generation rule from generationSpec by evaluating conditions
+        // First, check for JSON-driven "structure" rules. Structures declare
+        // a `root` chunk coordinate and an array of `chunks` with positions
+        // relative to that root. If the current chunk coordinates fall inside
+        // a structure, select the corresponding chunk type.
+        // Note: roots/positions are expressed in chunk coordinates (e.g.
+        // [1,1] corresponds to tile origin [16,16] when chunkSize==16).
         let selected = null;
         if (this.generationSpec && typeof this.generationSpec === 'object') {
+            for (const key of Object.keys(this.generationSpec)) {
+                const rule = this.generationSpec[key];
+                if (rule && rule.type === 'structure' && Array.isArray(rule.root) && Array.isArray(rule.chunks)) {
+                    const root = rule.root; // [rx, ry] in chunk coords
+                    const rx = Number(root[0] || 0);
+                    const ry = Number(root[1] || 0);
+                    const relX = cx - rx;
+                    const relY = cy - ry;
+                    for (const c of rule.chunks) {
+                        if (!c || !Array.isArray(c.pos)) continue;
+                        const px = Number(c.pos[0] || 0);
+                        const py = Number(c.pos[1] || 0);
+                        if (px === relX && py === relY) {
+                            // Found a matching structure chunk. Use its `type`.
+                            selected = { chunk_type: null, chunk_types: null, _structChunk: c };
+                            // Normalize various shapes of `type` on the chunk entry
+                            if (typeof c.type === 'string') selected.chunk_type = c.type;
+                            else if (Array.isArray(c.type) && c.type.length > 0) selected.chunk_type = c.type[0];
+                            else if (c.type && typeof c.type === 'object' && c.type.name) selected.chunk_type = c.type.name;
+                            else selected.chunk_type = null;
+                            break;
+                        }
+                    }
+                    if (selected) break;
+                }
+            }
+        }
+
+        // If no structure matched, fall back to condition-based selection
+        if (!selected && this.generationSpec && typeof this.generationSpec === 'object') {
             for (const key of Object.keys(this.generationSpec)) {
                 const rule = this.generationSpec[key];
                 const conds = rule.conditions || [];
@@ -356,36 +424,61 @@ export default class ChunkManager {
         const spec = (this.chunkSpecs && this.chunkSpecs.chunks && this.chunkSpecs.chunks[chunkType]) ? this.chunkSpecs.chunks[chunkType] : null;
         if (!spec) {
             // No spec available: return a default empty chunk (all 'air').
-            return { x: cx, y: cy, width: chunkSize, height: chunkSize, data: arr };
+            const chunk = { x: cx, y: cy, width: chunkSize, height: chunkSize, data: arr };
+            // default to base when no spec provided
+            chunk.layer = 'base';
+            return chunk;
         }
-        arr.fill(spec.data.bg)
+        arr.fill(spec.data.bg);
+        // Chunk-level layer can be provided in chunks.json as `data.layer`.
+        // Per-region `layer` (inside each region) will override per-tile when filling.
+        const layerForChunk = (spec.data && spec.data.layer) ? spec.data.layer : 'base';
         
         // Fill regions
         try {
             const regions = spec.data && spec.data.regions ? spec.data.regions : [];
 
+            // Allow compact region specs to inherit certain fields from the
+            // previous region. Only `block_type`, `special.rot`/`special.invert`,
+            // and `layer` are inherited when not explicitly provided.
+            let prevBlockType = null;
+            let prevRot = 0;
+            let prevInvert = false;
+            let prevLayer = undefined;
             for (const reg of regions) {
                 const r0 = reg.region && reg.region[0] ? reg.region[0] : [0,0];
-                const r1 = reg.region && reg.region[1] ? reg.region[1] : [chunkSize-1, chunkSize-1];
+                const r1 = reg.region && reg.region[1] ? reg.region[1] : reg.region[0];
                 const bx = Math.max(0, Math.min(chunkSize-1, r0[0]));
                 const by = Math.max(0, Math.min(chunkSize-1, r0[1]));
                 const ex = Math.max(0, Math.min(chunkSize-1, r1[0]));
                 const ey = Math.max(0, Math.min(chunkSize-1, r1[1]));
-                const blockType = reg.block_type || 'stone';
-                // Check for rotation/invert in special metadata
-                const rot = reg.special && reg.special.rot !== undefined ? reg.special.rot : 0;
-                const invert = reg.special && reg.special.invert !== undefined ? reg.special.invert : false;
+                // Inherit block_type if not present
+                const blockType = (reg.block_type !== undefined && reg.block_type !== null) ? reg.block_type : (prevBlockType || 'stone');
+                // Inherit rot/invert from previous region if not provided
+                const rot = (reg.special && reg.special.rot !== undefined) ? reg.special.rot : prevRot;
+                const invert = (reg.special && reg.special.invert !== undefined) ? reg.special.invert : prevInvert;
                 const hasTransform = rot !== 0 || invert !== false;
-                
+                // Inherit layer from previous region when not set on this region
+                const layerVal = (reg.layer !== undefined) ? reg.layer : prevLayer;
+
                 for (let y = by; y <= ey; y++) {
                     for (let x = bx; x <= ex; x++) {
                         if (hasTransform) {
-                            arr[y * chunkSize + x] = { id: blockType, rot: rot, invert: invert };
+                            const obj = { id: blockType, rot: rot, invert: invert };
+                            if (layerVal) obj.layer = layerVal;
+                            arr[y * chunkSize + x] = obj;
                         } else {
-                            arr[y * chunkSize + x] = blockType;
+                            if (layerVal) arr[y * chunkSize + x] = { id: blockType, layer: layerVal };
+                            else arr[y * chunkSize + x] = blockType;
                         }
                     }
                 }
+
+                // Update previous values for next region
+                prevBlockType = blockType;
+                prevRot = rot;
+                prevInvert = invert;
+                prevLayer = layerVal;
             }
             // After filling regions, apply cave carving as a post-process for ground chunks
             try {
@@ -521,7 +614,9 @@ export default class ChunkManager {
             }
         } catch (e) { /* ignore */ }
 
-        return { x: cx, y: cy, width: chunkSize, height: chunkSize, data: arr };
+        const outChunk = { x: cx, y: cy, width: chunkSize, height: chunkSize, data: arr };
+        outChunk.layer = layerForChunk;
+        return outChunk;
     }
 
     /**
@@ -550,6 +645,8 @@ export default class ChunkManager {
             if (!spec) {
                 // No spec found for this chunk name, return empty chunk
                 chunk = { x: cx, y: cy, width: chunkSize, height: chunkSize, data: arr };
+                // set chunk default layer from spec if available
+                chunk.layer = (spec.data && spec.data.layer) ? spec.data.layer : 'base';
             } else {
                 // Fill with background
                 arr.fill(spec.data.bg || 'air');
@@ -557,6 +654,11 @@ export default class ChunkManager {
                 // Fill regions
                 try {
                     const regions = spec.data && spec.data.regions ? spec.data.regions : [];
+                    // region inheritance same as used in generation path
+                    let prevBlockType = null;
+                    let prevRot = 0;
+                    let prevInvert = false;
+                    let prevLayer = undefined;
                     for (const reg of regions) {
                         const r0 = reg.region && reg.region[0] ? reg.region[0] : [0,0];
                         const r1 = reg.region && reg.region[1] ? reg.region[1] : [chunkSize-1, chunkSize-1];
@@ -564,21 +666,31 @@ export default class ChunkManager {
                         const by = Math.max(0, Math.min(chunkSize-1, r0[1]));
                         const ex = Math.max(0, Math.min(chunkSize-1, r1[0]));
                         const ey = Math.max(0, Math.min(chunkSize-1, r1[1]));
-                        const blockType = reg.block_type || 'stone';
-                        // Check for rotation/invert in special metadata
-                        const rot = reg.special && reg.special.rot !== undefined ? reg.special.rot : 0;
-                        const invert = reg.special && reg.special.invert !== undefined ? reg.special.invert : false;
+                        const blockType = (reg.block_type !== undefined && reg.block_type !== null) ? reg.block_type : (prevBlockType || 'stone');
+                        const rot = (reg.special && reg.special.rot !== undefined) ? reg.special.rot : prevRot;
+                        const invert = (reg.special && reg.special.invert !== undefined) ? reg.special.invert : prevInvert;
                         const hasTransform = rot !== 0 || invert !== false;
-                        
+                        const layerVal = (reg.layer !== undefined) ? reg.layer : prevLayer;
+
                         for (let y = by; y <= ey; y++) {
                             for (let x = bx; x <= ex; x++) {
                                 if (hasTransform) {
-                                    arr[y * chunkSize + x] = { id: blockType, rot: rot, invert: invert };
+                                    const obj = { id: blockType, rot: rot, invert: invert };
+                                    if (layerVal) obj.layer = layerVal;
+                                    arr[y * chunkSize + x] = obj;
                                 } else {
-                                    arr[y * chunkSize + x] = blockType;
+                                    if (layerVal) arr[y * chunkSize + x] = { id: blockType, layer: layerVal };
+                                    else arr[y * chunkSize + x] = blockType;
                                 }
                             }
                         }
+
+                        prevBlockType = blockType;
+                        prevRot = rot;
+                        prevInvert = invert;
+                        prevLayer = layerVal;
+                        
+                        
                         
                         // Apply region-local specials (e.g., ores)
                         if (reg.special && reg.special.type === 'ores') {
@@ -709,56 +821,82 @@ export default class ChunkManager {
             return null;
         };
 
-        // Iterate visible sample coordinates and draw tiles
+        // Collect tiles into buckets by layer -> tilesheet to reduce context/texture switches.
+        const layerBuckets = new Map(); // layerName -> Map(tilesheet|null -> [tileData])
         for (let sy = sy0; sy <= sy1; sy++) {
             for (let sx = sx0; sx <= sx1; sx++) {
-                const tile = this.getTileValue(sx, sy);
+                const tile = this.getTileValue(sx, sy, 'any');
                 if (!tile || !tile.id) continue;
                 const bid = tile.id;
                 const rot = tile.rot !== undefined ? tile.rot : 0;
                 const invert = tile.invert !== undefined ? tile.invert : false;
-                // Resolve tilesheet and draw using Draw.tile if available
                 const ts = lookupTileSheet(bid);
                 const pos = new Vector(sx * tileSize, sy * tileSize);
 
-                // Compute brightness if lighting provided. Force full brightness for sunlit tiles (sy < 0).
+                let layerKey = tile.layer ? tile.layer : "base";
+
+                // Compute brightness now so it's available during render pass
                 let brightness = 1;
                 try {
-                    if (sy < 0) {
-                        brightness = 1.0;
-                    } else {
-                        brightness = opts.lighting.getBrightness(sx, sy);
-                    }
+                    if (sy < 0) brightness = 1.0;
+                    else brightness = opts.lighting.getBrightness(sx, sy);
                 } catch (e) { brightness = 1; }
-                // Apply brightness multiplier for subsequent draw calls
-                draw.setBrightness(brightness);
 
-                if (ts && ts.sheet) {
-                    try {
-                        // Convert rotation from degrees to integer steps (0-3)
-                        // 0°=0, 90°=1, 180°=2, 270°=3
-                        const rotSteps = Math.floor((rot % 360) / 90) % 4;
-                        // Convert boolean invert to Vector for horizontal flip
-                        const invertVec = invert ? new Vector(-1, 1) : null;
-                        draw.tile(ts, pos, tileSize, bid, rotSteps, invertVec, 1, false);
-                    } catch (e) {
-                        // fallback to simple rect if tile draw fails
-                        draw.rect(pos, new Vector(tileSize, tileSize), '#ff00ff88', false);
+                // Store into buckets
+                if (!layerBuckets.has(layerKey)) layerBuckets.set(layerKey, new Map());
+                const tsMap = layerBuckets.get(layerKey);
+                const tsKey = ts || null; // use null for missing tilesheet
+                if (!tsMap.has(tsKey)) tsMap.set(tsKey, []);
+                tsMap.get(tsKey).push({ pos, bid, rot, invert, rotSteps: Math.floor((rot % 360) / 90) % 4, invertVec: invert ? new Vector(-1,1) : null, brightness });
+            }
+        }
+
+        // Define rendering order and ensure base is drawn between bg and overlays
+        const preferredOrder = ['back','base','overlays'];
+        const presentLayers = Array.from(layerBuckets.keys());
+        const orderedLayers = [];
+        for (const p of preferredOrder) if (presentLayers.includes(p)) orderedLayers.push(p);
+        for (const p of presentLayers) if (!orderedLayers.includes(p)) orderedLayers.push(p);
+
+        // Render each layer in order, grouping by tilesheet to reduce state changes
+        for (const layerName of orderedLayers) {
+            const tsMap = layerBuckets.get(layerName);
+            if (!tsMap) continue;
+            // switch context once per layer
+            // Note: the Draw instance registers the overlay canvas under the
+            // name 'overlay' (singular). Map our layer key 'overlays' -> 'overlay'.
+            const ctxName = layerName;
+            try { draw.useCtx(ctxName); } catch (e) {}
+
+            for (const [tsKey, items] of tsMap.entries()) {
+                if (tsKey) {
+                    // tilesheet present — draw tiles using draw.tile
+                    for (const it of items) {
+                        try {
+                            draw.setBrightness(it.brightness);
+                            draw.tile(tsKey, it.pos, tileSize, it.bid, it.rotSteps, it.invertVec, 1, false);
+                        } catch (e) {
+                            draw.rect(it.pos, new Vector(tileSize, tileSize), '#ff00ff88', false);
+                        }
                     }
                 } else {
-                    // No TileSheet available: draw a placeholder rect. Use lighting to modulate color if possible.
-                    let fillCol = '#ff00e1ff';
-                    try {
-                        if (opts.lighting && opts.lighting.constructor && typeof opts.lighting.constructor.modulateColor === 'function') {
-                            fillCol = opts.lighting.constructor.modulateColor('#f700ffff', brightness);
-                        }
-                    } catch (e) { /* ignore */ }
-                    draw.rect(pos, new Vector(tileSize, tileSize), fillCol, true);
+                    // No tilesheet: draw placeholders
+                    for (const it of items) {
+                        let fillCol = '#ff00e1ff';
+                        try {
+                            if (opts.lighting && opts.lighting.constructor && typeof opts.lighting.constructor.modulateColor === 'function') {
+                                fillCol = opts.lighting.constructor.modulateColor('#f700ffff', it.brightness);
+                            }
+                        } catch (e) { /* ignore */ }
+                        draw.setBrightness(it.brightness);
+                        draw.rect(it.pos, new Vector(tileSize, tileSize), fillCol, true);
+                    }
                 }
-
-                // Reset brightness to default for next tile
+                // reset brightness after group
                 draw.setBrightness(1);
             }
         }
+        // Restore drawing context to base for callers
+        try { draw.useCtx('base'); } catch (e) {}
     }
 }
