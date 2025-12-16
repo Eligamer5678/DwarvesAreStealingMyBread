@@ -108,6 +108,9 @@ export class MainScene extends Scene {
         window.Debug.createSignal('setBlock',(x,y,block)=>{
             this.chunkManager.setTileValue(x,y,block)
         })
+        window.Debug.createSignal('saveChunk',(x,y)=>{
+            this.chunkManager.saveChunk(x,y)
+        })
 
         
             

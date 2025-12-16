@@ -82,4 +82,27 @@ export default class Saver {
         this.savedata = {};
         if (autoSave) this.save();
     }
+
+    static saveJSON = function(object, path = "data.json"){
+        try{
+            const defaultName = path || "data.json";
+            const filename = prompt("Enter filename to save JSON:", defaultName);
+            if(!filename) return false;
+            const dataStr = JSON.stringify(object, null, 2);
+            const blob = new Blob([dataStr], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(()=>{ try{ URL.revokeObjectURL(url); }catch(e){} }, 1000);
+            return true;
+        }catch(e){
+            console.error('Saver.saveJSON failed', e);
+            return false;
+        }
+    }
 }

@@ -2,6 +2,7 @@ import { perlinNoise } from '../utils/noiseGen.js';
 import Signal from '../modules/Signal.js';
 import TileSheet from '../modules/Tilesheet.js';
 import Vector from '../modules/Vector.js';
+import Saver from './Saver.js';
 
 /**
  * @typedef {Object} BlockDef
@@ -281,6 +282,17 @@ export default class ChunkManager {
      */
     getChunks() {
         return this.chunks;
+    }
+
+    /**
+     * Get a single chunk by chunk coordinates. Will generate the chunk if missing.
+     * @param {number} cx Chunk X coordinate
+     * @param {number} cy Chunk Y coordinate
+     * @returns {Object|null} Chunk object or null
+     */
+    getChunk(cx, cy) {
+        if (!Number.isFinite(cx) || !Number.isFinite(cy)) return null;
+        return this._ensureChunk(cx, cy);
     }
 
     // --- Private methods ---
@@ -683,7 +695,6 @@ export default class ChunkManager {
         return outChunk;
     }
 
-
     /**
      * Draw visible tiles to the provided Draw instance.
      * - `draw`: the Draw instance with an active context (call `useCtx` before)
@@ -808,5 +819,198 @@ export default class ChunkManager {
         }
         // Restore drawing context to base for callers
         try { draw.useCtx('base'); } catch (e) {}
+    }
+
+
+    // Code related to saving a chunk to JSON goes beneath this line.
+    /**
+     * Merge a set of tile coordinates into an efficient list of rectangles.
+     * Input: array of positions as `[x,y]` or `{x,y}`. Returns array of
+     * rectangles where each item is either a single position `[x,y]` for a
+     * 1x1 rect or `[[x0,y0],[x1,y1]]` for larger rects (inclusive bounds).
+     *
+     * This uses a greedy maximal-rectangle packing: iterate unassigned cells,
+     * expand width then height while all cells exist, mark assigned, repeat.
+     *
+     * @param {Array} vectorArray
+     * @returns {Array}
+     */
+    mergeMatrix(vectorArray){
+        if(!Array.isArray(vectorArray) || vectorArray.length===0) return [];
+        // Normalize positions to integer x,y and build a set
+        const posSet = new Set();
+        const toKey = (x,y)=>`${x},${y}`;
+        const norm = [];
+        for(const v of vectorArray){
+            if(!v) continue;
+            let x,y;
+            if(Array.isArray(v)){ x = Number(v[0]); y = Number(v[1]); }
+            else if(typeof v.x !== 'undefined' && typeof v.y !== 'undefined'){ x = Number(v.x); y = Number(v.y); }
+            else continue;
+            if(!Number.isFinite(x) || !Number.isFinite(y)) continue;
+            x = Math.floor(x); y = Math.floor(y);
+            const k = toKey(x,y);
+            if(!posSet.has(k)){ posSet.add(k); norm.push([x,y]); }
+        }
+        if(norm.length===0) return [];
+
+        // Build map for quick lookup
+        const has = (x,y)=>posSet.has(toKey(x,y));
+        const assigned = new Set();
+        const out = [];
+
+        // Sort positions to have deterministic processing (by y then x)
+        norm.sort((a,b)=> (a[1]-b[1]) || (a[0]-b[0]));
+
+        for(const p of norm){
+            const sx = p[0], sy = p[1];
+            const pk = toKey(sx,sy);
+            if(assigned.has(pk)) continue;
+
+            // determine maximal width from this start cell
+            let width = 0;
+            while(has(sx+width, sy) && !assigned.has(toKey(sx+width, sy))){ width++; }
+            // expand downward while all cells for current width exist
+            let height = 1;
+            let keep = true;
+            while(keep){
+                const ny = sy + height;
+                let rowWidth = 0;
+                while(rowWidth < width && has(sx+rowWidth, ny) && !assigned.has(toKey(sx+rowWidth, ny))){ rowWidth++; }
+                if(rowWidth === 0) break;
+                // shrink width to rowWidth if needed
+                if(rowWidth < width) width = rowWidth;
+                height++;
+            }
+
+            // mark assigned cells
+            for(let yy = sy; yy < sy+height; yy++){
+                for(let xx = sx; xx < sx+width; xx++){
+                    assigned.add(toKey(xx,yy));
+                }
+            }
+
+            if(width === 1 && height === 1){
+                out.push([sx,sy]);
+            } else {
+                out.push([[sx,sy],[sx+width-1, sy+height-1]]);
+            }
+        }
+
+        return out;
+    }
+    /**
+     * Convert a chunk into grouped coordinate arrays keyed by tile properties.
+     * Priority: layer -> block_type -> special data. Returns an array of
+     * [props, positions] where `props` is an object describing the shared
+     * properties (e.g. { layer:'back', block_type:'red_sand', special:{...} })
+     * and `positions` is an array of [x,y] vectors.
+     *
+     * @param {Object} chunk Chunk object as returned by `getChunk`/_ensureChunk
+     * @returns {Array}
+     */
+    sortChunk(chunk){
+        if(!chunk || !chunk.data) return [];
+        const layersOrder = ['back','base','front'];
+        const out = [];
+        const map = new Map(); // key -> index in out
+
+        const width = chunk.width || (chunk.data && chunk.data.base && Math.sqrt(chunk.data.base.length)) || this.chunkSize;
+        const height = chunk.height || width;
+
+        const getRaw = (x,y,layer)=>{
+            if(!chunk.data) return null;
+            // chunk.data may be per-layer object or a single array
+            if(Array.isArray(chunk.data)){
+                const idx = y * width + x;
+                return (idx>=0 && idx < chunk.data.length) ? chunk.data[idx] : null;
+            }
+            const arr = chunk.data[layer];
+            if(!arr) return null;
+            const idx = y * width + x;
+            return (idx>=0 && idx < arr.length) ? arr[idx] : null;
+        };
+
+        const propsKey = (p)=>{
+            // stable stringify with sorted keys for predictability
+            const kobj = {};
+            if(p.layer !== undefined) kobj.layer = p.layer;
+            if(p.block_type !== undefined) kobj.block_type = p.block_type;
+            if(p.special !== undefined) kobj.special = p.special;
+            return JSON.stringify(kobj);
+        };
+
+        for(const layer of layersOrder){
+            for(let y=0;y<height;y++){
+                for(let x=0;x<width;x++){
+                    const raw = getRaw(x,y,layer);
+                    if(raw === null || raw === 'air' || raw === '') continue;
+                    // build properties object
+                    const p = {};
+                    p.layer = layer;
+                    if(typeof raw === 'string'){
+                        p.block_type = raw;
+                    } else if(typeof raw === 'object' && raw !== null){
+                        if(raw.id) p.block_type = raw.id;
+                        // include special subset if present
+                        if(raw.rot !== undefined || raw.invert !== undefined){
+                            p.special = {};
+                            if(raw.rot !== undefined) p.special.rot = raw.rot;
+                            if(raw.invert !== undefined) p.special.invert = raw.invert;
+                        }
+                        // copy other explicit properties if present (e.g., layer)
+                        if(raw.layer) p.layer = raw.layer;
+                    }
+
+                    const key = propsKey(p);
+                    if(map.has(key)){
+                        out[map.get(key)][1].push([x,y]);
+                    } else {
+                        const idx = out.length;
+                        map.set(key, idx);
+                        out.push([p, [[x,y]]]);
+                    }
+                }
+            }
+        }
+
+        return out;
+    }
+    saveChunk(x,y){
+        const chunk = this.getChunk(x,y);
+        if(!chunk) return false;
+
+        // Group tiles by properties
+        const groups = this.sortChunk(chunk);
+        const regions = [];
+
+        for(const entry of groups){
+            const props = entry[0] || {};
+            const positions = entry[1] || [];
+            if(!positions || positions.length===0) continue;
+            const rects = this.mergeMatrix(positions);
+            for(const r of rects){
+                const regionObj = {};
+                if(Array.isArray(r) && r.length===2 && typeof r[0] === 'number'){
+                    // single tile
+                    regionObj.region = [[r[0], r[1]]];
+                } else if(Array.isArray(r) && Array.isArray(r[0])){
+                    regionObj.region = [r[0], r[1]];
+                } else {
+                    continue;
+                }
+
+                if(props.block_type !== undefined) regionObj.block_type = props.block_type;
+                // Only include layer if it differs from the chunk default
+                if(props.layer !== undefined && props.layer !== chunk.layer) regionObj.layer = props.layer;
+                if(props.special !== undefined) regionObj.special = props.special;
+
+                regions.push(regionObj);
+            }
+        }
+
+        const out = { x: chunk.x, y: chunk.y, width: chunk.width, height: chunk.height, regions: regions };
+        Saver.saveJSON(out, `chunk_${x}_${y}.json`);
+        return true;
     }
 }

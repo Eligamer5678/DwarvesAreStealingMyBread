@@ -130,6 +130,30 @@ class Debug {
         this._setupInput();
         this._setupToggle();
         this._setupEscClose();
+        // Register a `copy` signal so users can type `copy` or `copy()` to copy
+        // the current debug overlay text to the clipboard.
+        this.createSignal('copy', async () => {
+            const text = this.element ? this.element.textContent || '' : '';
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(text);
+                } else {
+                    // Fallback for older browsers / non-secure contexts
+                    const ta = document.createElement('textarea');
+                    ta.value = text;
+                    ta.setAttribute('aria-hidden', 'true');
+                    ta.style.position = 'fixed';
+                    ta.style.left = '-9999px';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                }
+                this.log('[Debug] Copied console to clipboard');
+            } catch (err) {
+                this.error('[Debug] Copy failed: ' + err);
+            }
+        });
     }
 
     _setupEscClose() {

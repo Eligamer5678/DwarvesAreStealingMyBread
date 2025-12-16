@@ -114,8 +114,7 @@
                 "copyfrom":"none",
                 "regions":[
                     {"region":[[0,7],[15,14]],"block_type":"red_sand","layer":"back"},
-                    {"region":[[7,4],[14,6]],"block_type":"red_sand","layer":"back"},
-
+                    {"region":[[7,4],[14,6]],"block_type":"red_sand"},
                     {"region":[[0,14]],"block_type":"red_pillar_sandstone"},
                     {"region":[[15,14]]},
                     {"region":[[15,4],[15,5]]},
@@ -129,12 +128,10 @@
                     {"region":[[1,6],[5,6]]},
                     {"region":[[7,3],[14,3]]},
                     {"region":[[7,12],[14,12]]},
-
                     {"region":[[0,13]],"block_type":"red_polished_sandstone","special":{"rot":0}},
                     {"region":[[0,6]]},
                     {"region":[[6,6]]},
                     {"region":[[6,3]]},
-
                     {"region":[[8,7]]},
                     {"region":[[11,6]]},
                     {"region":[[15,3]]},
@@ -145,7 +142,6 @@
                     {"region":[[4,10]]},
                     {"region":[[0,10]]},
                     {"region":[[6,10]]},
-
                     {"region":[[5,10],[5,14]],"block_type":"ladder"},
                     {"region":[[7,4],[7,11]]},
                     {"region":[[11,12],[11,14]]}
