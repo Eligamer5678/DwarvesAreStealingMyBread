@@ -34,12 +34,13 @@ export default class SheetComponent extends Component{
         if(this.baseSheet){
             this.sheet = this.baseSheet.connect();
             this.sheet.playAnimation('idle', false);
+            this.sheet.onStop.connect(()=>{
+                if(this.sheet.currentAnimation.name === 'defeat') this.entity.dead = true;
+            })
         }
-    }
-    init(baseSheet){
-        this.baseSheet = baseSheet
-        this.sheet = this.baseSheet.connect();
-        this.sheet.playAnimation('idle', false);
+        this.entity.kill.connect(()=>{
+            this.entity.dead = true;
+        })
     }
     /**
      * Updates the sheet.
@@ -72,5 +73,8 @@ export default class SheetComponent extends Component{
         const opts = pickDefaults(defaults,this)
         const cloned = new SheetComponent(entity,data,opts);
         return cloned;
+    }
+    defeat(){
+        try{this.sheet.playAnimation('defeat')}catch{}
     }
 }

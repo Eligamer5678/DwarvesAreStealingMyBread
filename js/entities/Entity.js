@@ -1,4 +1,5 @@
 import Vector from "../modules/Vector.js";
+import Signal from "../modules/Signal.js";
 /** Type Imports
  * @typedef {import('../modules/Draw.js').default} DrawType
  * @typedef {import('../modules/Vector.js').default} VectorType
@@ -22,6 +23,8 @@ export default class Entity {
         this.team = 'none';
         this.health = 1000000000; // big number (:
         this.components = new Map();
+        this.kill = new Signal()
+        this.dead = false;
     }
     /**
      * Updates the sprite
@@ -98,6 +101,21 @@ export default class Entity {
             cloned.setComponent(key,clonedComp)
         })
         cloned.team = this.team;
+        cloned.health = this.health;
         return cloned
+    }
+    /**
+     * Defeat is not killing. 
+     * if a component has a defeat() method, it will be called instead.
+     */
+    defeat(){
+        let i = 0;
+        this.getComponents().forEach((comp)=>{
+            if(typeof comp.defeat === 'function') {
+                comp.defeat()
+                i+=1;
+            }
+        })
+        if(i===0)this.dead = true;
     }
 }

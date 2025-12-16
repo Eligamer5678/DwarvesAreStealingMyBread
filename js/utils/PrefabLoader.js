@@ -64,6 +64,11 @@ export default class PrefabLoader {
                 continue;
             }
 
+            // Apply extra properties from the prefab (e.g. health, team)
+            const extra = def.extra || {};
+            if (extra.health !== undefined) ent.health = extra.health;
+            if (extra.team !== undefined) ent.team = extra.team;
+
             entityManager.addEntityType(key, ent);
         }
         return true;
