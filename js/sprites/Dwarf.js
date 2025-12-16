@@ -66,6 +66,29 @@ export default class Dwarf extends Sprite {
         this.placementRotation = 0; // rotation for placed blocks (0, 90, 180, 270)
         this.placementInvert = false; // flip state for placed blocks
 
+        // Palette of buildable blocks (used by buildKeys and pickBlock)
+        this.buildPalette = [
+            'stone',
+            'sand',
+            'ladder',
+            'sandstone',
+            'polished_sandstone',
+            'pillar_sandstone',
+            'red_sand',
+            'red_sandstone',
+            'red_pillar_sandstone',
+            'red_polished_sandstone',
+            'deadbush',
+            'cobblestone',
+            'rotirock',
+            'briocheoid',
+            'pumpernickel',
+            'breadstone',
+            'salt',
+            'coal',
+            'pretzelstick',
+        ];
+
         // Wire jump input (Input.onJump emits when jump key pressed)
         this.input.onJump.connect((k) => {
             if (this.onGround&&!this.keys.held('Shift')) {
@@ -144,32 +167,8 @@ export default class Dwarf extends Sprite {
     }
 
     buildKeys(){
-        const blocks = [
-            'stone',
-            'sand',
-            'ladder',
-            'sandstone',
-            'polished_sandstone',
-            'pillar_sandstone',
-            'red_sand',
-            'red_sandstone',
-            'red_pillar_sandstone',
-            'red_polished_sandstone',
-            'deadbush',
-            'cobblestone',
-            'rotirock',
-            'briocheoid',
-            'pumpernickel',
-            'breadstone',
-            'salt',
-            'coal',
-            'pretzelstick',
-        ]
-        if(this.keys.pressed('o')) this.selectedIndex = (this.selectedIndex-1)%blocks.length
-        if(this.keys.pressed('p')) this.selectedIndex = (this.selectedIndex+1)%blocks.length
-        this.selectedItem = blocks[this.selectedIndex]
-
-        if(this.keys.pressed('o')) this.selectedIndex = (this.selectedIndex-1)%blocks.length
+        const blocks = this.buildPalette;
+        if(this.keys.pressed('o')) this.selectedIndex = (this.selectedIndex+blocks.length+1)%blocks.length
         if(this.keys.pressed('p')) this.selectedIndex = (this.selectedIndex+1)%blocks.length
         this.selectedItem = blocks[this.selectedIndex]
 
@@ -180,6 +179,41 @@ export default class Dwarf extends Sprite {
         if(this.keys.pressed('f')) {
             this.placementInvert = !this.placementInvert;
         }
+        // Pickblock: copy target block into current selection
+        if(this.keys.pressed('c')){
+            this.pickBlock();
+        }
+    }
+
+    /**
+     * Pick the currently targeted block and copy its id/rotation/invert
+     * into the dwarf's placement selection (`selectedItem`, `placementRotation`, `placementInvert`).
+     * Returns true if a block was picked.
+     */
+    pickBlock(){
+        try{
+            if(!this.chunkManager) return false;
+            // Ensure we have an up-to-date target
+            if(!this.miningTarget) this._updateTarget();
+            if(!this.miningTarget) return false;
+            const sx = this.miningTarget.sx;
+            const sy = this.miningTarget.sy;
+            // Query the tile; use 'any' to get top-most tile at target
+            const tile = this.chunkManager.getTileValue(sx, sy, 'any');
+            if(!tile || !tile.id) return false;
+            // Copy id into selectedItem
+            this.selectedItem = tile.id;
+            // Copy rotation/invert if present, otherwise default
+            this.placementRotation = (typeof tile.rot === 'number') ? tile.rot : 0;
+            this.placementInvert = (typeof tile.invert === 'boolean') ? tile.invert : false;
+            // Also set the place layer to the tile's layer so subsequent placements
+            // default to placing into the same layer the block was picked from.
+            if(tile.layer) this.placeLayer = tile.layer;
+            // Update selectedIndex if the picked id exists in the buildPalette
+            const idx = this.buildPalette.indexOf(tile.id);
+            if(idx >= 0) this.selectedIndex = idx;
+            return true;
+        }catch(e){ return false; }
     }
     ladder(delta){
         // Ladder climbing: when on a ladder, gravity is suspended and vertical

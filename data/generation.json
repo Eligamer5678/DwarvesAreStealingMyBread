@@ -102,11 +102,11 @@
         "type":"structure",
         "root":[0,0],
         "chunks":[
-            {"pos":[-3,-1],"type":["bagel_village_path"]},
-            {"pos":[-2,-1],"type":["bagel_village_path"]},
-            {"pos":[-1,-1],"type":["bagel_village_path"]},
-            {"pos":[0,-1],"type":["bagel_village1"]},
-            {"pos":[1,-1],"type":["bagel_village2"]}
+            {"pos":[-2,-1],"type":["sand-ground"]},
+            {"pos":[-1,-1],"type":["superflat"]},
+            {"pos":[0,-1],"type":["superflat"]},
+            {"pos":[1,-1],"type":["superflat"]},
+            {"pos":[2,-1],"type":["sand-ground"]}
         ]
     }
     

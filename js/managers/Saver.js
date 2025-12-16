@@ -83,12 +83,47 @@ export default class Saver {
         if (autoSave) this.save();
     }
 
-    static saveJSON = function(object, path = "data.json"){
+    static saveJSON = function(object, path = "data.json", options = {}){
         try{
             const defaultName = path || "data.json";
             const filename = prompt("Enter filename to save JSON:", defaultName);
             if(!filename) return false;
-            const dataStr = JSON.stringify(object, null, 2);
+
+            let dataStr = JSON.stringify(object, null, 2);
+
+            // Optionally compact `regions` entries into single-line objects
+            if(options && options.compactRegions && object && Array.isArray(object.regions)){
+                try{
+                    // Build compact JSON for each region
+                    const compactRegions = object.regions.map(r => JSON.stringify(r));
+
+                    // Produce a placeholderified copy to locate the property indentation
+                    const placeholderKey = "__REGIONS_PLACEHOLDER__";
+                    const copy = Object.assign({}, object);
+                    delete copy.regions;
+                    copy[placeholderKey] = "__REPLACE_ME__";
+                    let tmp = JSON.stringify(copy, null, 2);
+
+                    // Find the placeholder line and its indentation + trailing comma
+                    const re = new RegExp('^([ \t]*)"' + placeholderKey + '"\\s*:\\s*"__REPLACE_ME__"(,?)\\n','m');
+                    const m = tmp.match(re);
+                    if(m){
+                        const indent = m[1] || '';
+                        const trailingComma = m[2] === ',' ? ',' : '';
+                        const regionLines = compactRegions.map(r => indent + '  ' + r);
+                        const regionsBlock = indent + '"regions": [\n' + regionLines.join(',\n') + '\n' + indent + ']' + trailingComma + '\n';
+                        // Replace the placeholder property with the constructed regions block
+                        dataStr = tmp.replace(re, regionsBlock);
+                    } else {
+                        // fallback: leave original pretty JSON
+                        dataStr = JSON.stringify(object, null, 2);
+                    }
+                }catch(e){
+                    console.error('Saver.saveJSON compactRegions failed', e);
+                    dataStr = JSON.stringify(object, null, 2);
+                }
+            }
+
             const blob = new Blob([dataStr], { type: "application/json" });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');

@@ -341,15 +341,36 @@ export default class ChunkManager {
 
     _ensureChunk(cx, cy) {
         const key = this._chunkKey(cx, cy);
-        // Check existing stored chunks across layers
+        // Check existing stored chunks across layers. If multiple per-layer
+        // entries exist for this chunk, return a `data` object mapping each
+        // present layer to its tiles array so callers (like sortChunk)
+        // can inspect all layers. If only a single layer entry exists, keep
+        // the legacy behavior of returning its tiles array directly.
         const layers = ['back', 'base', 'front'];
+        let foundAny = false;
+        const dataObj = {};
+        let foundWidth = null;
+        let foundHeight = null;
         for (const l of layers) {
             const bucket = this.chunks[l];
             if (bucket && Object.prototype.hasOwnProperty.call(bucket, key)) {
                 const entry = bucket[key];
-                // Return a chunk-like object for compatibility with callers
-                return { x: cx, y: cy, width: entry.data.width || this.chunkSize, height: entry.data.height || this.chunkSize, data: entry.tiles, layer: entry.data.layer || l };
+                foundAny = true;
+                dataObj[l] = entry.tiles;
+                if (foundWidth === null) {
+                    foundWidth = entry.data.width || this.chunkSize;
+                    foundHeight = entry.data.height || this.chunkSize;
+                }
             }
+        }
+        if (foundAny) {
+            // prefer returning a full per-layer object when multiple layers
+            // are present; otherwise return the single tiles array for
+            // backward compatibility.
+            const layerKeys = Object.keys(dataObj);
+            const defaultLayer = (dataObj.base) ? 'base' : layerKeys[0];
+            const retData = (layerKeys.length === 1) ? dataObj[defaultLayer] : dataObj;
+            return { x: cx, y: cy, width: foundWidth || this.chunkSize, height: foundHeight || this.chunkSize, data: retData, layer: defaultLayer };
         }
 
         // Always use JSON-driven generation. If there are no definitions,
@@ -922,6 +943,11 @@ export default class ChunkManager {
             if(!chunk.data) return null;
             // chunk.data may be per-layer object or a single array
             if(Array.isArray(chunk.data)){
+                // chunk.data is a single-layer array. Only return values
+                // when querying the chunk's actual layer to avoid emitting
+                // the same tiles for every layer in the layersOrder loop.
+                const chunkLayer = chunk.layer || 'base';
+                if(layer !== chunkLayer) return null;
                 const idx = y * width + x;
                 return (idx>=0 && idx < chunk.data.length) ? chunk.data[idx] : null;
             }
@@ -984,33 +1010,60 @@ export default class ChunkManager {
         const groups = this.sortChunk(chunk);
         const regions = [];
 
+        // Emit regions but compress repeated fields to mimic the compact
+        // inheritance used by `_generateChunkJSON`. We track previous
+        // emitted values and only include `block_type`, `layer`, or
+        // `special` when they change.
+        let prevBlockType = null;
+        let prevLayer = undefined;
+        let prevRot = 0;
+        let prevInvert = false;
+
         for(const entry of groups){
             const props = entry[0] || {};
             const positions = entry[1] || [];
             if(!positions || positions.length===0) continue;
             const rects = this.mergeMatrix(positions);
             for(const r of rects){
-                const regionObj = {};
+                const regionFull = {};
                 if(Array.isArray(r) && r.length===2 && typeof r[0] === 'number'){
                     // single tile
-                    regionObj.region = [[r[0], r[1]]];
+                    regionFull.region = [[r[0], r[1]]];
                 } else if(Array.isArray(r) && Array.isArray(r[0])){
-                    regionObj.region = [r[0], r[1]];
+                    regionFull.region = [r[0], r[1]];
                 } else {
                     continue;
                 }
 
-                if(props.block_type !== undefined) regionObj.block_type = props.block_type;
-                // Only include layer if it differs from the chunk default
-                if(props.layer !== undefined && props.layer !== chunk.layer) regionObj.layer = props.layer;
-                if(props.special !== undefined) regionObj.special = props.special;
+                // Determine full values for this region
+                const fullBlockType = (props.block_type !== undefined) ? props.block_type : null;
+                const fullLayer = (props.layer !== undefined) ? props.layer : (chunk.layer !== undefined ? chunk.layer : 'base');
+                const fullSpecial = (props.special !== undefined) ? { rot: (props.special.rot !== undefined ? props.special.rot : 0), invert: (props.special.invert !== undefined ? props.special.invert : false) } : { rot: 0, invert: false };
 
-                regions.push(regionObj);
+                // Build compact region object using inheritance from previous emitted region
+                const compact = { region: regionFull.region };
+
+                // block_type: include when it changes (or when first defined)
+                if(fullBlockType !== null && fullBlockType !== prevBlockType){ compact.block_type = fullBlockType; prevBlockType = fullBlockType; }
+
+                // layer: include when it differs from previous. If previous undefined
+                // and layer equals chunk.layer, omit to allow generator to inherit chunk default.
+                if(prevLayer === undefined){
+                    if(fullLayer !== (chunk.layer !== undefined ? chunk.layer : 'base')){ compact.layer = fullLayer; prevLayer = fullLayer; }
+                    else { prevLayer = fullLayer; }
+                } else {
+                    if(fullLayer !== prevLayer){ compact.layer = fullLayer; prevLayer = fullLayer; }
+                }
+
+                // special: include only when it differs from previous (rot/invert)
+                if(fullSpecial.rot !== prevRot || fullSpecial.invert !== prevInvert){ compact.special = { rot: fullSpecial.rot, invert: fullSpecial.invert }; prevRot = fullSpecial.rot; prevInvert = fullSpecial.invert; }
+
+                regions.push(compact);
             }
         }
 
         const out = { x: chunk.x, y: chunk.y, width: chunk.width, height: chunk.height, regions: regions };
-        Saver.saveJSON(out, `chunk_${x}_${y}.json`);
+        Saver.saveJSON(out, `chunk_${x}_${y}.json`, { compactRegions: true });
         return true;
     }
 }

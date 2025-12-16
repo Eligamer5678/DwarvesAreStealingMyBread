@@ -167,6 +167,16 @@
                 ]
             }
         },
+        "superflat":{
+            "dependencies":["desert"],
+            "data":{
+                "bg":"air",
+                "copyfrom":"",
+                "regions":[
+
+                ]
+            }
+        },
         "bagel_village_path":{
             "dependencies":["desert"],
             "data":{
@@ -200,42 +210,6 @@
                 ],
                 "entities":[
                     {"pos":[5,14],"type":"bat","data":{
-                        "team":"monster",
-                        "size":[16,16]
-                    }},
-                    {"pos":[5,14],"type":"moth","data":{
-                        "team":"monster",
-                        "size":[16,16]
-                    }},
-                    {"pos":[5,14],"type":"bat","data":{
-                        "team":"monster",
-                        "size":[16,16]
-                    }},
-                    {"pos":[5,14],"type":"moth","data":{
-                        "team":"monster",
-                        "size":[16,16]
-                    }},
-                    {"pos":[5,14],"type":"bat","data":{
-                        "team":"monster",
-                        "size":[16,16]
-                    }},
-                    {"pos":[5,14],"type":"moth","data":{
-                        "team":"monster",
-                        "size":[16,16]
-                    }},
-                    {"pos":[5,14],"type":"slime","data":{
-                        "team":"monster",
-                        "size":[16,16]
-                    }},
-                    {"pos":[5,14],"type":"slime","data":{
-                        "team":"monster",
-                        "size":[16,16]
-                    }},
-                    {"pos":[5,14],"type":"slime","data":{
-                        "team":"monster",
-                        "size":[16,16]
-                    }},
-                    {"pos":[5,14],"type":"slime","data":{
                         "team":"monster",
                         "size":[16,16]
                     }}
