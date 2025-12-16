@@ -105,47 +105,50 @@
                 ]
             }
         },
+
+
         "bagel_village1":{
             "dependencies":["desert"],
             "data":{
                 "bg":"air",
                 "copyfrom":"none",
                 "regions":[
-                    {"region":[[0,8],[15,15]],"block_type":"red_sand","layer":"back"},
-                    {"region":[[7,5],[14,7]],"block_type":"red_sand","layer":"back"},
+                    {"region":[[0,7],[15,14]],"block_type":"red_sand","layer":"back"},
+                    {"region":[[7,4],[14,6]],"block_type":"red_sand","layer":"back"},
 
-                    {"region":[[0,15]],"block_type":"red_pillar_sandstone"},
-                    {"region":[[15,15]]},
-                    {"region":[[15,5],[15,6]]},
-                    {"region":[[0,8],[0,13]],"layer":"base"},
-                    {"region":[[6,12],[6,15]]},
-                    {"region":[[6,5],[6,6]]},
-                    {"region":[[15,8],[15,13]]},
-                    {"region":[[1,14],[3,14]],"special":{"rot":90}},
-                    {"region":[[1,11],[3,11]]},
-                    {"region":[[1,7],[5,7]]},
-                    {"region":[[7,4],[14,4]]},
-                    {"region":[[7,13],[14,13]]},
-
-                    {"region":[[0,14]],"block_type":"red_polished_sandstone","special":{"rot":0}},
-                    {"region":[[0,7]]},
-                    {"region":[[6,7]]},
-                    {"region":[[6,4]]},
-
-                    {"region":[[8,8]]},
-                    {"region":[[11,7]]},
-                    {"region":[[15,4]]},
-                    {"region":[[15,7]]},
-                    {"region":[[6,14]]},
+                    {"region":[[0,14]],"block_type":"red_pillar_sandstone"},
                     {"region":[[15,14]]},
-                    {"region":[[4,14]]},
-                    {"region":[[4,11]]},
-                    {"region":[[0,11]]},
-                    {"region":[[6,11]]},
+                    {"region":[[15,4],[15,5]]},
+                    {"region":[[0,7],[0,12]],"layer":"base"},
+                    {"region":[[6,11],[6,14]]},
+                    {"region":[[6,4],[6,5]]},
+                    {"region":[[15,7],[15,12]]},
+                    {"region":[[1,13],[3,13]],"special":{"rot":90}},
+                    {"region":[[1,10],[3,10]]},
+                    {"region":[[0,15],[15,15]]},
+                    {"region":[[1,6],[5,6]]},
+                    {"region":[[7,3],[14,3]]},
+                    {"region":[[7,12],[14,12]]},
 
-                    {"region":[[5,11],[5,15]],"block_type":"ladder"},
-                    {"region":[[7,5],[7,12]]},
-                    {"region":[[11,13],[11,15]]}
+                    {"region":[[0,13]],"block_type":"red_polished_sandstone","special":{"rot":0}},
+                    {"region":[[0,6]]},
+                    {"region":[[6,6]]},
+                    {"region":[[6,3]]},
+
+                    {"region":[[8,7]]},
+                    {"region":[[11,6]]},
+                    {"region":[[15,3]]},
+                    {"region":[[15,6]]},
+                    {"region":[[6,13]]},
+                    {"region":[[15,13]]},
+                    {"region":[[4,13]]},
+                    {"region":[[4,10]]},
+                    {"region":[[0,10]]},
+                    {"region":[[6,10]]},
+
+                    {"region":[[5,10],[5,14]],"block_type":"ladder"},
+                    {"region":[[7,4],[7,11]]},
+                    {"region":[[11,12],[11,14]]}
                 ],
                 "entities":[
                     {"pos":[9,14],"type":"bat","data":{
@@ -161,10 +164,85 @@
                 "bg":"air",
                 "copyfrom":"bagel_village1",
                 "regions":[
-                    {"region":[[5,5]],"block_type":"red_polished_sandstone","layer":"base"},
-                    {"region":[[5,6]]},
-                    {"region":[[4,6]]},
-                    {"region":[[15,5],[15,6]],"block_type":"red_pillar_sandstone"}
+                    {"region":[[5,4]],"block_type":"red_polished_sandstone","layer":"base"},
+                    {"region":[[5,5]]},
+                    {"region":[[4,5]]},
+                    {"region":[[15,4],[15,5]],"block_type":"red_pillar_sandstone"}
+                ]
+            }
+        },
+        "bagel_village_path":{
+            "dependencies":["desert"],
+            "data":{
+                "bg":"air",
+                "copyfrom":"none",
+                "regions":[
+                    {"region":[[0,10],[15,10]],"block_type":"stone","layer":"back"},
+                    {"region":[[0,11],[15,11]],"block_type":"stone","layer":"back","special":{"rot":0}},
+                    {"region":[[0,12],[15,12]],"block_type":"stone","layer":"back"},
+                    {"region":[[0,13],[15,13]],"block_type":"cobblestone","layer":"back"},
+                    {"region":[[0,14],[15,14]],"block_type":"polished_cobblestone","layer":"back"},
+
+                    {"region":[[12,11],[12,13]],"block_type":"red_pillar_sandstone"},
+                    {"region":[[8,11],[8,13]],"block_type":"red_pillar_sandstone"},
+                    {"region":[[4,11],[4,13]],"block_type":"red_pillar_sandstone"},
+                    {"region":[[0,11],[0,13]],"block_type":"red_pillar_sandstone"},
+                    {"region":[[12,14]],"block_type":"red_polished_sandstone"},
+                    {"region":[[8,14]],"block_type":"red_polished_sandstone"},
+                    {"region":[[4,14]],"block_type":"red_polished_sandstone"},
+                    {"region":[[0,14]],"block_type":"red_polished_sandstone"},
+                    {"region":[[12,10]],"block_type":"red_polished_sandstone"},
+                    {"region":[[8,10]],"block_type":"red_polished_sandstone"},
+                    {"region":[[4,10]],"block_type":"red_polished_sandstone"},
+                    {"region":[[0,10]],"block_type":"red_polished_sandstone"},
+                    
+                    {"region":[[0,9],[15,9]],"block_type":"red_pillar_sandstone","layer":"base","special":{"rot":90}},
+                    {"region":[[0,15],[15,15]],"block_type":"red_pillar_sandstone","layer":"base"}
+
+                    
+
+                ],
+                "entities":[
+                    {"pos":[5,14],"type":"bat","data":{
+                        "team":"monster",
+                        "size":[16,16]
+                    }},
+                    {"pos":[5,14],"type":"moth","data":{
+                        "team":"monster",
+                        "size":[16,16]
+                    }},
+                    {"pos":[5,14],"type":"bat","data":{
+                        "team":"monster",
+                        "size":[16,16]
+                    }},
+                    {"pos":[5,14],"type":"moth","data":{
+                        "team":"monster",
+                        "size":[16,16]
+                    }},
+                    {"pos":[5,14],"type":"bat","data":{
+                        "team":"monster",
+                        "size":[16,16]
+                    }},
+                    {"pos":[5,14],"type":"moth","data":{
+                        "team":"monster",
+                        "size":[16,16]
+                    }},
+                    {"pos":[5,14],"type":"slime","data":{
+                        "team":"monster",
+                        "size":[16,16]
+                    }},
+                    {"pos":[5,14],"type":"slime","data":{
+                        "team":"monster",
+                        "size":[16,16]
+                    }},
+                    {"pos":[5,14],"type":"slime","data":{
+                        "team":"monster",
+                        "size":[16,16]
+                    }},
+                    {"pos":[5,14],"type":"slime","data":{
+                        "team":"monster",
+                        "size":[16,16]
+                    }}
                 ]
             }
         }

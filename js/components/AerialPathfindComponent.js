@@ -25,8 +25,8 @@ export default class AerialPathfindComponent extends Component{
             pathRecalc: 0.6,
             attackCooldown: 5.0, // Time between consecutive attack attempts
             
-            attackRange: 50, // Range from target to start windup
-            detectRange: 70, // Range to try and attack target
+            attackRange: 80, // Range from target to start windup
+            detectRange: 100, // Range to try and attack target
             windupDuration: 0.5, // Windup time, conveys the attack before attacking
             swoopDuration: 1.5, // Time before basic movement takes over again
 
