@@ -168,7 +168,7 @@ export default class Dwarf extends Sprite {
 
     buildKeys(){
         const blocks = this.buildPalette;
-        if(this.keys.pressed('o')) this.selectedIndex = (this.selectedIndex+blocks.length+1)%blocks.length
+        if(this.keys.pressed('o')) this.selectedIndex = (this.selectedIndex+blocks.length-1)%blocks.length
         if(this.keys.pressed('p')) this.selectedIndex = (this.selectedIndex+1)%blocks.length
         this.selectedItem = blocks[this.selectedIndex]
 
