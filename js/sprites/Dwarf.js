@@ -390,12 +390,12 @@ export default class Dwarf extends Sprite {
 
     // Determine the effective layer to place/mine into based on modifier keys.
     // - Hold Alt => 'back'
-    // - Hold Alt + Control => 'overlays'
+    // - not hold Alt => 'base'
     // - Otherwise use this.placeLayer (usually 'base')
     _getActivePlaceLayer() {
         try {
-            const alt = this.keys && this.keys.held && this.keys.held('Alt');
-            const ctrl = this.keys && this.keys.held && this.keys.held('Control');
+            const alt = this.keys.held('Alt');
+            const ctrl = this.keys.held('Control');
             if (alt) return (ctrl ? 'overlays' : 'back');
         } catch (e) { /* ignore key errors */ }
         return this.placeLayer;

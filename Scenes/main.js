@@ -6,19 +6,7 @@ import ChunkManager from '../js/managers/ChunkManager.js';
 import Dwarf from '../js/sprites/Dwarf.js';
 import CollisionSystem from '../js/systems/CollisionSystem.js';
 import LightingSystem from '../js/systems/LightingSystem.js';
-import Color from '../js/modules/Color.js';
 import EntityManager from '../js/managers/EntityManager.js';
-import Torch from '../js/entities/Torch.js';
-import Slime from '../js/entities/Slime.js';
-import Bat from '../js/entities/Bat.js';
-import Moth from '../js/entities/Moth.js';
-
-import Entity from '../js/entities/Entity.js';
-import SheetComponent from '../js/components/SheetComponent.js';
-import SpriteSheet from '../js/modules/Spritesheet.js';
-import PathfindComponent from '../js/components/PathfindComponent.js';
-import AerialPathfindComponent from '../js/components/AerialPathfindComponent.js';
-import LightComponent from '../js/components/LightComponent.js';
 import PrefabLoader from '../js/utils/PrefabLoader.js';
 
 export class MainScene extends Scene {
@@ -224,6 +212,19 @@ export class MainScene extends Scene {
         
         // Update camera smoothing/keyframes
         this.camera.update(tickDelta);
+        // Mouse controls: left-click to place selected block, right-click to remove
+        try {
+            if (this.mouse.held('left')) {
+                const world = this.camera.screenToWorld(this.mouse.pos);
+                try { this.player.buildAtWorld(world.x, world.y, this.player.selectedItem); } catch (e) { console.warn('Mouse place failed', e); }
+            }
+            if (this.mouse.held('right')) {
+                const world = this.camera.screenToWorld(this.mouse.pos);
+                try { this.player.mineAtWorld(world.x, world.y); } catch (e) { console.warn('Mouse remove failed', e); }
+            }
+        } catch (e) {
+            // ignore if mouse/camera/player not ready
+        }
     }
 
     draw() {

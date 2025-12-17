@@ -9,7 +9,7 @@ export default class Keys { // Key input
 
         window.addEventListener("keydown", e => {
             // prevent browser interfering with shortcuts
-            if (e.key === " " || (e.altKey)) {
+            if (e.key === " " || (e.altKey) || e.key === " " && e.altKey) {
                 e.preventDefault();
             }
 
