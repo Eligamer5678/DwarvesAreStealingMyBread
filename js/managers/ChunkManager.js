@@ -57,6 +57,18 @@ export default class ChunkManager {
         this.chunkSpecs = null; // contents of data/chunks.json
         this.generationSpec = null; // contents of data/generation.json
         this.blockDefs = null; // Map of block id -> metadata (from data/blocks.json)
+        // Autosave timer handle
+        this._autosaveInterval = null;
+        // Start autosave every minute if a Saver instance was provided
+        try {
+            if (this.saver && typeof this.saver === 'object') {
+                this._autosaveInterval = setInterval(() => {
+                    try { this.save(); } catch (e) { console.warn('ChunkManager autosave failed', e); }
+                },30000);
+            }
+        } catch (e) {
+            // ignore
+        }
     }
 
     /**
@@ -518,6 +530,17 @@ export default class ChunkManager {
         }
         // then append this spec's own regions (so they can override/extend)
         if (spec.data && Array.isArray(spec.data.regions)) regions = regions.concat(spec.data.regions);
+
+        // If a saved chunk exists in the Saver, prefer its regions to override
+        // the generation spec. This allows loading previously saved edits.
+        try {
+            if (this.saver && typeof this.saver.get === 'function') {
+                const saved = this.saver.get(`chunks/${cx},${cy}`, null);
+                if (saved && Array.isArray(saved.regions)) {
+                    regions = saved.regions;
+                }
+            }
+        } catch (e) { /* ignore saver issues */ }
 
         // Allow compact region specs to inherit certain fields from the
         // previous region. Only `block_type`, `special.rot`/`special.invert`,
@@ -1003,7 +1026,11 @@ export default class ChunkManager {
 
         return out;
     }
-    saveChunk(x,y){
+    /**
+     * Save a single chunk. By default this will prompt/download the JSON file.
+     * If `opts.download` is false, the JSON object will be returned instead.
+     */
+    saveChunk(x,y, opts = { download: true }){
         const chunk = this.getChunk(x,y);
         if(!chunk) return false;
 
@@ -1064,7 +1091,57 @@ export default class ChunkManager {
         }
 
         const out = { x: chunk.x, y: chunk.y, width: chunk.width, height: chunk.height, regions: regions };
-        Saver.saveJSON(out, `chunk_${x}_${y}.json`, { compactRegions: true });
-        return true;
+        if (opts && opts.download === false) {
+            return out;
+        }
+        // Default behaviour: prompt/save to file using Saver.saveJSON
+        try {
+            Saver.saveJSON(out, `chunk_${x}_${y}.json`, { compactRegions: true });
+            return true;
+        } catch (e) {
+            console.error('saveChunk: Saver.saveJSON failed', e);
+            return false;
+        }
+    }
+
+    /**
+     * Save all modified chunks. Returns an array of { x, y, regions } for
+     * each modified chunk. If a `Saver` instance was provided to the
+     * constructor, saved chunk objects will be stored under
+     * `chunks/<x>,<y>` in the saver and persisted once at the end.
+     */
+    save(){
+        const results = [];
+        const layers = Object.keys(this.chunks || {});
+        for (const ln of layers) {
+            const bucket = this.chunks[ln] || {};
+            for (const key of Object.keys(bucket)) {
+                const entry = bucket[key];
+                if (!entry || !entry.data) continue;
+                if (entry.data.modified) {
+                    const parts = key.split(',').map(Number);
+                    const cx = parts[0];
+                    const cy = parts[1];
+                    try {
+                        const out = this.saveChunk(cx, cy, { download: false });
+                        if (out && out.regions) {
+                            results.push({ x: out.x, y: out.y, regions: out.regions });
+                            if (this.saver && typeof this.saver.set === 'function') {
+                                // store without auto-saving each time, we'll save once below
+                                this.saver.set(`chunks/${out.x},${out.y}`, out, false);
+                            }
+                            // mark chunk as not modified after saving
+                            entry.data.modified = false;
+                        }
+                    } catch (e) {
+                        console.warn('ChunkManager.save: failed saving chunk', key, e);
+                    }
+                }
+            }
+        }
+        if (this.saver && typeof this.saver.save === 'function') {
+            try { this.saver.save(); } catch(e) { console.warn('ChunkManager.save: saver.save failed', e); }
+        }
+        return results;
     }
 }
