@@ -63,7 +63,7 @@ export class MainScene extends Scene {
             }
 
             // Initialize chunk manager and load generation/chunk/block definitions
-            this.chunkManager = new ChunkManager();
+            this.chunkManager = new ChunkManager(this.saver);
             await this.chunkManager.loadDefinitions('./data');
             // entity manager
             // Create a camera for world rendering

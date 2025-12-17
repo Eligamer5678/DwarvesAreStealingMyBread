@@ -16,7 +16,7 @@ import Saver from './Saver.js';
  * Generates chunks on-demand using Perlin noise and manages explicit tile modifications.
  */
 export default class ChunkManager {
-    constructor(options = {}) {
+    constructor(saver,options = {}) {
         // Basic sizing and options (allow overrides via `options`)
         this.chunkSize = Number.isFinite(options.chunkSize) ? options.chunkSize : 16;
         this.noiseTileSize = Number.isFinite(options.noiseTileSize) ? options.noiseTileSize : 16;
@@ -41,6 +41,7 @@ export default class ChunkManager {
         this.noiseOptions = Object.assign({}, defaultNoise, options.noiseOptions || {});
         this.entityManager = null;
         this.ready = false;
+        this.saver = saver
         // Internal state
         // New chunk storage format: layer -> { "cx,cy": { tiles: [...], data: {...} } }
         this.chunks = { back: {}, base: {}, front: {} };
