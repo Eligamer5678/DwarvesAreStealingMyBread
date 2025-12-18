@@ -81,7 +81,8 @@ export class MainScene extends Scene {
 
         // Initialize minimal UI. Subsystems (entities, blocks, rendering)
         // will be registered by the new component-based engine.
-        this.mainUI = new MainUI(this.Draw, this.mouse, this.keys, null);
+        // pass the scene reference so UI can resolve resources and player
+        this.mainUI = new MainUI(this.Draw, this.mouse, this.keys, this, {});
 
         
         
@@ -135,6 +136,7 @@ export class MainScene extends Scene {
             this.camera.targetZoom.y = 10;
             this.camera.targetOffset = this.camera.targetOffset;
         }
+        // UI reads player from the passed scene reference; nothing to set here
     }
     createManagers(){
         // collision system
@@ -154,10 +156,12 @@ export class MainScene extends Scene {
     sceneTick(tickDelta) {
         // Minimal tick: update input and UI. Full game systems will be added
         // when we wire the new component architecture and JSON loader.
+        this.mouse.setMask(0)
         this.mouse.update(tickDelta);
         this.keys.update(tickDelta);
         this.mainUI.update(tickDelta);
         // Update player
+        this.mouse.setPower(0)
         this.player.update(tickDelta);
         this.mainUI.menu.elements.get("heightText2").setText(Math.round((this.player.pos.y/this.chunkManager.noiseTileSize)*-1*10-1)/10)
         this.mainUI.menu.elements.get("itemText").setText("Item: "+ this.player.selectedItem)
@@ -190,17 +194,17 @@ export class MainScene extends Scene {
 
         this.collision.updateSprite(this.player);
         
-        // Spawn monsters: 1 = Slime, 2 = Bat, 3 = Moth
-        // Slime (1)
-        if (this.keys.released('1')) {
+        // Spawn monsters: 8 = Slime, 9 = Bat, 0 = Moth
+        // Slime
+        if (this.keys.released('8')) {
             this.entityManager.addEntity("slime",this.player.pos,new Vector(16,16))
         }
-        // Bat (2)
-        if (this.keys.released('2')) {
+        // Bat
+        if (this.keys.released('9')) {
             this.entityManager.addEntity("bat",this.player.pos,new Vector(16,16));
         }
-        // Moth (3)
-        if (this.keys.released('3')) {
+        // Moth
+        if (this.keys.released('0')) {
             this.entityManager.addEntity("moth",this.player.pos,new Vector(16,16));
         }
 

@@ -29,10 +29,11 @@ export default class Menu{
 
             // Start dragging when pressed inside the menu
             if (this.draggable && !this._dragging && this.mouse.pressed('left','popup')){
+                console.log('hi')
                 this._dragging = true;
+                this.mouse.grab(this.mouse.pos);
                 this.mouse.focus('popup')
                 this._dragStartPos = this.pos.clone();
-                this.mouse.grab(this.mouse.pos);
             }
         }
 
@@ -49,9 +50,10 @@ export default class Menu{
         }
 
         // Release drag when mouse button is released
-        if (this.draggable && this._dragging && this.mouse.released && this.mouse.released('left','popup')){
+        if (this.draggable && this._dragging && this.mouse.released('left','popup')){
             try{
                 const finalDelta = this.mouse.getGrabDelta();
+                this.mouse.unfocus()
                 this.pos = this._dragStartPos.add(finalDelta);
                 this.mouse.releaseGrab();
             }catch{}
@@ -68,11 +70,11 @@ export default class Menu{
     }
     addElement(key,element){
         element.addOffset(this.pos)
-        if(typeof element instanceof Menu){
+        try{
             element.onRemove.connect(()=>{
                 this.removeElement(key) // for popup-menus
             })
-        }
+        }catch{}
         this.elements.set(key,element)
     }
     removeElement(key){ 

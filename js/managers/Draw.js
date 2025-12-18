@@ -619,6 +619,34 @@ export default class Draw {
         ctx.restore();
     }
 
+    /**
+     * Draw text to the active canvas context with wrapping, clipping and styling support.
+     *
+     * This routine supports an optional `box` for word/char-wrapping and clipping,
+     * font string shortcuts, italics, stroke or fill rendering, and an `erase` mode
+     * which uses `globalCompositeOperation='destination-out'` to remove pixels where
+     * the text would be rendered.
+     *
+     * @param {string|number} txt - Text to draw (will be stringified).
+     * @param {Vector|{x:number,y:number}|Array<number>} pos - Top-left position in world units where text begins.
+     * @param {string} [color='#000000FF'] - Color string (CSS style or hex with alpha) used for fill/stroke.
+     * @param {number} [width=1] - Default stroke width (used when stroking text).
+     * @param {number} [fontSize=20] - Font size (in world units) used when `options.font` does not include an explicit size.
+     * @param {Object} [options={}] - Additional drawing options (see list below).
+     * @param {string|number} [options.font] - Font family or full font string. Examples: `'16px Arial'` or `'monospace'`.
+     * @param {'start'|'end'|'left'|'right'|'center'} [options.align='start'] - Text alignment (maps to `ctx.textAlign`).
+     * @param {'alphabetic'|'top'|'middle'|'bottom'|'ideographic'|'hanging'} [options.baseline='alphabetic'] - Text baseline (maps to `ctx.textBaseline`).
+     * @param {boolean|'gradient'|'gradienty'} [options.fill=true] - Whether to fill the text. Use `'gradient'`/`'gradienty'` with an array color parameter to create gradients.
+     * @param {number} [options.strokeWidth=width] - Override stroke width for stroked text.
+     * @param {boolean} [options.italics=false] - Render the font in italic style.
+     * @param {Vector|Array<number>|{x:number,y:number}} [options.box=null] - Bounding box `[w,h]` or `Vector` for wrapping and clipping text. When provided, text will be wrapped to this width and optionally clipped to this height.
+     * @param {'word'|'char'} [options.wrap='word'] - Wrapping strategy: `'word'` breaks on word boundaries; `'char'` breaks by character.
+     * @param {number} [options.lineHeight=1.2] - Multiplier for line height based on computed `fontSize`.
+     *
+     * @param {boolean} [erase=false] - If true, draw uses `destination-out` to erase pixels instead of drawing color.
+     *
+     * @returns {void}
+     */
     text(txt, pos, color = '#000000FF', width = 1, fontSize = 20, options = {}, erase = false) {
         pos = this.pv(pos.clone());
         fontSize = this.ps(fontSize);

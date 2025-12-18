@@ -1,7 +1,7 @@
 import Vector from '../../modules/Vector.js';
 
 export default class UIImage {
-    constructor(image,pos,size,layer){
+    constructor(image,pos,size,layer,smoothing=true){
         this.pos = pos;
         this.size = size;
         this.image = image
@@ -10,6 +10,7 @@ export default class UIImage {
         this.invert = 1
         this.visible = true;
         this.layer = layer;
+        this.smoothing = smoothing
         
     }
     addOffset(offset){
@@ -22,6 +23,6 @@ export default class UIImage {
         if(!this.visible){
             return;
         }
-        Draw.image(this.image,this.offset.add(this.pos),this.size,this.invert,this.rot);
+        Draw.image(this.image,this.offset.add(this.pos),this.size,this.invert,this.rot,1,this.smoothing);
     }
 }

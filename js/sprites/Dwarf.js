@@ -110,6 +110,12 @@ export default class Dwarf extends Sprite {
             'cobblestone',
         ];
 
+        // Per-slot selected items (five quickslots). Initialize from palette.
+        this.slots = [];
+        for (let i = 0; i < 5; i++) this.slots.push(this.buildPalette[i] || '');
+        // ensure selectedItem reflects current slot
+        this.selectedItem = this.slots[this.selectedIndex] || this.selectedItem;
+
         // Wire jump input (Input.onJump emits when jump key pressed)
         this.input.onJump.connect((k) => {
             if (this.onGround&&!this.keys.held('Shift')) {
@@ -189,9 +195,27 @@ export default class Dwarf extends Sprite {
 
     buildKeys(){
         const blocks = this.buildPalette;
-        if(this.keys.pressed('o')) this.selectedIndex = (this.selectedIndex+blocks.length-1)%blocks.length
-        if(this.keys.pressed('p')) this.selectedIndex = (this.selectedIndex+1)%blocks.length
-        this.selectedItem = blocks[this.selectedIndex]
+        // quick slot keys 1-5 to select palette entries
+        if (this.keys.pressed('1')) this.selectedIndex = 0;
+        if (this.keys.pressed('2')) this.selectedIndex = 1;
+        if (this.keys.pressed('3')) this.selectedIndex = 2;
+        if (this.keys.pressed('4')) this.selectedIndex = 3;
+        if (this.keys.pressed('5')) this.selectedIndex = 4;
+        // Now: o/p change the value in the currently-selected slot (cycle through buildPalette)
+        if(this.keys.pressed('o')) {
+            const cur = this.slots[this.selectedIndex];
+            const idx = blocks.indexOf(cur);
+            const next = (idx <= 0) ? (blocks.length - 1) : (idx - 1);
+            this.slots[this.selectedIndex] = blocks[next] || cur;
+        }
+        if(this.keys.pressed('p')) {
+            const cur = this.slots[this.selectedIndex];
+            const idx = blocks.indexOf(cur);
+            const next = (idx < 0 || idx >= blocks.length - 1) ? 0 : (idx + 1);
+            this.slots[this.selectedIndex] = blocks[next] || cur;
+        }
+        // Selected item is the item stored in the active slot
+        this.selectedItem = this.slots[this.selectedIndex] || blocks[this.selectedIndex] || this.selectedItem;
 
         // Rotation and flip controls (r = rotate 90°, f = flip horizontally)
         if(this.keys.pressed('r')) {
@@ -222,7 +246,8 @@ export default class Dwarf extends Sprite {
             // Query the tile; use 'any' to get top-most tile at target
             const tile = this.chunkManager.getTileValue(sx, sy, 'any');
             if(!tile || !tile.id) return false;
-            // Copy id into selectedItem
+            // Copy id into the currently-selected slot
+            this.slots[this.selectedIndex] = tile.id;
             this.selectedItem = tile.id;
             // Copy rotation/invert if present, otherwise default
             this.placementRotation = (typeof tile.rot === 'number') ? tile.rot : 0;
@@ -230,9 +255,7 @@ export default class Dwarf extends Sprite {
             // Also set the place layer to the tile's layer so subsequent placements
             // default to placing into the same layer the block was picked from.
             if(tile.layer) this.placeLayer = tile.layer;
-            // Update selectedIndex if the picked id exists in the buildPalette
-            const idx = this.buildPalette.indexOf(tile.id);
-            if(idx >= 0) this.selectedIndex = idx;
+            // Do NOT change selectedIndex; we've written into the current slot instead.
             return true;
         }catch(e){ return false; }
     }
