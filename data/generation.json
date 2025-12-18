@@ -110,7 +110,14 @@
             {"pos":[1,-1],"type":["bagelvillage6"]},
             {"pos":[-1,0],"type":["bagelvillage7"]},
             {"pos":[0,0],"type":["bagelvillage8"]},
-            {"pos":[1,0],"type":["bagelvillage9"]}
+            {"pos":[1,0],"type":["bagelvillage9"]},
+			{"pos":[-2,-1],"type":["bagelvillagePath"]},
+			{"pos":[-2,0],"type":["bagelvillagePath2"]},
+			{"pos":[-2,0],"type":["bagelvillagePath2"]},
+			{"pos":[-3,0],"type":["bagelvillagePath3"]},
+			{"pos":[-4,0],"type":["bagelvillagePath3"]},
+			{"pos":[-5,0],"type":["bagelvillagePath3"]},
+			{"pos":[-6,0],"type":["bagelvillagePath3"]}
         ]
     }
     
