@@ -379,6 +379,16 @@
                 "mode":"solid",
                 "hardness":0.3
             }
+        },
+        "glass":{
+            "texture":{
+                "tilemap":"glass",
+                "pos":[0,0]
+            },
+            "data":{
+                "mode":"solid",
+                "hardness":0.1
+            }
         }
     }
 }

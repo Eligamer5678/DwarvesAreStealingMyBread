@@ -23,6 +23,12 @@
             "size":[5,4],
             "slicePx":16,
             "layer":"base"
+        },
+        "glass":{
+            "path":"Assets/Tilemaps/glass.png",
+            "size":[1,1],
+            "slicePx":16,
+            "layer":"base"
         }
     },
     "spriteSheets":{

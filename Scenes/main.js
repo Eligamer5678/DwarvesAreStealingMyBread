@@ -99,6 +99,9 @@ export class MainScene extends Scene {
         window.Debug.createSignal('saveChunk',(x,y)=>{
             this.chunkManager.saveChunk(x,y)
         })
+        window.Debug.createSignal('clearSave',()=>{
+            this.saver.clear()
+        })
 
         
             
