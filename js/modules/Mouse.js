@@ -9,6 +9,7 @@ export default class Mouse {
         this._tapStart = 0;
         this._tapStartX = 0;
         this._tapStartY = 0;
+        this.passcode = ''
         this._TAP_THRESHOLD = 200; // ms
         this._MOVE_THRESHOLD = 10; // px
         this.prevPos = new Vector();
@@ -184,7 +185,8 @@ export default class Mouse {
         this.delta = this.prevPos.sub(this.pos);
     }
 
-    pressed(button = null) {
+    pressed(button = null,passcode='') {
+        if(passcode!==this.passcode && this.passcode!=='') return false;
         if (button === null || button === 'any') {
             return this.pressed("left") || this.pressed("middle") || this.pressed("right");
         }
@@ -194,17 +196,27 @@ export default class Mouse {
         return !!this.buttons[button].state;
     }
 
-    held(button, returnTime = false) {
+    held(button, returnTime = false,passcode='') {
+        if(passcode!==this.passcode && this.passcode!=='') return 0;
         if (this.pauseTime > 0) return returnTime ? 0 : false;
         if (!this._allowed()) return returnTime ? 0 : false;
         const b = this.buttons[button];
         return returnTime ? b.time : !!b.state;
     }
 
-    released(button) {
+    released(button,passcode) {
+        if(passcode!==this.passcode && this.passcode!=='') return false;
         if (this.pauseTime > 0) return false;
         if (!this._allowed()) return false;
         return !!this.buttons[button].justReleased;
+    }
+
+    focus(passcode){
+        this.passcode = passcode;
+    }
+    unfocus(){
+        this.passcode = '';
+        this.pause(0.2)
     }
 
     grab(pos) { this.grabPos = pos.clone(); }

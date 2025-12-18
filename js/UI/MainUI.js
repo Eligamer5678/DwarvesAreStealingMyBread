@@ -2,6 +2,7 @@ import Vector from '../modules/Vector.js';
 import UIText from './jsElements/Text.js';
 import Menu from './jsElements/Menu.js';
 import Color from '../modules/Color.js';
+import UIButton from './jsElements/Button.js'
 /**
  * @typedef {import('../modules/Spritesheet.js').default} SpriteSheetType
  * @typedef {import('../modules/Vector.js').default} VectorType
@@ -33,10 +34,17 @@ export default class MainUI {
         const heightText2 = new UIText(0,new Vector(110,50),1,this.colors.h1,25)
         const heightText3 = new UIText("Goal: 5000",new Vector(20,90),1,this.colors.h1,25)
         const itemText = new UIText("Selected:",new Vector(20,120),1,this.colors.h1,25)
+
+        const testButton = new UIButton(this.mouse,this.keys,new Vector(0,250),new Vector(100,100),2)
+        testButton.onPressed.left.connect(()=>{
+            const popUp = new Menu(this.mouse,this.keys,new Vector(1980/2-200,1080/2-100),new Vector(100,200),2,'#FF0000',true)
+            this.menu.addElement('popup',popUp)
+        })
         this.menu.addElement('heightText',heightText)
         this.menu.addElement('heightText2',heightText2)
         this.menu.addElement('heightText3',heightText3)
         this.menu.addElement('itemText',itemText)
+        this.menu.addElement('testButton',testButton)
     }
 
 

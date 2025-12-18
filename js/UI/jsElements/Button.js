@@ -82,10 +82,10 @@ export default class UIButton {
         if(!this.visible){
             return;
         }
-    this.heldTime += delta;
-    this.color = this.baseColor;
-    // Do NOT set mouse power here; the scene should reset power each tick (mouse.setPower(1)).
-    // Instead, when hovered, add a mask stack so penetration depth semantics work correctly.
+        this.heldTime += delta;
+        this.color = this.baseColor;
+        // Do NOT set mouse power here; the scene should reset power each tick (mouse.setPower(1)).
+        // Instead, when hovered, add a mask stack so penetration depth semantics work correctly.
         // Use current mouse position for hit detection so clicks/releases are handled where the cursor actually is
         if (Geometry.pointInRect(this.mouse.pos,this.pos.add(this.offset),this.size)){
             // Add one mask stack for this hovered element. The scene should have called
