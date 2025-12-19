@@ -65,7 +65,8 @@ export default class MainUI {
         // load slot background image once
         try {
             this._slotImg = new Image();
-            this._slotImg.src = '/Assets/ui/itemslot.png';
+            // Use a relative path so the asset resolves correctly on GitHub Pages
+            this._slotImg.src = 'Assets/ui/itemslot.png';
         } catch (e) {
             this._slotImg = null;
         }
@@ -196,7 +197,6 @@ export default class MainUI {
     }
     draw() {
         if (!this.visible) return;
-        //this.Draw.svg("../../Assets/ui/uiTemplet.svg",new Vector(0,0),new Vector(1920,1080))
-        try{this.menu.draw(this.Draw)}catch{}
+        this.menu.draw(this.Draw)
     }
 }
