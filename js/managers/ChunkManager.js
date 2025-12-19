@@ -405,6 +405,121 @@ export default class ChunkManager {
     }
 
     /**
+     * Resolve a chunk spec by name, supporting grouped keys in brackets.
+     * If the referenced spec is a container (no .data) but contains child
+     * entries and/or nested groups, pick one child deterministically based
+     * on chunk coordinates so generation remains repeatable.
+     */
+    _resolveChunkSpec(name, cx, cy) {
+        if (!name || typeof name !== 'string') return null;
+        // direct lookup in chunks map
+        const chunks = this.chunkSpecs && this.chunkSpecs.chunks ? this.chunkSpecs.chunks : null;
+        const direct = chunks && chunks[name] ? chunks[name] : null;
+        // If direct spec exists and looks like a real chunk spec (has .data), return it
+        if (direct && typeof direct === 'object' && direct.data) return direct;
+
+        // If not found directly, search bracketed/group containers for a child
+        if (chunks) {
+            for (const k of Object.keys(chunks)) {
+                try {
+                    const container = chunks[k];
+                    if (!container || typeof container !== 'object') continue;
+                    // If container has the named child, prefer that
+                    if (Object.prototype.hasOwnProperty.call(container, name)) {
+                        const child = container[name];
+                        if (child && typeof child === 'object' && child.data) return child;
+                        // if child exists but is a container of named children, try to pick one deterministically
+                        if (child && typeof child === 'object') {
+                            const candidates = [];
+                            for (const kk of Object.keys(child)) {
+                                const v = child[kk];
+                                if (v && typeof v === 'object' && v.data) candidates.push(v);
+                            }
+                            if (candidates.length === 1) return candidates[0];
+                            if (candidates.length > 1) {
+                                const seed = (this.noiseOptions && Number.isFinite(this.noiseOptions.seed)) ? this.noiseOptions.seed : 1337;
+                                const startX = cx * this.chunkSize; const startY = cy * this.chunkSize;
+                                const n = startX * 374761393 + startY * 668265263 + (seed|0) * 1274126177;
+                                const v = Math.sin(n) * 43758.5453123;
+                                let r = v - Math.floor(v);
+                                const idx = Math.floor(r * candidates.length) % candidates.length;
+                                return candidates[idx];
+                            }
+                        }
+                    }
+                } catch (e) { /* ignore container errors */ }
+            }
+        }
+
+        // If name is bracketed like "[group]", try to find the group object
+        let groupKey = name;
+        if (groupKey.startsWith('[') && groupKey.endsWith(']')) {
+            // prefer the bracketed key in chunks map
+            if (chunks && chunks[groupKey]) {
+                const container = chunks[groupKey];
+                // collect candidate specs
+                const candidates = [];
+                for (const k of Object.keys(container)) {
+                    try {
+                        // if key looks like a subgroup (bracketed), recurse by that key
+                        if (k.startsWith('[') && k.endsWith(']')) {
+                            const sub = this._resolveChunkSpec(k, cx, cy);
+                            if (sub) candidates.push(sub);
+                        } else {
+                            // if there's an inline spec object
+                            const val = container[k];
+                            if (val && typeof val === 'object' && val.data) candidates.push(val);
+                            // or if a named chunk exists in global chunks, use that
+                            else if (chunks && chunks[k]) candidates.push(chunks[k]);
+                        }
+                    } catch (e) { /* ignore individual child errors */ }
+                }
+                if (candidates.length === 1) return candidates[0];
+                if (candidates.length > 1) {
+                    // pick deterministically using chunk coords and seed
+                    const seed = (this.noiseOptions && Number.isFinite(this.noiseOptions.seed)) ? this.noiseOptions.seed : 1337;
+                    const startX = cx * this.chunkSize; const startY = cy * this.chunkSize;
+                    const n = startX * 374761393 + startY * 668265263 + (seed|0) * 1274126177;
+                    const v = Math.sin(n) * 43758.5453123;
+                    let r = v - Math.floor(v);
+                    const idx = Math.floor(r * candidates.length) % candidates.length;
+                    return candidates[idx];
+                }
+            }
+        }
+
+        // fallback: if direct exists but lacked .data, maybe it's a map of named children
+        if (direct && typeof direct === 'object') {
+            const container = direct;
+            const candidates = [];
+            for (const k of Object.keys(container)) {
+                try {
+                    if (k.startsWith('[') && k.endsWith(']')) {
+                        const sub = this._resolveChunkSpec(k, cx, cy);
+                        if (sub) candidates.push(sub);
+                    } else {
+                        const val = container[k];
+                        if (val && typeof val === 'object' && val.data) candidates.push(val);
+                        else if (chunks && chunks[k]) candidates.push(chunks[k]);
+                    }
+                } catch (e) { }
+            }
+            if (candidates.length === 1) return candidates[0];
+            if (candidates.length > 1) {
+                const seed = (this.noiseOptions && Number.isFinite(this.noiseOptions.seed)) ? this.noiseOptions.seed : 1337;
+                const startX = cx * this.chunkSize; const startY = cy * this.chunkSize;
+                const n = startX * 374761393 + startY * 668265263 + (seed|0) * 1274126177;
+                const v = Math.sin(n) * 43758.5453123;
+                let r = v - Math.floor(v);
+                const idx = Math.floor(r * candidates.length) % candidates.length;
+                return candidates[idx];
+            }
+        }
+
+        return direct;
+    }
+
+    /**
      * Generate a chunk using the JSON-driven specs (chunks.json + generation.json)
      */
     _generateChunkJSON(cx, cy) {
@@ -436,6 +551,15 @@ export default class ChunkManager {
                         if (px === relX && py === relY) {
                             // Found a matching structure chunk. Use its `type`.
                             selected = { chunk_type: null, chunk_types: null, _structChunk: c };
+                            // capture optional invert flag on the structure chunk entry
+                            // expected form: "invert": [1|-1, 1|-1]
+                            let inv = null;
+                            if(c.invert){
+                                const ix = Number(c.invert[0]) === -1 ? -1 : 1;
+                                const iy = Number(c.invert[1]) === -1 ? -1 : 1;
+                                inv = [ix, iy];
+                            }
+                            selected._invert = inv;
                             // Normalize various shapes of `type` on the chunk entry
                             if (typeof c.type === 'string') selected.chunk_type = c.type;
                             else if (Array.isArray(c.type) && c.type.length > 0) selected.chunk_type = c.type[0];
@@ -490,7 +614,7 @@ export default class ChunkManager {
         // Prepare per-layer tile arrays. Each layer holds its own tiles so
         // multiple tiles can exist at the same coordinates.
         const layers = { back: new Array(chunkSize * chunkSize).fill('air'), base: new Array(chunkSize * chunkSize).fill('air'), front: new Array(chunkSize * chunkSize).fill('air') };
-        const spec = (this.chunkSpecs && this.chunkSpecs.chunks && this.chunkSpecs.chunks[chunkType]) ? this.chunkSpecs.chunks[chunkType] : null;
+        const spec = this._resolveChunkSpec(chunkType, cx, cy);
         if (!spec) {
             // No spec available: return default empty per-layer chunk (all 'air').
             const outChunk = { x: cx, y: cy, width: chunkSize, height: chunkSize, layer: 'base', data: layers };
@@ -523,24 +647,58 @@ export default class ChunkManager {
         };
 
         let regions = [];
+        let _savedOverrode = false;
         if (spec.data && typeof spec.data.copyfrom === 'string' && spec.data.copyfrom !== 'none') {
-            try {
-                regions = regions.concat(resolveCopiedRegions(spec.data.copyfrom));
-            } catch (e) { /* ignore copy errors */ }
+            regions = regions.concat(resolveCopiedRegions(spec.data.copyfrom));
         }
         // then append this spec's own regions (so they can override/extend)
-        if (spec.data && Array.isArray(spec.data.regions)) regions = regions.concat(spec.data.regions);
+        // Deep-copy region objects to avoid shared references between specs
+        if (spec.data && Array.isArray(spec.data.regions)) regions = regions.concat(spec.data.regions.map(r => JSON.parse(JSON.stringify(r))));
 
         // If a saved chunk exists in the Saver, prefer its regions to override
         // the generation spec. This allows loading previously saved edits.
+        const saved = this.saver.get(`chunks/${cx},${cy}`, null);
+        if (saved && Array.isArray(saved.regions)) {
+            regions = saved.regions;
+            _savedOverrode = true;
+        }
+
+        // If this chunk came from a structure and an `invert` directive was
+        // provided on the structure chunk entry, transform the generation
+        // regions' coordinates accordingly. Do not modify saved user regions.
         try {
-            if (this.saver && typeof this.saver.get === 'function') {
-                const saved = this.saver.get(`chunks/${cx},${cy}`, null);
-                if (saved && Array.isArray(saved.regions)) {
-                    regions = saved.regions;
+            const inv = (selected && selected._invert) ? selected._invert : null;
+            if (inv && !_savedOverrode && Array.isArray(regions) && regions.length > 0) {
+                // operate on a deep copy to avoid mutating canonical specs
+                regions = regions.map(r => JSON.parse(JSON.stringify(r)));
+                const ix = Number(inv[0]) === -1 ? -1 : 1;
+                const iy = Number(inv[1]) === -1 ? -1 : 1;
+                for (const reg of regions) {
+                    if (!reg || !reg.region) continue;
+                    const r0 = reg.region[0] ? reg.region[0] : [0,0];
+                    const r1 = reg.region[1] ? reg.region[1] : reg.region[0] ? reg.region[0] : [r0[0], r0[1]];
+                    const x0 = Number(r0[0] || 0);
+                    const y0 = Number(r0[1] || 0);
+                    const x1 = Number(r1[0] || x0);
+                    const y1 = Number(r1[1] || y0);
+                    let nx0 = x0, ny0 = y0, nx1 = x1, ny1 = y1;
+                    if (ix === -1) {
+                        nx0 = (chunkSize - 1) - x1;
+                        nx1 = (chunkSize - 1) - x0;
+                    }
+                    if (iy === -1) {
+                        ny0 = (chunkSize - 1) - y1;
+                        ny1 = (chunkSize - 1) - y0;
+                    }
+                    // ensure ints and clamp
+                    nx0 = Math.max(0, Math.min(chunkSize - 1, Math.floor(nx0)));
+                    ny0 = Math.max(0, Math.min(chunkSize - 1, Math.floor(ny0)));
+                    nx1 = Math.max(0, Math.min(chunkSize - 1, Math.floor(nx1)));
+                    ny1 = Math.max(0, Math.min(chunkSize - 1, Math.floor(ny1)));
+                    reg.region = [[nx0, ny0], [nx1, ny1]];
                 }
             }
-        } catch (e) { /* ignore saver issues */ }
+        } catch (e) { /* ignore invert errors */ }
 
         // Allow compact region specs to inherit certain fields from the
         // previous region. Only `block_type`, `special.rot`/`special.invert`,
@@ -559,8 +717,27 @@ export default class ChunkManager {
             // Inherit block_type if not present
             const blockType = (reg.block_type !== undefined && reg.block_type !== null) ? reg.block_type : (prevBlockType || 'stone');
             // Inherit rot/invert from previous region if not provided
-            const rot = (reg.special && reg.special.rot !== undefined) ? reg.special.rot : prevRot;
-            const invert = (reg.special && reg.special.invert !== undefined) ? reg.special.invert : prevInvert;
+            let rot = (reg.special && reg.special.rot !== undefined) ? reg.special.rot : prevRot;
+            // Capture the region's original invert (either explicit or inherited)
+            const baseInvert = (reg.special && reg.special.invert !== undefined) ? !!reg.special.invert : !!prevInvert;
+            let invert = baseInvert;
+
+            // If this chunk was selected from a structure with an _invert
+            // directive, adjust rot/invert for block types that require it.
+            try {
+                const structInv = (selected && selected._invert) ? selected._invert : null;
+                if (structInv && this.blockDefs) {
+                    const ix = Number(structInv[0]) === -1;
+                    const iy = Number(structInv[1]) === -1;
+                    const bdef = (this.blockDefs && typeof this.blockDefs.get === 'function') ? this.blockDefs.get(blockType) : null;
+                    const requireInvert = bdef && (bdef.requireInvert === true);
+                    if (requireInvert && (ix || iy)) {
+                        // Apply a consistent flip relative to the region's original invert
+                        invert = !baseInvert;
+                    }
+                }
+            } catch (e) { /* ignore block-def transform errors */ }
+
             const hasTransform = rot !== 0 || invert !== false;
             // Inherit layer from previous region when not set on this region
             const layerVal = (reg.layer !== undefined) ? reg.layer : prevLayer;
@@ -581,7 +758,10 @@ export default class ChunkManager {
             // Update previous values for next region
             prevBlockType = blockType;
             prevRot = rot;
-            prevInvert = invert;
+            // For inheritance, keep the original (base) invert value so
+            // subsequent regions inherit the spec's original chain and are
+            // not affected by structure-applied flips (prevents alternating flips).
+            prevInvert = baseInvert;
             prevLayer = layerVal;
         }
         if(spec.data.entities){
@@ -626,27 +806,27 @@ export default class ChunkManager {
                 const threshold = (sd.threshold !== undefined) ? sd.threshold : 0.5;
 
                 for (let y = 0; y < chunkSize; y++) {
-                        for (let x = 0; x < chunkSize; x++) {
-                            const idx = y * chunkSize + x;
-                            const v = caveMap.data[idx];
-                            if (typeof v !== 'number') continue;
+                    for (let x = 0; x < chunkSize; x++) {
+                        const idx = y * chunkSize + x;
+                        const v = caveMap.data[idx];
+                        if (typeof v !== 'number') continue;
 
-                            let carve = false;
-                            if (Number.isFinite(nopts.split) && nopts.split >= 0) {
-                                if (v === 1) carve = true;
-                            } else {
-                                let val = v;
-                                if (!nopts.normalize) val = (v + 1) / 2;
-                                if (val > threshold) carve = true;
-                            }
+                        let carve = false;
+                        if (Number.isFinite(nopts.split) && nopts.split >= 0) {
+                            if (v === 1) carve = true;
+                        } else {
+                            let val = v;
+                            if (!nopts.normalize) val = (v + 1) / 2;
+                            if (val > threshold) carve = true;
+                        }
 
-                            if (carve) {
-                                // carve only in the chunk's main layer
-                                const tgt = layers[layerForChunk] || layers.base;
-                                tgt[idx] = 'air';
-                            }
+                        if (carve) {
+                            // carve only in the chunk's main layer
+                            const tgt = layers[layerForChunk] || layers.base;
+                            tgt[idx] = 'air';
                         }
                     }
+                }
             }
 
         } catch (e) { /* ignore cave carve errors */ }

@@ -87,12 +87,17 @@ export class MainScene extends Scene {
         
         
         // Some debug commands
-        window.Debug.createSignal('logPos',()=>{
+        window.Debug.createSignal('getPos',()=>{
             console.log('Player coordnates')
             console.log('- Tile')
             console.log("x:",Math.floor(this.player.pos.x/this.chunkManager.noiseTileSize)," y:",Math.floor(this.player.pos.y/this.chunkManager.noiseTileSize))
             console.log('- Real')
             console.log("x:",this.player.pos.x," y:",this.player.pos.y)
+        })
+        window.Debug.createSignal('tp',(x,y)=>{
+            this.player.pos.x = x;
+            this.player.pos.y = y;
+            console.log('Player teleported to: [',x,',',y,']')
         })
         window.Debug.createSignal('setBlock',(x,y,block)=>{
             this.chunkManager.setTileValue(x,y,block)

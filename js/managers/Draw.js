@@ -831,14 +831,15 @@ export default class Draw {
         // Move to the image position
         ctx.translate(x + w / 2, y + h / 2);
 
-        // Apply rotation
-        if (rad) ctx.rotate(rad);
-
-        // Apply invert scaling
+        // Apply invert scaling first so flips occur in local image space,
+        // then rotate the result. This keeps inverted X/Y aligned with
+        // the image regardless of rotation.
         if (invert) {
             const { x: ix, y: iy } = _asVec(invert);
             ctx.scale(ix < 0 ? -1 : 1, iy < 0 ? -1 : 1);
         }
+        // Apply rotation after local scaling
+        if (rad) ctx.rotate(rad);
 
         // Draw image centered at origin
         ctx.drawImage(img, -w / 2, -h / 2, w, h);
@@ -1036,6 +1037,13 @@ export default class Draw {
             // ignore if context doesn't support these properties
         }
 
+        // apply local invert first so flips are in tile-local axes, then rotate
+        if (invert) {
+            const inv = _asVec(invert);
+            const fx = inv.x < 0 ? -1 : 1;
+            const fy = inv.y < 0 ? -1 : 1;
+            ctx.scale(fx, fy);
+        }
         // apply integer rotation steps (0,1,2,3) -> multiples of 90deg
         try {
             let rot = Number(rotation) || 0;
@@ -1043,13 +1051,6 @@ export default class Draw {
             if (rot !== 0) ctx.rotate(rot * Math.PI / 2);
         } catch (e) {
             // ignore rotation errors
-        }
-
-        if (invert) {
-            const inv = _asVec(invert);
-            const fx = inv.x < 0 ? -1 : 1;
-            const fy = inv.y < 0 ? -1 : 1;
-            ctx.scale(fx, fy);
         }
         ctx.globalAlpha *= (opacity !== undefined ? opacity : 1) * (this._brightness !== undefined ? this._brightness : 1);
 

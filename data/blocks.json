@@ -188,7 +188,9 @@
             "data":{
                 "mode":"solid",
                 "hardness":0.3
-            }
+            },
+            "requireInvert": true,
+            "requireRotation": true
         },
         "cobblestone_slab":{
             "texture":{
@@ -198,7 +200,9 @@
             "data":{
                 "mode":"solid",
                 "hardness":0.3
-            }
+            },
+            "requireInvert": true,
+            "requireRotation": true
         },
         "cobblestone_stair":{
             "texture":{
@@ -208,7 +212,9 @@
             "data":{
                 "mode":"solid",
                 "hardness":0.3
-            }
+            },
+            "requireInvert": true,
+            "requireRotation": true
         },
         "polished_stone_window":{
             "texture":{
@@ -238,7 +244,9 @@
             "data":{
                 "mode":"solid",
                 "hardness":0.3
-            }
+            },
+            "requireInvert": true,
+            "requireRotation": true
         },
         "polished_cobblestone_pillar":{
             "texture":{
@@ -258,7 +266,9 @@
             "data":{
                 "mode":"solid",
                 "hardness":0.3
-            }
+            },
+            "requireInvert": true,
+            "requireRotation": true
         },
         "polished_cobblestone_stair":{
             "texture":{
@@ -268,7 +278,9 @@
             "data":{
                 "mode":"solid",
                 "hardness":0.3
-            }
+            },
+            "requireInvert": true,
+            "requireRotation": true
         },
         "polished_stone":{
             "texture":{
@@ -308,7 +320,8 @@
             "data":{
                 "mode":"solid",
                 "hardness":0.3
-            }
+            },
+            "requireInvert": true
         },
         "polished_stone_stair":{
             "texture":{
@@ -318,7 +331,9 @@
             "data":{
                 "mode":"solid",
                 "hardness":0.3
-            }
+            },
+            "requireInvert": true,
+            "requireRotation": true
         },
         "polished_cobblestone_window":{
             "texture":{
