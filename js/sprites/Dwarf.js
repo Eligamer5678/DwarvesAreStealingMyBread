@@ -72,6 +72,7 @@ export default class Dwarf extends Sprite {
             'sand',
             'ladder',
             'glass',
+            'anvil',
             'sandstone',
             'polished_sandstone',
             'pillar_sandstone',

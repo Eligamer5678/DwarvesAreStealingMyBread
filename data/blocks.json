@@ -404,6 +404,16 @@
                 "mode":"solid",
                 "hardness":0.1
             }
+        },
+        "anvil":{
+            "texture":{
+                "tilemap":"anvil",
+                "pos":[0,0]
+            },
+            "data":{
+                "mode":"anvil",
+                "hardness":5
+            }
         }
     }
 }

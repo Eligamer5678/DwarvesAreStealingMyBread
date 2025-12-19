@@ -1,0 +1,21 @@
+{
+    "crafting":{
+        "1x1":[
+            {"output":"seed_wheat","amount":1,"tool":"none","input":[["wheat"]]}
+        ],
+        "3x3":[
+            {"output":"ladder","amount":16,"tool":"none","input":[
+                ["pretzelstick",""            ,"pretzelstick"],
+                ["pretzelstick","pretzelstick","pretzelstick"],
+                ["pretzelstick",""            ,"pretzelstick"]
+            ]}
+        ]
+    },
+    "smelting":[
+        {"output":"glass","input":["sand"],"fuel":["coal","magma"],"power":1,"temp":5}
+    ],
+    "grinder":[
+        {"output":"wheat-flour","input":["wheat"],"power":0.2}
+    ]
+    
+}
