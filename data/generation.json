@@ -117,7 +117,9 @@
 			{"pos":[-3,0],"type":["bagelvillagePath3"]},
 			{"pos":[-4,0],"type":["bagelvillagePath3"]},
 			{"pos":[-5,0],"type":["bagelvillagePath3"]},
-			{"pos":[-6,0],"type":["bagelvillagePath3"]}
+			{"pos":[-6,0],"type":["bagelvillagePath3"]},
+			{"pos":[-3,-1],"type":["bagelvillageHouses2"]},
+			{"pos":[-4,-1],"type":["bagelvillageHouses2"]}
         ]
     }
     
