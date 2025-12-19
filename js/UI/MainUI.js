@@ -197,6 +197,6 @@ export default class MainUI {
     draw() {
         if (!this.visible) return;
         //this.Draw.svg("../../Assets/ui/uiTemplet.svg",new Vector(0,0),new Vector(1920,1080))
-        this.menu.draw(this.Draw)
+        try{this.menu.draw(this.Draw)}catch{}
     }
 }
