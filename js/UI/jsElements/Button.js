@@ -58,6 +58,7 @@ export default class UIButton {
         this.onHover = new Signal();
         this.onHoverOut = new Signal();
         this.onHoverIn = new Signal();
+        this.passcode = ""
         this.onRelease = new Signal();
         this.onTrigger = new Signal();
         this.released = false
@@ -95,16 +96,16 @@ export default class UIButton {
             this.color = this.hoverColor;
             this.hoverTime += delta;
             this.onHover.emit(this.hoverTime);
-            this.release = this.mouse.released('left');
+            this.release = this.mouse.released('left',this.passcode);
             this.pressed = {
-                'left':this.mouse.pressed('left'),
-                'middle':this.mouse.pressed('middle'),
-                'right':this.mouse.pressed('right'),
+                'left':this.mouse.pressed('left',this.passcode),
+                'middle':this.mouse.pressed('middle',this.passcode),
+                'right':this.mouse.pressed('right',this.passcode),
             }
             this.held = {
-                'left':this.mouse.held('left',true),
-                'middle':this.mouse.held('middle',true),
-                'right':this.mouse.held('right',true),
+                'left':this.mouse.held('left',true,this.passcode),
+                'middle':this.mouse.held('middle',true,this.passcode),
+                'right':this.mouse.held('right',true,this.passcode),
             }
             
             for (let value in this.held){
@@ -136,7 +137,7 @@ export default class UIButton {
             this.color = this.pressedColor;
         }
         if(this.keybind !== null){
-            if(this.keys.pressed(this.keybind)){
+            if(this.keys.pressed(this.keybind,this.passcode)){
                 this.pressed.left = true;
             }
         }

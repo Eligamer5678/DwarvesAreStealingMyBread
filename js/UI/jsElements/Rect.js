@@ -1,5 +1,5 @@
 import Vector from '../../modules/Vector.js';
-
+import Geometry from '../../modules/Geometry.js';
 export default class UIRect {
     /**
      * @param {Vector} pos
@@ -17,6 +17,8 @@ export default class UIRect {
         this.size = size;
         this.color = color;
         this.fill = fill;
+        this.mask = false;
+        this.mouse = null;
         this.stroke = stroke;
         this.width = width;
         this.strokeColor = strokeColor;
@@ -30,7 +32,13 @@ export default class UIRect {
         this.offset = offset
     }
     update(delta){
-
+        if(this.mask){
+            const absolutePos = this.pos.add(this.offset);
+            if (Geometry.pointInRect(this.mouse.pos, absolutePos, this.size)){
+                console.log('masked')
+                this.mouse.addMask(1);
+            }
+        }
     }
     draw(Draw){
         if(!this.visible){

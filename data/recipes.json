@@ -1,4 +1,7 @@
 {
+    "blocks":{
+        "anvil":["craft",{"size":[3,3]}]
+    },
     "crafting":{
         "1x1":[
             {"output":"seed_wheat","amount":1,"tool":"none","input":[["wheat"]]}

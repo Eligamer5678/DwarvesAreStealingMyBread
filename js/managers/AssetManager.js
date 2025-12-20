@@ -92,6 +92,44 @@ export async function loadTexturesJSON(jsonPath = './data/textures.json') {
             }
         }
 
+        // Items (sprite-like assets). Load similarly to spriteSheets and expose via res.sprites
+        if (j.items && typeof j.items === 'object') {
+            for (const key of Object.keys(j.items)) {
+                try {
+                    const info = j.items[key];
+                    const path = info.path;
+                    const slicePx = info.slicePx || 16;
+                    const img = await _loadImage(path);
+                    const ss = new SpriteSheet(img, slicePx);
+                    // add animations if provided
+                    if (info.animations && typeof info.animations === 'object') {
+                        for (const aname of Object.keys(info.animations)) {
+                            const a = info.animations[aname];
+                            try {
+                                const row = Number(a.row || 0);
+                                const frameCount = Number(a.frameCount || 1);
+                                const fps = Number(a.fps || 8);
+                                const buffer = Number(a.buffer || 0);
+                                const onStop = a.onStop || 'loop';
+                                const swapName = a.swapName || 'idle';
+                                ss.addAnimation(aname, row, frameCount, fps, buffer, onStop, swapName);
+                                const arr = [];
+                                for (let i = 0; i < frameCount; i++) {
+                                    arr.push({ __lazy: true, src: img, sx: i * slicePx, sy: row * slicePx, w: slicePx, h: slicePx });
+                                }
+                                ss._frames.set(aname, arr);
+                                ss._rebuildSheetCanvas();
+                            } catch (e) { /* ignore animation err */ }
+                        }
+                    }
+                    // register under sprites so consumers treating sprites map will get items too
+                    res.sprites.set(key, ss);
+                } catch (e) {
+                    console.warn('AssetManager: failed to load item sprite', key, e);
+                }
+            }
+        }
+
         // Attempt to load blocks.json so block IDs can register tile keys
         try {
             const bresp = await fetch('./data/blocks.json', { cache: 'no-cache' });

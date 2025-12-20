@@ -10,12 +10,14 @@ export default class Menu{
         this.layer = layer;
         this.color = color;
         this.mouse = mouse;
+        this.maskMouse = false;
         this.keys = keys;
         this.elements = new Map();
         this.visible = true;
         this.onRemove = new Signal();
         this.draggable = !!draggable;
         this._dragging = false;
+        this.passcode = ""
         this._dragStartPos = this.pos.clone();
     }
     update(delta){
@@ -24,12 +26,13 @@ export default class Menu{
             try{ element.update(delta); }catch{}
         }
         const absolutePos = this.pos.add(this.offset);
+        let hovered = false;
         if (Geometry.pointInRect(this.mouse.pos, absolutePos, this.size)){
+            hovered = true;
             this.mouse.addMask(1);
 
             // Start dragging when pressed inside the menu
-            if (this.draggable && !this._dragging && this.mouse.pressed('left','popup')){
-                console.log('hi')
+            if (this.draggable && !this._dragging && this.mouse.pressed('left',this.passcode)){
                 this._dragging = true;
                 this.mouse.grab(this.mouse.pos);
                 this.mouse.focus('popup')
@@ -53,12 +56,13 @@ export default class Menu{
         if (this.draggable && this._dragging && this.mouse.released('left','popup')){
             try{
                 const finalDelta = this.mouse.getGrabDelta();
-                this.mouse.unfocus()
+                this.mouse.focus(this.passcode)
                 this.pos = this._dragStartPos.add(finalDelta);
                 this.mouse.releaseGrab();
             }catch{}
             this._dragging = false;
         }
+        if(this.hovered)this.mouse.addMask(1);
     }
     draw(Draw){
         if (!this.visible) return;

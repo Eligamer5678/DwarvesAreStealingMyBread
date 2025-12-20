@@ -83,6 +83,63 @@ export default class Saver {
         if (autoSave) this.save();
     }
 
+    // Load JSON from a URL or File object. Returns parsed object or null on failure.
+    // Supports either: `Saver.loadJSON(path, onLoaded)` or `Saver.loadJSON(path, { onLoaded, cache })`.
+    static loadJSON = async function(path, onLoaded = null, options = {}){
+        try{
+            let result = null;
+
+            // If a string is provided, treat as URL and fetch it
+            if(typeof path === 'string'){
+                const resp = await fetch(path, { cache: options.cache || 'no-cache' });
+                if(!resp.ok) throw new Error('Network response was not ok: ' + resp.status);
+                result = await resp.json();
+            }
+
+            // If a File object is provided (e.g., from an <input type="file">), read it
+            else if(typeof File !== 'undefined' && path instanceof File){
+                result = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        try{
+                            resolve(JSON.parse(reader.result));
+                        }catch(e){
+                            reject(e);
+                        }
+                    };
+                    reader.onerror = () => reject(reader.error);
+                    reader.readAsText(path);
+                });
+            }
+
+            // If an object with a `url` property is provided, fetch that
+            else if(path && typeof path === 'object' && typeof path.url === 'string'){
+                const resp = await fetch(path.url, { cache: options.cache || 'no-cache' });
+                if(!resp.ok) throw new Error('Network response was not ok: ' + resp.status);
+                result = await resp.json();
+            }
+
+            else {
+                throw new Error('Unsupported path type for Saver.loadJSON');
+            }
+
+            // If an onLoaded callback is provided, call it with the parsed object.
+            if(typeof onLoaded === 'function'){
+                try{
+                    const maybePromise = onLoaded(result);
+                    if(maybePromise instanceof Promise) await maybePromise;
+                }catch(cbErr){
+                    console.error('Saver.loadJSON onLoaded callback failed', cbErr);
+                }
+            }
+
+            return result;
+        }catch(e){
+            console.error('Saver.loadJSON failed', e);
+            return null;
+        }
+    }
+
     static saveJSON = function(object, path = "data.json", options = {}){
         try{
             const defaultName = path || "data.json";

@@ -29,7 +29,8 @@ export default class Sprite {
         this.Draw = Draw;
         this.destroy = new Signal();
         this.keys = keys || null;
-        this.sheet = spriteSheet; // instance of SpriteSheet
+        this.baseSheet = spriteSheet; // instance of SpriteSheet
+        this.sheet = spriteSheet.connect(); // instance of SpriteSheet
         this.components = []
 
         // physics

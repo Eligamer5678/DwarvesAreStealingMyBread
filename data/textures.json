@@ -96,7 +96,49 @@
                 "walk_and_hold_pick":{"row":7,"frameCount":5,"fps":8,"buffer":0,"onStop":"loop","swapName":""},
                 "walk_and_hold_pick_as_sheild":{"row":8,"frameCount":5,"fps":8,"buffer":0,"onStop":"loop","swapName":""}
                 
+            }    
+        },
+        "items":{
+            "briocheoid-item":{
+                "path":"Assets/items/briocheoid.png",
+                "slicePx":16,
+                "animations":{
+                    "idle":{"row":0,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""}
+                },
+                "coord":[0,0]
+            },
+            "coal-item":{
+                "path":"Assets/items/coal.png",
+                "slicePx":16,
+                "animations":{
+                    "idle":{"row":0,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""}
+                },
+                "coord":[0,0]
+            },
+            "pretzelstick-item":{
+                "path":"Assets/items/pretzelstick.png",
+                "slicePx":16,
+                "animations":{
+                    "idle":{"row":0,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""}
+                },
+                "coord":[0,0]
+            },
+            "rotirock-item":{
+                "path":"Assets/items/rotirock.png",
+                "slicePx":16,
+                "animations":{
+                    "idle":{"row":0,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""}
+                },
+                "coord":[0,0]
+            },
+            "salt-item":{
+                "path":"Assets/items/salt.png",
+                "slicePx":16,
+                "animations":{
+                    "idle":{"row":0,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""}
+                },
+                "coord":[0,0]
             }
-        }    
+        }
     }
 }

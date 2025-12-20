@@ -116,6 +116,8 @@ export default class Dwarf extends Sprite {
         for (let i = 0; i < 5; i++) this.slots.push(this.buildPalette[i] || '');
         // ensure selectedItem reflects current slot
         this.selectedItem = this.slots[this.selectedIndex] || this.selectedItem;
+        // Player inventory (5x2 grid, managed by UI/Inventory class later)
+        this.inventory = new Array(10).fill('');
 
         // Wire jump input (Input.onJump emits when jump key pressed)
         this.input.onJump.connect((k) => {

@@ -1,11 +1,15 @@
 import Vector from '../modules/Vector.js';
 import UIText from './jsElements/Text.js';
 import Menu from './jsElements/Menu.js';
+import Signal from '../modules/Signal.js';
 import Color from '../modules/Color.js';
 import UIButton from './jsElements/Button.js'
 import UIRect from './jsElements/Rect.js'
 import UIImage from './jsElements/Image.js'
 import UITile from './jsElements/tile.js'
+
+import InventoryManager from '../managers/InventoryManager.js';
+
 /**
  * @typedef {import('../modules/Spritesheet.js').default} SpriteSheetType
  * @typedef {import('../modules/Vector.js').default} VectorType
@@ -23,7 +27,7 @@ export default class MainUI {
     constructor(Draw,mouse,keys,scene,opts) {
         // General
         this.scene = scene;
-        this.player = (scene && scene.player) ? scene.player : null;
+        this.player = scene.player;
         this.Draw = Draw;
         this.mouse = mouse;
         this.keys = keys;
@@ -37,9 +41,13 @@ export default class MainUI {
         
         
         this.menu = new Menu(this.mouse,this.keys,new Vector(0,-1),new Vector(0,0),1,this.colors.bg)
+
         this.createText()
         this.createSlots()
-        this.createOther()
+        this.createInventory()
+        this.createOther()  
+
+        
     }
 
     createText(){
@@ -58,10 +66,6 @@ export default class MainUI {
         const slotSpacing = 30
         const slotSize = 140
         this._slotElems = []
-
-        // Prefer resources and player from the passed scene reference
-        const resources = this.opts.resources;
-
         // load slot background image once
         try {
             this._slotImg = new Image();
@@ -70,7 +74,9 @@ export default class MainUI {
         } catch (e) {
             this._slotImg = null;
         }
-
+        // Add UI background
+        let bg = new UIRect(new Vector(0,0),new Vector(200,1080),2,'#2c2c2cAA')
+        this.menu.addElement('slot-bg',bg)
         // Create five slot elements inside the menu
         for (let i = 0; i < this.slots.length; i++) {
             const x = slotOffset.x; // place under text area
@@ -83,11 +89,6 @@ export default class MainUI {
             // tile renderer (will be updated each frame)
             // try to use tilesheet via resources when available; default to null
             let sheet = null;
-            try {
-                if (resources && typeof resources.get === 'function') {
-                    // leave sheet null; we'll resolve per-tile when updating
-                }
-            } catch (e) {}
             const tile = new UITile(sheet, new Vector(x + 8, y + 8), new Vector(slotSize - 16, slotSize - 16), 2);
             tile.tile = null;
             this.menu.addElement(`slotTile${i}`, tile);
@@ -100,7 +101,27 @@ export default class MainUI {
             this._slotElems.push({ bg, tile, border, x, y, size: slotSize });
         }
     }
-
+    createInventory(){
+        // Inventory signals
+        this.onToggleInventory = new Signal()
+        
+        // Inventory button
+        const InventoryButton = new UIButton(this.mouse,this.keys,new Vector(40,40),new Vector(120,120),2,'e')
+        InventoryButton.onPressed.left.connect(()=>{
+            this.onToggleInventory.emit()
+        })
+        InventoryButton.passcode = "Inventory"
+        this.menu.addElement('inventoryButton',InventoryButton)
+        
+        
+        let InventroyImage = new Image();
+        InventroyImage.src = 'Assets/ui/bundle.png';
+        const InventoryImageElement = new UIImage(InventroyImage, new Vector(50, 50), new Vector(100, 100), 2,false);
+        this.menu.addElement(`inventoryButtonImage`, InventoryImageElement);
+        
+        const resources = (this.scene && this.scene.SpriteImages) ? this.scene.SpriteImages : (this.opts && this.opts.resources ? this.opts.resources : null);
+        this.InventoryManager = new InventoryManager(this, resources)
+    }
     // update slot visuals each frame
     _updateSlots() {
         if (!this._slotElems) return;
@@ -149,8 +170,11 @@ export default class MainUI {
     createOther(){
     }
 
+    
+
     /**
      * Creates a conformation menu
+     * (this is a menu example)
      * @param {string} question What's the question?
      * @param {function} yes Function to call when user hits yes
      * @param {function} no Function to call when user hits no (closes by defualt)
@@ -187,13 +211,19 @@ export default class MainUI {
     }
 
 
-
+    createAnvilMenu(){
+        
+    }
+    /**
+     * Updates the UI
+     * @param {number} delta 
+     * @returns 
+     */
     update(delta) {
         if (!this.visible) return;
         // keep UI slot visuals in sync with player state
         try { this._updateSlots(); } catch (e) {}
         this.menu.update(delta)
-        
     }
     draw() {
         if (!this.visible) return;

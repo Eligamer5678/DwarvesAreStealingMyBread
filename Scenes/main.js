@@ -224,19 +224,19 @@ export class MainScene extends Scene {
         
         // Update camera smoothing/keyframes
         this.camera.update(tickDelta);
-        // Mouse controls: left-click to place selected block, right-click to remove
-        try {
-            if (this.mouse.held('left')) {
-                const world = this.camera.screenToWorld(this.mouse.pos);
-                try { this.player.buildAtWorld(world.x, world.y, this.player.selectedItem); } catch (e) { console.warn('Mouse place failed', e); }
-            }
-            if (this.mouse.held('right')) {
-                const world = this.camera.screenToWorld(this.mouse.pos);
-                try { this.player.mineAtWorld(world.x, world.y); } catch (e) { console.warn('Mouse remove failed', e); }
-            }
-        } catch (e) {
-            // ignore if mouse/camera/player not ready
-        }
+        // Mouse controls: left-click to place selected block, right-click to remove (Disabled for now)
+        // try {
+        //     if (this.mouse.held('left')) {
+        //         const world = this.camera.screenToWorld(this.mouse.pos);
+        //         try { this.player.buildAtWorld(world.x, world.y, this.player.selectedItem); } catch (e) { console.warn('Mouse place failed', e); }
+        //     }
+        //     if (this.mouse.held('right')) {
+        //         const world = this.camera.screenToWorld(this.mouse.pos);
+        //         try { this.player.mineAtWorld(world.x, world.y); } catch (e) { console.warn('Mouse remove failed', e); }
+        //     }
+        // } catch (e) {
+        //     // ignore if mouse/camera/player not ready
+        // }
     }
 
     draw() {

@@ -179,9 +179,9 @@ export default class Mouse {
         this._lastWheelDelta = 0;
         this._lastWheelCtrlFlag = this._lastWheelCtrl;
         this._lastWheelCtrl = false;
-    // expose horizontal wheel delta as well
-    this._lastWheelX = this._lastWheelDeltaX;
-    this._lastWheelDeltaX = 0;
+        // expose horizontal wheel delta as well
+        this._lastWheelX = this._lastWheelDeltaX;
+        this._lastWheelDeltaX = 0;
         this.delta = this.prevPos.sub(this.pos);
     }
 
@@ -205,7 +205,6 @@ export default class Mouse {
     }
 
     released(button,passcode) {
-        if(passcode!==this.passcode && this.passcode!=='') return false;
         if (this.pauseTime > 0) return false;
         if (!this._allowed()) return false;
         return !!this.buttons[button].justReleased;
