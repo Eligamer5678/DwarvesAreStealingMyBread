@@ -2,6 +2,7 @@ import Sprite from './Sprite.js';
 import Vector from '../modules/Vector.js';
 import Timer from '../modules/Timer.js';
 import Color from '../modules/Color.js';
+import Signal from '../modules/Signal.js';
 /**
  * @typedef {Object} DwarfInputSettings
  * @property {string} [type] - Input controller type (e.g. 'platformer').
@@ -46,8 +47,8 @@ export default class Dwarf extends Sprite {
         this.currentTool = { type: 'pickaxe', speed: 1.0 };
 
         // Optional external systems passed via constructor options
-        this.chunkManager = (inputSettings && inputSettings.chunkManager) ? inputSettings.chunkManager : null;
-        this.scene = (inputSettings && inputSettings.scene) ? inputSettings.scene : null;
+        this.chunkManager = inputSettings.chunkManager;
+        this.scene = inputSettings.scene;
         // mining state
         this.miningTarget = null; // { sx, sy, worldPos }
         this.miningProgress = 0;
@@ -55,16 +56,23 @@ export default class Dwarf extends Sprite {
         this.brightness = 0
         this._lastMiningKey = null;
         // building state
-        this.selectedItem = 'stone';
-        this.selectedIndex = 0;
         this.team = "player"
         this._buildModeToggle = true; // toggled state via double-tap
         this._suppressAutoBuildAfterMine = false; // Ensure suppression flag is cleared when leaving build mode
         this.blockPlaced = false;
         this.placeLayer = "base"
         this.blockMined = false;
-        this.placementRotation = 0; // rotation for placed blocks (0, 90, 180, 270)
-        this.placementInvert = false; // flip state for placed blocks
+        
+        this.selected = {
+            "type":null,
+            "rot":0,
+            "invert":false,
+            "amount":0
+        }
+        this.selectedSlot = 0;
+
+        this.onEdit = new Signal()
+        this.onCraft = new Signal()
 
         // Palette of buildable blocks (used by buildKeys and pickBlock)
         this.buildPalette = [
@@ -112,13 +120,15 @@ export default class Dwarf extends Sprite {
         ];
 
         // Per-slot selected items (five quickslots). Initialize from palette.
-        this.slots = [];
-        for (let i = 0; i < 5; i++) this.slots.push(this.buildPalette[i] || '');
-        // ensure selectedItem reflects current slot
-        this.selectedItem = this.slots[this.selectedIndex] || this.selectedItem;
-        // Player inventory (5x2 grid, managed by UI/Inventory class later)
-        this.inventory = new Array(10).fill('');
-
+        // Inventory is the player-side single source-of-truth for items.
+        this.inventory = {
+            // Map of key -> { key, type, pos: Vector (relative to UI menu), size: Vector, rot, invert, amount }
+            items: new Map(),
+            // quickslots mirror: array of 5 slot objects or null
+            slots: [null, null, null, null, null]
+        };
+        // alias for legacy code expecting `this.slots`
+        this.slots = this.inventory.slots;
         // Wire jump input (Input.onJump emits when jump key pressed)
         this.input.onJump.connect((k) => {
             if (this.onGround&&!this.keys.held('Shift')) {
@@ -131,7 +141,7 @@ export default class Dwarf extends Sprite {
         this.maxAtkCooldown = 0.1;
         this.attacking = false;
         this.sheet.onSwap.connect((name,name2)=>{
-            if(name==='attack') this.attacking=false;
+            this.attacking=false;
         })
     }
 
@@ -184,8 +194,10 @@ export default class Dwarf extends Sprite {
                 // Determine required time from the block's hardness (fallback to this.miningRequired)
                 let visualRequired = this.miningRequired;
                 const t = this.chunkManager.getTileValue(this.miningTarget.sx, this.miningTarget.sy, this._getActivePlaceLayer());
-                if (t) t.meta.data.hardness;
-                const frac = Math.max(0, Math.min(1, this.miningProgress / Math.max(1e-6, visualRequired / (this.currentTool?.speed || 1))));
+                if (t && t.meta && t.meta.data && typeof t.meta.data.hardness === 'number') {
+                    visualRequired = t.meta.data.hardness;
+                }
+                const frac = Math.max(0, Math.min(1, this.miningProgress / Math.max(1e-6, visualRequired / (this.currentTool?.speed || 1)))) ;
                 if (frac > 0) {
                     const barH = Math.max(2, Math.floor(ts * 0.12));
                     const barW = Math.max(2, Math.floor(ts * frac));
@@ -199,33 +211,18 @@ export default class Dwarf extends Sprite {
     buildKeys(){
         const blocks = this.buildPalette;
         // quick slot keys 1-5 to select palette entries
-        if (this.keys.pressed('1')) this.selectedIndex = 0;
-        if (this.keys.pressed('2')) this.selectedIndex = 1;
-        if (this.keys.pressed('3')) this.selectedIndex = 2;
-        if (this.keys.pressed('4')) this.selectedIndex = 3;
-        if (this.keys.pressed('5')) this.selectedIndex = 4;
-        // Now: o/p change the value in the currently-selected slot (cycle through buildPalette)
-        if(this.keys.pressed('o')) {
-            const cur = this.slots[this.selectedIndex];
-            const idx = blocks.indexOf(cur);
-            const next = (idx <= 0) ? (blocks.length - 1) : (idx - 1);
-            this.slots[this.selectedIndex] = blocks[next] || cur;
-        }
-        if(this.keys.pressed('p')) {
-            const cur = this.slots[this.selectedIndex];
-            const idx = blocks.indexOf(cur);
-            const next = (idx < 0 || idx >= blocks.length - 1) ? 0 : (idx + 1);
-            this.slots[this.selectedIndex] = blocks[next] || cur;
-        }
-        // Selected item is the item stored in the active slot
-        this.selectedItem = this.slots[this.selectedIndex] || blocks[this.selectedIndex] || this.selectedItem;
+        if (this.keys.pressed('1')) { this.selectedSlot = 0; this._applySelectedSlot(); }
+        if (this.keys.pressed('2')) { this.selectedSlot = 1; this._applySelectedSlot(); }
+        if (this.keys.pressed('3')) { this.selectedSlot = 2; this._applySelectedSlot(); }
+        if (this.keys.pressed('4')) { this.selectedSlot = 3; this._applySelectedSlot(); }
+        if (this.keys.pressed('5')) { this.selectedSlot = 4; this._applySelectedSlot(); }
 
         // Rotation and flip controls (r = rotate 90°, f = flip horizontally)
         if(this.keys.pressed('r')) {
-            this.placementRotation = (this.placementRotation + 90) % 360;
+            this.selected.rot = (this.selected.rot + 90) % 360;
         }
         if(this.keys.pressed('f')) {
-            this.placementInvert = !this.placementInvert;
+            this.selected.invert = !this.selected.invert;
         }
         // Pickblock: copy target block into current selection
         if(this.keys.pressed('c')){
@@ -234,8 +231,28 @@ export default class Dwarf extends Sprite {
     }
 
     /**
+     * Apply the current `selectedSlot` into `this.selected` by copying
+     * the structured slot object from `this.slots` (which mirrors `player.slots`).
+     */
+    _applySelectedSlot(){
+        try{
+            const s = (this.slots && this.selectedSlot != null && this.slots[this.selectedSlot]) ? this.slots[this.selectedSlot] : null;
+            if (s && s.type){
+                this.selected = { type: s.type, rot: s.rot || 0, invert: !!s.invert, amount: s.amount || 0 };
+            } else if (this.chunkManager && this.scene && this.scene.player && Array.isArray(this.scene.player.slots)){
+                // fallback to player's slots array if present
+                const ps = this.scene.player.slots[this.selectedSlot];
+                if (ps && ps.type) this.selected = { type: ps.type, rot: ps.rot || 0, invert: !!ps.invert, amount: ps.amount || 0 };
+                else this.selected = { type: null, rot: 0, invert: false, amount: 0 };
+            } else {
+                this.selected = { type: null, rot: 0, invert: false, amount: 0 };
+            }
+        }catch(e){}
+    }
+
+    /**
      * Pick the currently targeted block and copy its id/rotation/invert
-     * into the dwarf's placement selection (`selectedItem`, `placementRotation`, `placementInvert`).
+     * into the dwarf's placement selection (`selectedItem`, `selected.rot`, `selected.invert`).
      * Returns true if a block was picked.
      */
     pickBlock(){
@@ -250,15 +267,13 @@ export default class Dwarf extends Sprite {
             const tile = this.chunkManager.getTileValue(sx, sy, 'any');
             if(!tile || !tile.id) return false;
             // Copy id into the currently-selected slot
-            this.slots[this.selectedIndex] = tile.id;
-            this.selectedItem = tile.id;
+            this.selected.type = tile.id;
             // Copy rotation/invert if present, otherwise default
-            this.placementRotation = (typeof tile.rot === 'number') ? tile.rot : 0;
-            this.placementInvert = (typeof tile.invert === 'boolean') ? tile.invert : false;
-            // Also set the place layer to the tile's layer so subsequent placements
-            // default to placing into the same layer the block was picked from.
+            this.selected.rot = tile.rot;
+            this.selected.invert = tile.invert;
+            this.slots[this.selectedSlot] = Object.assign({},selected);
+            // will edit later
             if(tile.layer) this.placeLayer = tile.layer;
-            // Do NOT change selectedIndex; we've written into the current slot instead.
             return true;
         }catch(e){ return false; }
     }
@@ -267,7 +282,7 @@ export default class Dwarf extends Sprite {
         // movement is controlled by input.y (this.inputDir.y). Otherwise, apply gravity.
         if (this.onLadder&&this.enablePhysicsUpdate) {
             // prefer environment input for vertical control when on ladder
-            const env = (this.envInputDir && typeof this.envInputDir.y === 'number') ? this.envInputDir.y : (this.inputDir && typeof this.inputDir.y === 'number' ? this.inputDir.y : 0);
+            const env = this.envInputDir.y;
             // input: -1 up, +1 down
             this.vlos.y = env * this.climbSpeed;
             this.onGround = 0;
@@ -297,7 +312,7 @@ export default class Dwarf extends Sprite {
         // If in build mode and space was pressed, place the selected item at target
         // Special-case: when placing ladders, place at the dwarf's position
         // and allow holding space to repeat placements.
-        if (buildModeActive && this.selectedItem === 'ladder') {
+        if (buildModeActive && this.selected.type === 'ladder') {
             if (this.keys.held(' ')) {
                 if (this._ladderPlaceCooldown === undefined) this._ladderPlaceCooldown = 0;
                 this._ladderPlaceCooldown -= delta;
@@ -333,8 +348,8 @@ export default class Dwarf extends Sprite {
             }
         }
 
-        if (buildModeActive && this.selectedItem !== 'ladder' && this.miningTarget && (this.keys.held(' ') && this.keys.held('Shift') || this.keys.pressed(' ')) && !this.blockMined) {
-            let placed = this.buildAtWorld(this.miningTarget.worldPos.x + this.chunkManager.noiseTileSize*0.5, this.miningTarget.worldPos.y + this.chunkManager.noiseTileSize*0.5, this.selectedItem);
+        if (buildModeActive && this.selected.type !== 'ladder' && this.miningTarget && (this.keys.held(' ') && this.keys.held('Shift') || this.keys.pressed(' ')) && !this.blockMined) {
+            let placed = this.buildAtWorld(this.miningTarget.worldPos.x + this.chunkManager.noiseTileSize*0.5, this.miningTarget.worldPos.y + this.chunkManager.noiseTileSize*0.5, this.selected.type);
             if(this.keys.pressed(' ')) {
                 this.blockPlaced = placed;
                 // record whether the initial press started with a downward input
@@ -364,7 +379,7 @@ export default class Dwarf extends Sprite {
                     const cy = this.pos.y + this.size.y * 0.5;
                     const placeX = cx;
                     const placeY = cy + ts; // one tile down
-                    const placed = this.buildAtWorld(placeX, placeY, this.selectedItem);
+                    const placed = this.buildAtWorld(placeX, placeY, this.selected.type);
                     if (placed) {
                         this.blockPlaced = true;
                         this.mining = false;
@@ -438,6 +453,7 @@ export default class Dwarf extends Sprite {
         if (!cur || !cur.id) return false; // nothing to mine
         try {
             // remove tile (set to null / air)
+            this.onEdit.emit(this.selectedSlot,1,cur)
             this.chunkManager.setTileValue(sx, sy, null, layer);
             // optional: notify lighting/chunk updates elsewhere
             this.scene.lighting.markDirty();
@@ -471,13 +487,14 @@ export default class Dwarf extends Sprite {
 
         // Build tile value with rotation and invert if they are non-default
         let tileValue = blockId;
-        if (this.placementRotation !== 0 || this.placementInvert !== false) {
+        if (this.selected.rot !== 0 || this.selected.invert !== false) {
             tileValue = { id: blockId };
-            if (this.placementRotation !== 0) tileValue.rot = this.placementRotation;
-            if (this.placementInvert !== false) tileValue.invert = this.placementInvert;
+            if (this.selected.rot !== 0) tileValue.rot = this.selected.rot;
+            if (this.selected.invert !== false) tileValue.invert = this.selected.invert;
         }
 
         this.chunkManager.setTileValue(sx, sy, tileValue, layer);
+        this.onEdit.emit(this.selectedSlot,-1)
         this.scene.lighting.markDirty();
 
         return true;
@@ -523,7 +540,7 @@ export default class Dwarf extends Sprite {
             dir = this.envInputDir.clone();
             // Prevent diagonal upward aiming unless Shift is held.
             if (dir.y < 0 && (!shiftHeld)) {
-                if (wantsUp||(this.onLadder&&this.selectedItem==='ladder')) dir = new Vector(0, -1);
+                if (wantsUp||(this.onLadder&&this.selected.type==='ladder')) dir = new Vector(0, -1);
                 else dir = new Vector(fx, 0);
             }
         }
@@ -569,6 +586,17 @@ export default class Dwarf extends Sprite {
                 this._activeMiningLayer = layer;
                 const maybeTile = this.chunkManager.getTileValue(this.miningTarget.sx, this.miningTarget.sy, layer);
                 if (!maybeTile || !maybeTile.id) { this.miningProgress = 0; this._lastMiningKey = null; this._activeMiningLayer = null; return; }
+                // If player is holding Shift and interacting with an anvil, emit craft signal instead of mining
+                try{
+                    if (maybeTile && maybeTile.id === 'anvil' && this.keys.held('Shift')){
+                        try{ this.onCraft.emit(this.miningTarget, maybeTile); }catch(e){}
+                        console.log('hello')
+                        this.miningProgress = 0;
+                        this._lastMiningKey = null;
+                        this._activeMiningLayer = null;
+                        return;
+                    }
+                }catch(e){}
                 // initialize last key for this mining action
                 this._lastMiningKey = `${this.miningTarget.sx},${this.miningTarget.sy}`;
             } catch (e) { this._lastMiningKey = null; this._activeMiningLayer = null; return; }
@@ -636,6 +664,7 @@ export default class Dwarf extends Sprite {
         const moveSpeed = Math.abs(this.vlos.x || 0);
         const walkThreshold = 0.1; // px/s threshold to consider 'walking'
         const shiftHeld = this.keys.held('Shift');
+
         const buildActive = ((this.keys.held('Control')) || this._buildModeToggle);
         if(this.attacking) {this.sheet.playAnimation('attack'); return;}
         // Facing: set invert to -1 when moving left, 1 when moving right.

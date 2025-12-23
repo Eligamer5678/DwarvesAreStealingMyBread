@@ -1,4 +1,5 @@
 import Vector from './Vector.js';
+import Signal from './Signal.js';
 
 export default class Mouse {
     constructor(rect, offset = new Vector(0, 0), scale = 1) {
@@ -30,6 +31,10 @@ export default class Mouse {
             middle: this._makeButton(),
             right: this._makeButton()
         };
+
+        // Signals for grab lifecycle
+        this.onGrab = new Signal(); // emitted when a primary press begins
+        this.onEndGrab = new Signal(); // emitted when the primary press ends
 
         // Use Pointer Events (covers mouse, touch, pen)
         window.addEventListener("pointermove", e => this._onMove(e));
@@ -218,8 +223,14 @@ export default class Mouse {
         this.pause(0.2)
     }
 
-    grab(pos) { this.grabPos = pos.clone(); }
-    releaseGrab() { this.grabPos = null; }
+    grab(pos) { 
+        this.grabPos = pos.clone(); 
+        this.onGrab.emit(this.pos.clone());
+    }
+    releaseGrab() { 
+        this.grabPos = null; 
+        this.onEndGrab.emit(this.pos.clone());
+    }
 
     getGrabDelta() {
         if (!this.grabPos) return new Vector(0, 0);

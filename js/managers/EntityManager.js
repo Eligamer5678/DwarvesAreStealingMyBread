@@ -1,10 +1,5 @@
 import Geometry from '../modules/Geometry.js';
 import Vector from '../modules/Vector.js';
-import Slime from '../entities/Slime.js';
-import Bat from '../entities/Bat.js';
-import Moth from '../entities/Moth.js';
-import Entity from '../entities/Entity.js';
-
 /**
  * @typedef {import('../systems/LightingSystem.js').default} LightingSystemType
  * @typedef {import('../entities/Entity.js').default} EntityType

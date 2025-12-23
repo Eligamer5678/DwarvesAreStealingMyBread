@@ -22,47 +22,81 @@ export default class Menu{
     }
     update(delta){
         if (!this.visible) return;
-        for (let [key,element] of this.elements){
+        const elementsArr = Array.from(this.elements.values()).reverse();
+        for (let element of elementsArr){
             try{ element.update(delta); }catch{}
         }
-        const absolutePos = this.pos.add(this.offset);
-        let hovered = false;
-        if (Geometry.pointInRect(this.mouse.pos, absolutePos, this.size)){
-            hovered = true;
-            this.mouse.addMask(1);
 
-            // Start dragging when pressed inside the menu
-            if (this.draggable && !this._dragging && this.mouse.pressed('left',this.passcode)){
-                this._dragging = true;
-                this.mouse.grab(this.mouse.pos);
-                this.mouse.focus('popup')
-                this._dragStartPos = this.pos.clone();
+        if (this.mouse && this.draggable){
+            let hovered = false;
+            const absolutePos = this.pos.add(this.offset);
+            if (Geometry.pointInRect(this.mouse.pos, absolutePos, this.size)){
+                hovered = true;
+                this.startDrag()
             }
+            this.handleDrag()
+            if(hovered) this.mouse.addMask(1)
         }
+    }
+    startDrag(){
+        if (this._dragging || !this.mouse.pressed('left', this.passcode)) return;
+        this.hash = Math.random()
+        this._dragging = true;
+        try{ this.mouse.grab(this.mouse.pos); }catch(e){}
+        try{ this.mouse.focus(this.hash); }catch(e){}
+        this._dragStartPos = this.pos.clone();
+        
+    }
+    handleDrag(){
+        if(!this._dragging) return;
 
-        // If currently dragging, update position from mouse grab delta
-        if (this.draggable && this._dragging){
-            try{
-                const deltaPos = this.mouse.getGrabDelta();
-                this.pos = this._dragStartPos.add(deltaPos);
-                // update children offsets to follow new position
-                this.elements.forEach((element)=>{
-                    try{ element.addOffset(this.pos.add(this.offset)); }catch{}
-                })
-            }catch{}
+        const deltaPos = this.mouse.getGrabDelta();
+        let newPos = this._dragStartPos.add(deltaPos);
+        // apply drag bounds if present (support either {pos,size} or {startPos,size})
+        const db = this.dragBounds;
+        if (db && (db.pos || db.startPos) && db.size){
+            const sb = db.startPos ? db.startPos : db.pos;
+            const s = db.size;
+            const minX = sb.x;
+            const minY = sb.y;
+            let maxX = sb.x + s.x - this.size.x;
+            let maxY = sb.y + s.y - this.size.y;
+            if (maxX < minX) maxX = minX;
+            if (maxY < minY) maxY = minY;
+            const clampedX = Math.max(minX, Math.min(maxX, newPos.x));
+            const clampedY = Math.max(minY, Math.min(maxY, newPos.y));
+            newPos = newPos.clone ? newPos.clone() : newPos;
+            newPos.x = clampedX; newPos.y = clampedY;
         }
+        this.pos = newPos;
+        this.elements.forEach((element)=>{
+            try{ element.addOffset(this.pos.add(this.offset)); }catch{}
+        })
+        
 
-        // Release drag when mouse button is released
-        if (this.draggable && this._dragging && this.mouse.released('left','popup')){
-            try{
-                const finalDelta = this.mouse.getGrabDelta();
-                this.mouse.focus(this.passcode)
-                this.pos = this._dragStartPos.add(finalDelta);
-                this.mouse.releaseGrab();
-            }catch{}
+        if (this.mouse.released('left',this.hash)){
+            const finalDelta = this.mouse.getGrabDelta();
+            this.mouse.focus(this.passcode);
+            let finalPos = this._dragStartPos.add(finalDelta);
+            // apply drag bounds if present (support either {pos,size} or {startPos,size})
+            const db2 = this.dragBounds;
+            if (db2 && (db2.pos || db2.startPos) && db2.size){
+                const sb = db2.startPos ? db2.startPos : db2.pos;
+                const s = db2.size;
+                const minX = sb.x;
+                const minY = sb.y;
+                let maxX = sb.x + s.x - this.size.x;
+                let maxY = sb.y + s.y - this.size.y;
+                if (maxX < minX) maxX = minX;
+                if (maxY < minY) maxY = minY;
+                finalPos.x = Math.max(minX, Math.min(maxX, finalPos.x));
+                finalPos.y = Math.max(minY, Math.min(maxY, finalPos.y));
+            }
+            this.pos = finalPos;
+            this.mouse.releaseGrab();
             this._dragging = false;
+            
         }
-        if(this.hovered)this.mouse.addMask(1);
     }
     draw(Draw){
         if (!this.visible) return;

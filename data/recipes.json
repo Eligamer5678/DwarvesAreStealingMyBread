@@ -11,6 +11,11 @@
                 ["pretzelstick",""            ,"pretzelstick"],
                 ["pretzelstick","pretzelstick","pretzelstick"],
                 ["pretzelstick",""            ,"pretzelstick"]
+            ]},
+            {"output":"glass","amount":1,"tool":"none","input":[
+                ["",""            ,""],
+                ["","sand",""],
+                ["",""            ,""]
             ]}
         ]
     },

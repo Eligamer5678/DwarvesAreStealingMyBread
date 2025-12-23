@@ -35,6 +35,12 @@
             "size":[1,1],
             "slicePx":16,
             "layer":"base"
+        },
+        "items":{
+            "path":"Assets/Tilemaps/anvil.png",
+            "size":[1,1],
+            "slicePx":16,
+            "layer":"base"
         }
     },
     "spriteSheets":{

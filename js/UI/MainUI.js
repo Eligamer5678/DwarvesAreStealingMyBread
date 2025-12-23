@@ -9,6 +9,7 @@ import UIImage from './jsElements/Image.js'
 import UITile from './jsElements/tile.js'
 
 import InventoryManager from '../managers/InventoryManager.js';
+import CraftingManager from '../managers/CraftingManager.js';
 
 /**
  * @typedef {import('../modules/Spritesheet.js').default} SpriteSheetType
@@ -98,7 +99,8 @@ export default class MainUI {
             border.visible = false;
             this.menu.addElement(`slotBorder${i}`, border);
 
-            this._slotElems.push({ bg, tile, border, x, y, size: slotSize });
+
+            this._slotElems.push({ bg, tile, border, x, y, size: slotSize});
         }
     }
     createInventory(){
@@ -121,6 +123,20 @@ export default class MainUI {
         
         const resources = (this.scene && this.scene.SpriteImages) ? this.scene.SpriteImages : (this.opts && this.opts.resources ? this.opts.resources : null);
         this.InventoryManager = new InventoryManager(this, resources)
+        // register crafting manager and hook player.onCraft to open expanded inventory
+        try{ this.CraftingManager = new CraftingManager(); }catch(e){}
+        try{ this.InventoryManager.setCraftingManager(this.CraftingManager); }catch(e){}
+        // When player uses an anvil (onCraft), open inventory and expand it
+        try{
+            const player = this.scene.player;
+            if (player && player.onCraft) player.onCraft.connect((target,tile)=>{
+                try{
+                    // open inventory UI in crafting mode; pass meta from recipes if available
+                    const meta = { type: (tile && tile.id) ? tile.id : 'anvil', size: [3,3], target };
+                    try{ this.InventoryManager.open(meta); }catch(e){}
+                }catch(e){}
+            })
+        }catch(e){}
     }
     // update slot visuals each frame
     _updateSlots() {
@@ -129,10 +145,18 @@ export default class MainUI {
         const player = (this.scene && this.scene.player) ? this.scene.player : this.player;
         for (let i = 0; i < this._slotElems.length; i++) {
             const el = this._slotElems[i];
-            // determine which block id to show: prefer player's per-slot selection, then fallback to buildPalette
+            // determine which block id to show: prefer player's per-slot selection object, then fallback to buildPalette
             let bid = null;
-            if (player && Array.isArray(player.slots) && i < player.slots.length) bid = player.slots[i];
-            else if (player && Array.isArray(player.buildPalette) && i < player.buildPalette.length) bid = player.buildPalette[i];
+            // Prefer explicit player slot data if the player has a slots array.
+            let slotObj = null;
+            if (player && Array.isArray(player.slots) && i < player.slots.length) {
+                slotObj = player.slots[i];
+                if (slotObj && slotObj.type) bid = slotObj.type;
+                else bid = null; // keep empty when player has explicit slots
+            } else if (player && Array.isArray(player.buildPalette) && i < player.buildPalette.length) {
+                // fallback to buildPalette only when player.slots is not present
+                bid = player.buildPalette[i];
+            }
             // resolve tilesheet and assign to UITile
             if (bid && resources && typeof resources.get === 'function') {
                 try {
@@ -143,13 +167,22 @@ export default class MainUI {
                         if (tex && tex.tilemap && resources.has(tex.tilemap)) {
                             el.tile.sheet = resources.get(tex.tilemap);
                             el.tile.tile = bid;
+                            // sync displayed amount/rotation from player slot metadata when available
+                            try{
+                                el.tile.data = el.tile.data || {};
+                                el.tile.data.amount = (slotObj && slotObj.amount) ? slotObj.amount : 0;
+                                el.tile.rot = (slotObj && typeof slotObj.rot === 'number') ? slotObj.rot : 0;
+                                el.tile.invert = (slotObj && slotObj.invert) ? slotObj.invert : new Vector(1,1);
+                            }catch(e){}
                         } else {
                             el.tile.sheet = null;
                             el.tile.tile = null;
+                            try{ el.tile.data = el.tile.data || {}; el.tile.data.amount = 0; }catch(e){}
                         }
                     } else {
                         el.tile.sheet = null;
                         el.tile.tile = null;
+                        try{ el.tile.data = el.tile.data || {}; el.tile.data.amount = 0; }catch(e){}
                     }
                 } catch (e) {
                     el.tile.sheet = null; el.tile.tile = null;
@@ -159,7 +192,7 @@ export default class MainUI {
             }
 
             // highlight currently selected slot (player.selectedIndex)
-            if (player && typeof player.selectedIndex === 'number' && player.selectedIndex === i) {
+            if (player.selectedSlot === i) {
                 el.border.visible = true;
                 el.border.color = '#FFFFFF88';
             } else {
@@ -222,8 +255,10 @@ export default class MainUI {
     update(delta) {
         if (!this.visible) return;
         // keep UI slot visuals in sync with player state
-        try { this._updateSlots(); } catch (e) {}
         this.menu.update(delta)
+        // update inventory state first so slot counts are current
+        this.InventoryManager.update(delta);
+        this._updateSlots();
     }
     draw() {
         if (!this.visible) return;

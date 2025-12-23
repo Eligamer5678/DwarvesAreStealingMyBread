@@ -1,4 +1,5 @@
 import Geometry from '../../modules/Geometry.js';
+import Signal from '../../modules/Signal.js';
 import Vector from '../../modules/Vector.js';
 
 export default class UITile {
@@ -21,6 +22,9 @@ export default class UITile {
         this._dragStartPos = this.pos.clone();
         // Optional drag bounds: supports { startPos, size } or { pos, size }
         this.dragBounds = null;
+        this.onRelease = new Signal()
+
+        this.data = {amount:1};
         
     }
     addOffset(offset){
@@ -32,83 +36,84 @@ export default class UITile {
         if (this.mouse && this.draggable){
             let hovered = false;
             const absolutePos = this.pos.add(this.offset);
-            try{
-                if (Geometry.pointInRect(this.mouse.pos, absolutePos, this.size)){
-                    hovered = true;
-                    if (!this._dragging && this.mouse.pressed('left', this.passcode)){
-                        this._dragging = true;
-                        try{ this.mouse.grab(this.mouse.pos); }catch(e){}
-                        try{ this.mouse.focus('popup'); }catch(e){}
-                        this._dragStartPos = this.pos.clone();
-                    }
-                }
-            }catch(e){}
-
-            if (this._dragging){
-                try{
-                    const deltaPos = this.mouse.getGrabDelta();
-                    let newPos = this._dragStartPos.add(deltaPos);
-                    // apply drag bounds if present (support startPos or pos keys)
-                    const db = this.dragBounds;
-                    if (db && (db.startPos || db.pos) && db.size){
-                        const sb = db.startPos ? db.startPos : db.pos;
-                        const s = db.size;
-                        const minX = sb.x;
-                        const minY = sb.y;
-                        let maxX = sb.x + s.x - this.size.x;
-                        let maxY = sb.y + s.y - this.size.y;
-                        if (maxX < minX) maxX = minX;
-                        if (maxY < minY) maxY = minY;
-                        newPos = newPos.clone ? newPos.clone() : newPos;
-                        newPos.x = Math.max(minX, Math.min(maxX, newPos.x));
-                        newPos.y = Math.max(minY, Math.min(maxY, newPos.y));
-                    }
-                    this.pos = newPos;
-                }catch(e){}
+            if (Geometry.pointInRect(this.mouse.pos, absolutePos, this.size)){
+                hovered = true;
+                this.startDrag()
             }
-
-            if (this._dragging && this.mouse.released('left','popup')){
-                try{
-                    const finalDelta = this.mouse.getGrabDelta();
-                    try{ this.mouse.focus(this.passcode); }catch(e){}
-                    let finalPos = this._dragStartPos.add(finalDelta);
-                    const db = this.dragBounds;
-                    if (db && (db.startPos || db.pos) && db.size){
-                        const sb = db.startPos ? db.startPos : db.pos;
-                        const s = db.size;
-                        const minX = sb.x;
-                        const minY = sb.y;
-                        let maxX = sb.x + s.x - this.size.x;
-                        let maxY = sb.y + s.y - this.size.y;
-                        if (maxX < minX) maxX = minX;
-                        if (maxY < minY) maxY = minY;
-                        finalPos.x = Math.max(minX, Math.min(maxX, finalPos.x));
-                        finalPos.y = Math.max(minY, Math.min(maxY, finalPos.y));
-                    }
-                    this.pos = finalPos;
-                    try{ this.mouse.releaseGrab(); }catch(e){}
-                }catch(e){}
-                this._dragging = false;
-            }
+            this.handleDrag()
             if(hovered) this.mouse.addMask(1)
         }
     }
-    draw(Draw){
-        if(!this.visible){
-            return;
+    startDrag(){
+        if (this._dragging || !this.mouse.pressed('left', this.passcode)) return;
+        this.hash = Math.random()
+        this._dragging = true;
+        try{ this.mouse.grab(this.mouse.pos); }catch(e){}
+        try{ this.mouse.focus(this.hash); }catch(e){}
+        this._dragStartPos = this.pos.clone();
+        
+    }
+    handleDrag(){
+        if(!this._dragging) return;
+
+        const deltaPos = this.mouse.getGrabDelta();
+        let newPos = this._dragStartPos.add(deltaPos);
+        // apply drag bounds if present (support either {pos,size} or {startPos,size})
+        const db = this.dragBounds;
+        if (db && (db.pos || db.startPos) && db.size){
+            const sb = db.startPos ? db.startPos : db.pos;
+            const s = db.size;
+            const minX = sb.x;
+            const minY = sb.y;
+            let maxX = sb.x + s.x - this.size.x;
+            let maxY = sb.y + s.y - this.size.y;
+            if (maxX < minX) maxX = minX;
+            if (maxY < minY) maxY = minY;
+            const clampedX = Math.max(minX, Math.min(maxX, newPos.x));
+            const clampedY = Math.max(minY, Math.min(maxY, newPos.y));
+            newPos = newPos.clone ? newPos.clone() : newPos;
+            newPos.x = clampedX; newPos.y = clampedY;
         }
-        // If the provided sheet looks like a SpriteSheet (has animations), prefer Draw.sheet
-        try {
-            if (this.sheet && (this.sheet.animations instanceof Map || (this.sheet.animations && typeof this.sheet.animations === 'object'))) {
-                // `this.tile` may be an animation name or frame index; default to 'idle' if not provided
-                const anim = (typeof this.tile === 'string') ? this.tile : (this.tile ? String(this.tile) : 'idle');
-                const frame = (typeof this.tile === 'number') ? this.tile : 0;
-                Draw.sheet(this.sheet, this.pos.add(this.offset), this.size, anim, frame, this.invert, this.opacity, this.smoothing);
-                return;
+        this.pos = newPos;
+        
+
+        if (this.mouse.released('left',this.hash)){
+            const finalDelta = this.mouse.getGrabDelta();
+            this.mouse.focus(this.passcode);
+            let finalPos = this._dragStartPos.add(finalDelta);
+            // apply drag bounds if present (support either {pos,size} or {startPos,size})
+            const db2 = this.dragBounds;
+            if (db2 && (db2.pos || db2.startPos) && db2.size){
+                const sb = db2.startPos ? db2.startPos : db2.pos;
+                const s = db2.size;
+                const minX = sb.x;
+                const minY = sb.y;
+                let maxX = sb.x + s.x - this.size.x;
+                let maxY = sb.y + s.y - this.size.y;
+                if (maxX < minX) maxX = minX;
+                if (maxY < minY) maxY = minY;
+                finalPos.x = Math.max(minX, Math.min(maxX, finalPos.x));
+                finalPos.y = Math.max(minY, Math.min(maxY, finalPos.y));
             }
-        } catch (e) {
-            // fall back to tile rendering below
+            this.pos = finalPos;
+            this.mouse.releaseGrab();
+            this._dragging = false;
+            this.onRelease.emit()
         }
+    }
+
+    draw(Draw){
+        if(!this.visible || !this.tile)return;
         Draw.tile(this.sheet,this.pos.add(this.offset),this.size,this.tile,this.rot,this.invert,this.opacity,this.smoothing);
+        // draw stack amount if present and greater than 1
+        try{
+            const amt = (this.data && typeof this.data.amount === 'number') ? this.data.amount : 1;
+            if (amt >= 1){
+                const pad = Math.max(4, Math.floor(Math.min(this.size.x, this.size.y) * 0.08));
+                const fontSize = Math.max(10, Math.floor(Math.min(this.size.x, this.size.y) * 0.22));
+                const textPos = this.pos.add(this.offset).add(new Vector(this.size.x - pad, this.size.y - pad));
+                Draw.text(String(amt), textPos, '#FFFFFF', 2, fontSize, { align: 'right', baseline: 'bottom', font: 'monospace' });
+            }
+        }catch(e){}
     }
 }

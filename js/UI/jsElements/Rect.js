@@ -35,8 +35,7 @@ export default class UIRect {
         if(this.mask){
             const absolutePos = this.pos.add(this.offset);
             if (Geometry.pointInRect(this.mouse.pos, absolutePos, this.size)){
-                console.log('masked')
-                this.mouse.addMask(1);
+                this.mouse.addMask(2);
             }
         }
     }
