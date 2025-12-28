@@ -108,6 +108,10 @@ export class MainScene extends Scene {
         window.Debug.createSignal('clearSave',()=>{
             this.saver.clear()
         })
+        window.Debug.createSignal('gamemode',(gamemode)=>{
+            if(gamemode === 'c' || gamemode === 'creative') this.player.creative = true;
+            else this.player.creative = false;
+        })
 
         
             

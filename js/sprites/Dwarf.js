@@ -74,6 +74,9 @@ export default class Dwarf extends Sprite {
         this.onEdit = new Signal()
         this.onCraft = new Signal()
 
+        // Creative mode: when true, items are unlimited and placement/mining
+        // will not modify inventory. Also enables quick cycling with 'o'/'p'.
+        this.creative = false;
         // Palette of buildable blocks (used by buildKeys and pickBlock)
         this.buildPalette = [
             'stone',
@@ -228,6 +231,38 @@ export default class Dwarf extends Sprite {
         if(this.keys.pressed('c')){
             this.pickBlock();
         }
+        // Creative quick-swap: previous/next palette item
+        if (this.keys.pressed('o')) {
+            try {
+                let idx = this.buildPalette.indexOf(this.selected.type);
+                if (idx === -1) idx = 0;
+                idx = (idx - 1 + this.buildPalette.length) % this.buildPalette.length;
+                const newType = this.buildPalette[idx];
+                this.selected.type = newType;
+                // update the current quickslot object so UI reflects the change
+                const slotObj = Object.assign({}, this.slots[this.selectedSlot] || {});
+                slotObj.type = newType;
+                slotObj.amount = 9999; // treat as abundant
+                slotObj.rot = slotObj.rot || this.selected.rot || 0;
+                slotObj.invert = (typeof slotObj.invert !== 'undefined') ? slotObj.invert : this.selected.invert || false;
+                this.slots[this.selectedSlot] = slotObj;
+            } catch (e) {}
+        }
+        if (this.keys.pressed('p')) {
+            try {
+                let idx = this.buildPalette.indexOf(this.selected.type);
+                if (idx === -1) idx = 0;
+                idx = (idx + 1) % this.buildPalette.length;
+                const newType = this.buildPalette[idx];
+                this.selected.type = newType;
+                const slotObj = Object.assign({}, this.slots[this.selectedSlot] || {});
+                slotObj.type = newType;
+                slotObj.amount = 9999;
+                slotObj.rot = slotObj.rot || this.selected.rot || 0;
+                slotObj.invert = (typeof slotObj.invert !== 'undefined') ? slotObj.invert : this.selected.invert || false;
+                this.slots[this.selectedSlot] = slotObj;
+            } catch (e) {}
+        }
     }
 
     /**
@@ -266,14 +301,23 @@ export default class Dwarf extends Sprite {
             // Query the tile; use 'any' to get top-most tile at target
             const tile = this.chunkManager.getTileValue(sx, sy, 'any');
             if(!tile || !tile.id) return false;
-            // Copy id into the currently-selected slot
+            // Copy id into the currently-selected slot and update selected
             this.selected.type = tile.id;
             // Copy rotation/invert if present, otherwise default
-            this.selected.rot = tile.rot;
-            this.selected.invert = tile.invert;
-            this.slots[this.selectedSlot] = Object.assign({},selected);
-            // will edit later
-            if(tile.layer) this.placeLayer = tile.layer;
+            this.selected.rot = (tile.rot !== undefined) ? tile.rot : 0;
+            this.selected.invert = (tile.invert !== undefined) ? tile.invert : false;
+            // Update the quickslot entry so UI and canonical slot data reflect the pick
+            const slotObj = Object.assign({}, this.slots[this.selectedSlot] || {});
+            slotObj.type = this.selected.type;
+            slotObj.rot = this.selected.rot || 0;
+            slotObj.invert = !!this.selected.invert;
+            // In creative mode, give abundant amount; otherwise preserve existing amount or set to 0
+            slotObj.amount = this.creative ? 9999 : (slotObj.amount || 0);
+            this.slots[this.selectedSlot] = slotObj;
+            // Ensure selected reflects the stored slot canonical data
+            try { this._applySelectedSlot(); } catch (e) {}
+            // update placement layer if tile indicates one
+            if (tile.layer) this.placeLayer = tile.layer;
             return true;
         }catch(e){ return false; }
     }
@@ -453,7 +497,8 @@ export default class Dwarf extends Sprite {
         if (!cur || !cur.id) return false; // nothing to mine
         try {
             // remove tile (set to null / air)
-            this.onEdit.emit(this.selectedSlot,1,cur)
+            // In creative mode we do not modify the player's inventory.
+            if (!this.creative) this.onEdit.emit(this.selectedSlot,1,cur)
             this.chunkManager.setTileValue(sx, sy, null, layer);
             // optional: notify lighting/chunk updates elsewhere
             this.scene.lighting.markDirty();
@@ -494,7 +539,8 @@ export default class Dwarf extends Sprite {
         }
 
         this.chunkManager.setTileValue(sx, sy, tileValue, layer);
-        this.onEdit.emit(this.selectedSlot,-1)
+        // In creative mode do not consume items from inventory
+        if (!this.creative) this.onEdit.emit(this.selectedSlot,-1)
         this.scene.lighting.markDirty();
 
         return true;

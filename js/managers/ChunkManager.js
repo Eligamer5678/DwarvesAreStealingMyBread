@@ -764,20 +764,58 @@ export default class ChunkManager {
             prevInvert = baseInvert;
             prevLayer = layerVal;
         }
-        if(spec.data.entities){
-            for(let entity of spec.data.entities){
-                if(entity.pos === 'random'){
-                    // place roughly in-chunk center (correct world tile coords)
-                    const wx = (cx * this.chunkSize + 5) * this.noiseTileSize;
-                    const wy = (cy * this.chunkSize + 5) * this.noiseTileSize;
-                    this.entityManager.addEntity(entity.type, new Vector(wx, wy), new Vector(entity.data.size[0], entity.data.size[1]));
-                } else {
-                    const wx = (cx * this.chunkSize + Number(entity.pos[0] || 0)) * this.noiseTileSize;
-                    const wy = (cy * this.chunkSize + Number(entity.pos[1] || 0)) * this.noiseTileSize;
-                    this.entityManager.addEntity(entity.type, new Vector(wx, wy), new Vector(entity.data.size[0], entity.data.size[1]));
+        // Spawn entities defined by the generation spec or by a saved chunk override.
+        try {
+            // Merge saved entities with spec entities. Saved entries replace
+            // same-type + same-pos spec entries; otherwise they are appended.
+            const specEntities = (spec && spec.data && Array.isArray(spec.data.entities)) ? spec.data.entities.slice() : [];
+            const savedEntities = (saved && Array.isArray(saved.entities)) ? saved.entities : [];
+
+            const merged = specEntities.slice();
+            try {
+                // Log saved entity entries and the merged list before spawning.
+                // This helps debug torch reload issues (saved vs spec entities).
+                console.log(`ChunkManager: loading entities for chunk ${cx},${cy} -- savedEntities:`, savedEntities, 'merged:', merged);
+            } catch (e) { /* ignore logging errors */ }
+            for (const se of savedEntities) {
+                if (!se) continue;
+                let replaced = false;
+                for (let i = 0; i < merged.length; i++) {
+                    const me = merged[i];
+                    if (!me || !me.type || !se.type) continue;
+                    if (me.type !== se.type) continue;
+                    // compare positions: either both 'random' or both arrays with equal coords
+                    if (me.pos === 'random' && se.pos === 'random') { merged[i] = se; replaced = true; break; }
+                    if (Array.isArray(me.pos) && Array.isArray(se.pos) && me.pos.length === 2 && se.pos.length === 2) {
+                        const mx = Number(me.pos[0]); const my = Number(me.pos[1]);
+                        const sx = Number(se.pos[0]); const sy = Number(se.pos[1]);
+                        if (Number.isFinite(mx) && Number.isFinite(my) && mx === sx && my === sy) { merged[i] = se; replaced = true; break; }
+                    }
+                }
+                if (!replaced) merged.push(se);
+            }
+
+            const entityList = (merged.length > 0) ? merged : null;
+            if (entityList && Array.isArray(entityList)){
+                for (let entity of entityList){
+                    if(!entity) continue;
+                    try {
+                        let wx, wy;
+                        if (entity.pos === 'random'){
+                            wx = (cx * this.chunkSize + 5) * this.noiseTileSize;
+                            wy = (cy * this.chunkSize + 5) * this.noiseTileSize;
+                        } else {
+                            wx = (cx * this.chunkSize + Number(entity.pos[0] || 0)) * this.noiseTileSize;
+                            wy = (cy * this.chunkSize + Number(entity.pos[1] || 0)) * this.noiseTileSize;
+                        }
+                        const sz = (entity.data && Array.isArray(entity.data.size)) ? new Vector(entity.data.size[0], entity.data.size[1]) : new Vector(this.noiseTileSize, this.noiseTileSize);
+                        if (this.entityManager && typeof this.entityManager.addEntity === 'function') {
+                            this.entityManager.addEntity(entity.type, new Vector(wx, wy), sz);
+                        }
+                    } catch(e) { /* ignore per-entity spawn errors */ }
                 }
             }
-        }
+        } catch(e) { /* ignore entity spawn errors */ }
         // After filling regions, apply cave carving as a post-process for ground chunks
         try {
             for (const s of selected.special) {
@@ -1271,6 +1309,36 @@ export default class ChunkManager {
         }
 
         const out = { x: chunk.x, y: chunk.y, width: chunk.width, height: chunk.height, regions: regions };
+        // Include placed entities (e.g., torches) that fall inside this chunk
+        try {
+            const ents = [];
+            const baseSx = x * this.chunkSize;
+            const baseSy = y * this.chunkSize;
+            if (this.entityManager && Array.isArray(this.entityManager.entities)) {
+                for (const ent of this.entityManager.entities) {
+                    try {
+                        if (!ent || !ent.pos) continue;
+                        // Identify torches by presence of a LightComponent (prefab torch uses LightComponent)
+                        const lightComp = typeof ent.getComponent === 'function' ? ent.getComponent('light') : null;
+                        if (!lightComp) continue;
+                        // convert world pixel pos to sample coords
+                        const px = ent.pos.x + (ent.size && ent.size.x ? ent.size.x * 0.5 : 0);
+                        const py = ent.pos.y + (ent.size && ent.size.y ? ent.size.y * 0.5 : 0);
+                        const ts = this.noiseTileSize || 16;
+                        const tsx = Math.floor(px / ts);
+                        const tsy = Math.floor(py / ts);
+                        const lx = tsx - baseSx;
+                        const ly = tsy - baseSy;
+                        if (lx >= 0 && lx < this.chunkSize && ly >= 0 && ly < this.chunkSize) {
+                            ents.push({ type: 'torch', pos: [lx, ly], data: { size: [ts, ts], level: (lightComp && lightComp.level) ? lightComp.level : (this.lightingSystem ? this.lightingSystem.maxLight : 15) } });
+                        }
+                    } catch(e) { /* ignore per-entity errors */ }
+                }
+            }
+            if (ents.length > 0) out.entities = ents;
+            console.log('saved')
+        } catch (e) { /* ignore torch serialization errors */ }
+        console.log('saved chunk')
         if (opts && opts.download === false) {
             return out;
         }
