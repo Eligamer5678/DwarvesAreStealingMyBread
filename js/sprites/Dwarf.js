@@ -3,6 +3,7 @@ import Vector from '../modules/Vector.js';
 import Timer from '../modules/Timer.js';
 import Color from '../modules/Color.js';
 import Signal from '../modules/Signal.js';
+import Inventory from '../modules/Inventory.js';
 /**
  * @typedef {Object} DwarfInputSettings
  * @property {string} [type] - Input controller type (e.g. 'platformer').
@@ -122,16 +123,8 @@ export default class Dwarf extends Sprite {
             'cobblestone',
         ];
 
-        // Per-slot selected items (five quickslots). Initialize from palette.
-        // Inventory is the player-side single source-of-truth for items.
-        this.inventory = {
-            // Map of key -> { key, type, pos: Vector (relative to UI menu), size: Vector, rot, invert, amount }
-            items: new Map(),
-            // quickslots mirror: array of 5 slot objects or null
-            slots: [null, null, null, null, null]
-        };
-        // alias for legacy code expecting `this.slots`
-        this.slots = this.inventory.slots;
+        this.inventory = new Inventory()
+
         // Wire jump input (Input.onJump emits when jump key pressed)
         this.input.onJump.connect((k) => {
             if (this.onGround&&!this.keys.held('Shift')) {
@@ -271,14 +264,21 @@ export default class Dwarf extends Sprite {
      */
     _applySelectedSlot(){
         try{
-            const s = (this.slots && this.selectedSlot != null && this.slots[this.selectedSlot]) ? this.slots[this.selectedSlot] : null;
-            if (s && s.type){
-                this.selected = { type: s.type, rot: s.rot || 0, invert: !!s.invert, amount: s.amount || 0 };
-            } else if (this.chunkManager && this.scene && this.scene.player && Array.isArray(this.scene.player.slots)){
-                // fallback to player's slots array if present
-                const ps = this.scene.player.slots[this.selectedSlot];
-                if (ps && ps.type) this.selected = { type: ps.type, rot: ps.rot || 0, invert: !!ps.invert, amount: ps.amount || 0 };
-                else this.selected = { type: null, rot: 0, invert: false, amount: 0 };
+            // Resolve the quickslot key from the canonical inventory slots if available,
+            // otherwise fall back to any legacy `this.slots` layout.
+            let key = null;
+            if (this.inventory && this.inventory.slots && Array.isArray(this.inventory.slots.hotbar)) {
+                key = this.inventory.slots.hotbar[this.selectedSlot];
+            } else if (this.slots && Array.isArray(this.slots)) {
+                key = this.slots[this.selectedSlot];
+            }
+            let entry = null;
+            if (key && this.inventory && this.inventory.Inventory && this.inventory.Inventory.has(key)) {
+                entry = this.inventory.Inventory.get(key);
+            }
+            if (entry && entry.data) {
+                const id = entry.data.tile || entry.data.coord || entry.data.id || null;
+                this.selected = { type: id, rot: entry.data.rot || 0, invert: !!entry.data.invert, amount: entry.data.amount || 0 };
             } else {
                 this.selected = { type: null, rot: 0, invert: false, amount: 0 };
             }
@@ -307,13 +307,23 @@ export default class Dwarf extends Sprite {
             this.selected.rot = (tile.rot !== undefined) ? tile.rot : 0;
             this.selected.invert = (tile.invert !== undefined) ? tile.invert : false;
             // Update the quickslot entry so UI and canonical slot data reflect the pick
-            const slotObj = Object.assign({}, this.slots[this.selectedSlot] || {});
-            slotObj.type = this.selected.type;
-            slotObj.rot = this.selected.rot || 0;
-            slotObj.invert = !!this.selected.invert;
-            // In creative mode, give abundant amount; otherwise preserve existing amount or set to 0
-            slotObj.amount = this.creative ? 9999 : (slotObj.amount || 0);
-            this.slots[this.selectedSlot] = slotObj;
+            // Update existing inventory entry in the hotbar quickslot if present, otherwise create a new entry
+            try {
+                const hotbarKey = (this.inventory && this.inventory.slots && Array.isArray(this.inventory.slots.hotbar)) ? this.inventory.slots.hotbar[this.selectedSlot] : (this.slots ? this.slots[this.selectedSlot] : null);
+                if (hotbarKey && this.inventory && this.inventory.Inventory && this.inventory.Inventory.has(hotbarKey)){
+                    const existing = this.inventory.Inventory.get(hotbarKey);
+                    existing.data = existing.data || {};
+                    existing.data.tile = this.selected.type;
+                    existing.data.id = this.selected.type;
+                    existing.data.rot = this.selected.rot || 0;
+                    existing.data.invert = !!this.selected.invert;
+                    existing.data.amount = this.creative ? 9999 : (existing.data.amount || 0);
+                } else {
+                    // create new inventory entry and place it into the hotbar slot
+                    const amt = this.creative ? 9999 : 0;
+                    try { this.inventory.addItem(this.selected.type, `hotbar/${this.selectedSlot}`, true, 'inventory', amt); } catch(e){}
+                }
+            } catch (e) {}
             // Ensure selected reflects the stored slot canonical data
             try { this._applySelectedSlot(); } catch (e) {}
             // update placement layer if tile indicates one
@@ -636,7 +646,6 @@ export default class Dwarf extends Sprite {
                 try{
                     if (maybeTile && maybeTile.id === 'anvil' && this.keys.held('Shift')){
                         try{ this.onCraft.emit(this.miningTarget, maybeTile); }catch(e){}
-                        console.log('hello')
                         this.miningProgress = 0;
                         this._lastMiningKey = null;
                         this._activeMiningLayer = null;

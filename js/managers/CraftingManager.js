@@ -102,5 +102,65 @@ export default class CraftingManager{
         }catch(e){}
         return null;
     }
+
+    /**
+     * Like matchGrid but returns the matching recipe plus the translation offset
+     * within the 3x3 grid when a recipe matches. Returns { recipe, ox, oy } or null.
+     * @param {Array<Array<string>>} grid
+     */
+    findMatch(grid){
+        try{
+            if (!this.recipes || !this.recipes.crafting) return null;
+            for (const sizeKey in this.recipes.crafting){
+                const list = this.recipes.crafting[sizeKey] || [];
+                for (const r of list){
+                    const pattern = r.input || [];
+                    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                    for (let y = 0; y < pattern.length; y++){
+                        const row = pattern[y] || [];
+                        for (let x = 0; x < row.length; x++){
+                            const need = row[x];
+                            if (need !== null && typeof need !== 'undefined' && String(need).trim() !== ''){
+                                if (x < minX) minX = x;
+                                if (y < minY) minY = y;
+                                if (x > maxX) maxX = x;
+                                if (y > maxY) maxY = y;
+                            }
+                        }
+                    }
+                    if (minX === Infinity) continue;
+                    const pW = maxX - minX + 1;
+                    const pH = maxY - minY + 1;
+                    const norm = [];
+                    for (let y = 0; y < pH; y++){
+                        norm[y] = [];
+                        for (let x = 0; x < pW; x++){
+                            const srcY = minY + y; const srcX = minX + x;
+                            const srcRow = pattern[srcY] || [];
+                            const v = (typeof srcRow[srcX] === 'string' || typeof srcRow[srcX] === 'number') ? String(srcRow[srcX]) : '';
+                            norm[y][x] = v || '';
+                        }
+                    }
+                    const gridW = 3; const gridH = 3;
+                    for (let oy = 0; oy <= gridH - pH; oy++){
+                        for (let ox = 0; ox <= gridW - pW; ox++){
+                            let ok = true;
+                            for (let y = 0; y < pH; y++){
+                                for (let x = 0; x < pW; x++){
+                                    const need = norm[y][x] || '';
+                                    const have = (grid[oy+y] && typeof grid[oy+y][ox+x] !== 'undefined') ? (grid[oy+y][ox+x] || '') : '';
+                                    if (need === '') continue;
+                                    if (need !== have){ ok = false; break; }
+                                }
+                                if (!ok) break;
+                            }
+                            if (ok) return { recipe: r, ox, oy };
+                        }
+                    }
+                }
+            }
+        }catch(e){}
+        return null;
+    }
     
 }

@@ -158,7 +158,7 @@ class Debug {
 
     _setupEscClose() {
         this.element.addEventListener("click", e => {
-            console.log('hola')
+
         });
     }
     /**

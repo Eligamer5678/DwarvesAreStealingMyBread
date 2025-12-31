@@ -36,8 +36,6 @@ export default class Keys { // Key input
             // If the built-in debug console is visible, ignore global key input
             if(e.key!=='Escape'){
                 try { if (window.Debug && window.Debug.visible) return; } catch (err) { }
-            } else {
-                console.log('hello')
             }
             if ((e.altKey)) {
                 e.preventDefault();

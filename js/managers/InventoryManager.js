@@ -9,12 +9,7 @@ import Menu from "../UI/jsElements/Menu.js";
 import UISlot from "../UI/jsElements/slot.js";
 import UISpriteSheet from "../UI/jsElements/SpriteSheet.js";
 import Geometry from "../modules/Geometry.js";
-/**
- * simple shorthand for creating a vector
- */
-function v(x,y){
-    return new Vector(x,y)
-}
+import { v } from "../modules/Vector.js";
 
 export default class InventoryManager{
     /**
@@ -32,12 +27,7 @@ export default class InventoryManager{
 
         // generate the menu
         this.getInventoryUI()
-        // map of inventory UI items: key -> element
-        this.items = new Map();
-        this.slotItems = [null,null,null,null,null];
 
-        // previous dragging state for items (key -> bool)
-        this._prevDragging = new Map();
         this.mainUI.onToggleInventory.connect(()=>{ this.toggle(); })
 
         // setup data
@@ -46,109 +36,108 @@ export default class InventoryManager{
             "type":"",
             "amount":1,
         }
-        // connect to player onEdit to update slot counts / UI as player changes
-        // onEdit(slot, amount, itemName)
-        // amount is treated as a delta (can be negative); itemName is optional
-        this.player.onEdit.connect((slot, amount, itemName) => {
-            if (!Array.isArray(this.player.slots)) this.player.slots = [null,null,null,null,null];
 
-            const delta = Number(amount) || 0;
-            // normalize itemName to id string if an object was passed
-            const itemId = (itemName && typeof itemName === 'object' && itemName.id) ? itemName.id : itemName;
+        this.player.onEdit.connect((slotIndex, amount, itemName) => {
+            try {
+                // PICKUP / MINED: amount > 0
+                if (amount > 0) {
+                    const name = (itemName && typeof itemName === 'object') ? (itemName.id || itemName.type || null) : itemName;
+                    if (!name) return;
 
-            // Only handle positive additions (mining) with stack/slot logic here.
-            if (delta > 0 && itemId){
-                const MAX_STACK = 64;
-                // try preferred slot first
-                let placed = false;
-                try{
-                    const preferred = this.player.slots[slot];
-                    if (!preferred){
-                        // empty preferred slot -> place here
-                        this.player.slots[slot] = { type: itemId, rot: 0, invert: false, amount: 1 };
-                        placed = true;
-                    } else if (preferred.type === itemId && (preferred.amount || 0) < MAX_STACK){
-                        preferred.amount = (preferred.amount || 0) + 1;
-                        placed = true;
+                    // If hotbar slot already contains same item, increment amount
+                    const existingKey = this.getSlotKey('hotbar', slotIndex);
+                    if (existingKey && this.inventory.Inventory && this.inventory.Inventory.has(existingKey)){
+                        const existingEntry = this.inventory.Inventory.get(existingKey);
+                        const existingName = existingEntry && existingEntry.data && (existingEntry.data.tile || existingEntry.data.id || existingEntry.data.coord);
+                        if (existingName === name){
+                            existingEntry.data.amount = (existingEntry.data.amount || 0) + amount;
+                            return;
+                        }
                     }
-                }catch(e){}
 
-                // if not placed, try to find an existing stack with same type and room
-                if (!placed){
-                    for (let i = 0; i < this.player.slots.length; i++){
-                        try{
-                            const s = this.player.slots[i];
-                            if (s && s.type === itemId && (s.amount || 0) < MAX_STACK){
-                                s.amount = (s.amount || 0) + 1;
-                                placed = true;
+                    // Try to place into the quickslot (hotbar) first, fall back to inventory
+                    const placed = this.inventory.addItem(name, `hotbar/${slotIndex}`, false, 'inventory', amount);
+                    if (!placed) this.inventory.addItem(name, 'inventory', false, 'inventory', amount);
+                    return;
+                }
+
+                // CONSUME / PLACED: amount < 0
+                if (amount < 0) {
+                    // Try hotbar slot first
+                    const key = this.getSlotKey('hotbar', slotIndex);
+                    if (key && this.inventory.Inventory && this.inventory.Inventory.has(key)){
+                        const entry = this.inventory.Inventory.get(key);
+                        entry.data.amount = (entry.data.amount || 1) + amount; // amount is negative
+                        if (entry.data.amount <= 0){
+                            // remove inventory entry and clear slot
+                            this.inventory.Inventory.delete(key);
+                            this.setSlotKey('hotbar', slotIndex, "");
+                        }
+                        return;
+                    }
+
+                    // Fallback: if itemName provided, try to find matching entry anywhere and decrement
+                    const targetName = (itemName && typeof itemName === 'object') ? (itemName.id || itemName.type || null) : itemName;
+                    if (targetName) {
+                        for (const [k, v] of this.inventory.Inventory.entries()){
+                            const vname = v && v.data && (v.data.tile || v.data.id || v.data.coord);
+                            if (vname === targetName){
+                                v.data.amount = (v.data.amount || 1) + amount;
+                                if (v.data.amount <= 0){
+                                    // clear any slot referencing this key
+                                    if (v.slotPath){
+                                        const parts = String(v.slotPath).split('/');
+                                        const g = parts[0]; const idx = parseInt(parts[1],10);
+                                        if (!Number.isNaN(idx)) this.setSlotKey(g, idx, "");
+                                    }
+                                    this.inventory.Inventory.delete(k);
+                                }
                                 break;
                             }
-                        }catch(e){}
-                    }
-                }
-
-                // if still not placed, find first empty slot
-                if (!placed){
-                    for (let i = 0; i < this.player.slots.length; i++){
-                        try{
-                            if (!this.player.slots[i]){
-                                this.player.slots[i] = { type: itemId, rot: 0, invert: false, amount: 1 };
-                                placed = true;
-                                break;
-                            }
-                        }catch(e){}
-                    }
-                }
-
-                // finally if all slots full, store into player.inventory (spawn item UI)
-                if (!placed){
-                    try{
-                        // place into inventory area visually via spawnItem
-                        const bg = this.menu.elements.get('itemBackground');
-                        const absStart = this.menu.pos.add(this.itemBounds.pos);
-                        const pos = new Vector(absStart.x + 160 - this.menu.pos.x, absStart.y + 20 - this.menu.pos.y);
-                        this.spawnItem(pos, itemId, 1, 0, new Vector(64,64));
-                    }catch(e){}
-                }
-
-                // Update player's selected if needed
-                try{
-                    if (this.player.selectedSlot != null){
-                        const ps = this.player.slots[this.player.selectedSlot];
-                        this.player.selected = ps && ps.type ? { type: ps.type, rot: ps.rot || 0, invert: !!ps.invert, amount: ps.amount || 0 } : { type: null, rot: 0, invert: false, amount: 0 };
-                    }
-                }catch(e){}
-
-                // ensure UI reflects changes
-                try{ this.syncSlotsWithPlayer(); }catch(e){}
-                return;
-            }
-
-            // Otherwise (negative deltas or other edits) fall back to simple delta semantics
-            try{
-                const cur = this.player.slots[slot];
-                if (cur && cur.type){
-                    cur.amount = (cur.amount || 0) + delta;
-                    if (cur.amount <= 0){
-                        this.player.slots[slot] = null;
-                    }
-                    if (this.player.selectedSlot === slot) {
-                        const ps = this.player.slots[slot];
-                        this.player.selected = ps && ps.type ? { type: ps.type, rot: ps.rot || 0, invert: !!ps.invert, amount: ps.amount || 0 } : { type: null, rot: 0, invert: false, amount: 0 };
-                    }
-                } else {
-                    if (itemId && delta > 0){
-                        this.player.slots[slot] = { type: itemId, rot: 0, invert: false, amount: delta };
-                        if (this.player.selectedSlot === slot) {
-                            const ps = this.player.slots[slot];
-                            this.player.selected = ps && ps.type ? { type: ps.type, rot: ps.rot || 0, invert: !!ps.invert, amount: ps.amount || 0 } : { type: null, rot: 0, invert: false, amount: 0 };
                         }
                     }
                 }
-            }catch(e){}
-
-            try{ this.syncSlotsWithPlayer(); }catch(e){}
+            } catch (e) { /* swallow inventory update errors */ }
         })
+        this.inventory = this.player.inventory;
+        this.inventory.startup(this.resources)
+
+        // Drag state
+        this.drag = {
+            active: false,
+            key: null,
+            entry: null,
+            source: { group: null, index: null },
+            amount: 0,
+            previewSize: new Vector(48,48),
+        };
+
+        // Mouse drag lifecycle hooks: we'll manage grab/release inside update()
+        this.mouse.onEndGrab.connect((pos, button) => { try{ this._handleDrop(button, pos); } catch(e){} });
+    }
+
+    /** Return an Inventory entry by inventory key (e.g. "stone_1") */
+    getInventoryEntry(key){
+        if (!key) return null;
+        return this.inventory && this.inventory.Inventory ? this.inventory.Inventory.get(key) : null;
+    }
+
+    /** Return the inventory key stored at group/index, or empty string */
+    getSlotKey(group, index){
+        if (!this.inventory || !this.inventory.slots) return "";
+        const grp = this.inventory.slots[group];
+        if (!grp || !Array.isArray(grp)) return "";
+        return grp[index] || "";
+    }
+
+    /** Set the inventory key at group/index and update entry.slotPath */
+    setSlotKey(group, index, key){
+        if (!this.inventory || !this.inventory.slots) return false;
+        const grp = this.inventory.slots[group];
+        if (!grp || !Array.isArray(grp) || index < 0 || index >= grp.length) return false;
+        grp[index] = key || "";
+        if (key && this.inventory.Inventory && this.inventory.Inventory.has(key)) this.inventory.Inventory.get(key).slotPath = `${group}/${index}`;
+        return true;
     }
 
     /**
@@ -156,6 +145,254 @@ export default class InventoryManager{
      * @param {CraftingManager} cm
      */
     setCraftingManager(cm){ this.craftingManager = cm }
+
+    /**
+     * Enter crafting mode and show the crafting popup (3x3 grid + output)
+     * @param {object} meta
+     */
+    enterCrafting(meta){
+        try{
+            if (!this.craftingManager) return;
+            // Create crafting popup if not already
+            if (!this.craftingMenu){
+                const center = v(1980/2 - 220, 1080/2 - 160);
+                this.craftingMenu = new Menu(this.mouse, this.keys, center, v(440,320), 3, '#0069afff', true);
+                this.craftingMenu.passcode = 'Inventory';
+                // background (acts as mask so only edges drag the menu)
+                const bg = new UIRect(v(10,10), v(420,300), 2, '#003457ff');
+                bg.mouse = this.mouse;
+                bg.mask = true;
+                this.craftingMenu.addElement('bg', bg);
+                // build 3x3 grid tiles
+                const slotSize = 64; const spacing = 8;
+                const gridX = 20; const gridY = 20;
+                this.craftElems = [];
+                for (let r = 0; r < 3; r++){
+                    for (let c = 0; c < 3; c++){
+                        const idx = r*3 + c;
+                        const x = gridX + c * (slotSize + spacing);
+                        const y = gridY + r * (slotSize + spacing);
+                        const slot = new UISlot(`craft3x3/${idx}`, new Vector(x, y), new Vector(slotSize, slotSize), 2, '#00538aff');
+                        slot.mouse = this.mouse; slot.passcode = 'Inventory';
+                        this.craftingMenu.addElement(`craft_slot_${idx}`, slot);
+                        const tile = new UITile(null, new Vector(x+4,y+4), new Vector(slotSize-8, slotSize-8), 3);
+                        tile.mouse = this.mouse;
+                        this.craftingMenu.addElement(`craft_tile_${idx}`, tile);
+                        this.craftElems.push({ slot, tile, index: idx });
+                    }
+                }
+                // output tile and craft button
+                const outX = gridX + 3*(slotSize + spacing) + 12;
+                const outY = gridY + slotSize;
+                // create an output UISlot so users can drag the crafted item out like a normal slot
+                const outSlot = new UISlot('output/0', new Vector(outX, outY), new Vector(slotSize, slotSize), 2, '#00538aff');
+                outSlot.mouse = this.mouse; outSlot.passcode = 'Inventory';
+                this.craftingMenu.addElement('output_slot', outSlot);
+                const outTile = new UITile(null, new Vector(outX+4, outY+4), new Vector(slotSize-8, slotSize-8), 3);
+                outTile.mouse = this.mouse;
+                this.craftingMenu.addElement('output_tile', outTile);
+                // expose as properties for preview/update
+                this.outputSlot = outSlot;
+                this.outputTile = outTile;
+                // Note: drag handling is managed centrally in InventoryManager; do not attach UI events here.
+
+                // register in mainUI menu
+                try{ this.mainUI.menu.addElement('craftingPopup', this.craftingMenu); }catch(e){}
+
+                // register these groups so syncSlotsWithPlayer will update them
+                if (!this.slotGroupElems['craft3x3']) this.slotGroupElems['craft3x3'] = [];
+                for (const el of this.craftElems) this.slotGroupElems['craft3x3'].push(el);
+                if (!this.slotGroupElems['output']) this.slotGroupElems['output'] = [];
+                // register actual output elem so sync works
+                this.slotGroupElems['output'].push({ slot: outSlot, tile: outTile, border: null, index: 0 });
+                // Signal emitted when a materialized crafted output is successfully placed
+                // Listener consumes the inputs when appropriate.
+                this.onCraftOutputPlaced = new Signal();
+                // flag: inputs already consumed for the current created output (to avoid double-consume)
+                this._craftInputsConsumed = false;
+                this.onCraftOutputPlaced.connect((info) => {
+                    try{
+                        if (!(this._craftInputsConsumed) && info && info.source && info.source.group === 'output'){
+                            try{ this.consumeCurrentRecipeInputs(); this._craftInputsConsumed = true; }catch(e){}
+                        }
+                    }catch(e){}
+                });
+                // internal tracker for materialized output items (so we know if output was created at drag-start)
+                this._craftMaterialized = null;
+            }
+            this.craftingMenu.visible = true;
+            this.craftingMeta = meta || null;
+            // reset craft placement tracking
+            this._craftInputsConsumed = false;
+            this._craftMaterialized = null;
+            // ensure inventory has groups
+            if (!this.inventory.slots['craft3x3']) this.inventory.slots['craft3x3'] = new Array(9).fill("");
+            if (!this.inventory.slots['output']) this.inventory.slots['output'] = new Array(1).fill("");
+            this.updateCraftPreview();
+        }catch(e){}
+    }
+
+    /** Clear all craft3x3 slots and refresh UI */
+    clearCraftGrid(){
+        try{
+            if (!this.inventory || !this.inventory.slots) return;
+            const arr = this.inventory.slots['craft3x3'] || [];
+            for (let i = 0; i < 9; i++){
+                try{ this.inventory.clearSlot('craft3x3', i); }catch(e){}
+            }
+            try{ this.syncSlotsWithPlayer(); }catch(e){}
+            try{ this.updateCraftPreview(); }catch(e){}
+        }catch(e){}
+    }
+
+    /** Hide crafting popup */
+    exitCrafting(){
+        try{ if (this.craftingMenu) this.craftingMenu.visible = false; }catch(e){}
+        try{ this.craftingMeta = null; this.currentRecipe = null; this._craftInputsConsumed = false; this._craftMaterialized = null; }catch(e){}
+    }
+
+    /** Build a 3x3 id grid from inventory craft3x3 slots */
+    _buildCraftGrid(){
+        const grid = [["","",""] , ["","",""] , ["","",""]];
+        try{
+            const arr = this.inventory.slots['craft3x3'] || new Array(9).fill("");
+            for (let i = 0; i < 9; i++){
+                const r = Math.floor(i/3); const c = i%3;
+                const key = arr[i];
+                if (key && this.inventory.Inventory && this.inventory.Inventory.has(key)){
+                    const entry = this.inventory.Inventory.get(key);
+                    const id = entry && entry.data && (entry.data.tile || entry.data.id || entry.data.coord) ? (entry.data.tile || entry.data.id || entry.data.coord) : '';
+                    grid[r][c] = id || '';
+                } else grid[r][c] = '';
+            }
+        }catch(e){}
+        return grid;
+    }
+
+    /** Update output preview tile based on current grid */
+    updateCraftPreview(){
+        try{
+            if (!this.craftingManager) return;
+            const grid = this._buildCraftGrid();
+            const match = this.craftingManager.findMatch(grid);
+            if (match && match.recipe){
+                const out = match.recipe.output;
+                const resolved = this.inventory.getItem ? this.inventory.getItem(out) : null;
+                if (resolved && resolved.sheet){
+                    this.outputTile.sheet = resolved.sheet;
+                    this.outputTile.tile = resolved.data && (resolved.data.tile || resolved.data.coord) ? (resolved.data.tile || resolved.data.coord) : (resolved.data && resolved.data.id ? resolved.data.id : out);
+                } else {
+                    this.outputTile.sheet = resolved ? resolved.sheet : null;
+                    this.outputTile.tile = out;
+                }
+                this.currentRecipe = match.recipe;
+            } else {
+                this.outputTile.sheet = null; this.outputTile.tile = null; this.currentRecipe = null;
+            }
+        }catch(e){}
+    }
+
+    /** Attempt to craft current recipe: place output into `output/0` and consume inputs */
+    _attemptCraft(){
+        try{
+            if (!this.currentRecipe) return;
+            // ensure we can place output into output/0
+            const placed = this.inventory.addItem(this.currentRecipe.output, 'output/0', false, 'inventory', this.currentRecipe.amount || 1);
+            if (!placed) return; // couldn't place output
+            // we need to find matched translation to know which slots to consume
+            const grid = this._buildCraftGrid();
+            const match = this.craftingManager.findMatch(grid);
+            if (!match || !match.recipe) return;
+            const pattern = match.recipe.input || [];
+            // compute normalized bounding box same as CraftingManager
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (let y = 0; y < pattern.length; y++){
+                const row = pattern[y] || [];
+                for (let x = 0; x < row.length; x++){
+                    const need = row[x];
+                    if (need !== null && typeof need !== 'undefined' && String(need).trim() !== ''){
+                        if (x < minX) minX = x; if (y < minY) minY = y; if (x > maxX) maxX = x; if (y > maxY) maxY = y;
+                    }
+                }
+            }
+            if (minX === Infinity) return;
+            const pW = maxX - minX + 1; const pH = maxY - minY + 1;
+            // consume inputs at matched offsets
+            const ox = match.ox; const oy = match.oy;
+            for (let y = 0; y < pH; y++){
+                for (let x = 0; x < pW; x++){
+                    const srcX = minX + x; const srcY = minY + y;
+                    const need = (pattern[srcY] && pattern[srcY][srcX]) ? pattern[srcY][srcX] : '';
+                    if (!need || String(need).trim() === '') continue;
+                    const gridR = oy + y; const gridC = ox + x; const idx = gridR * 3 + gridC;
+                    const key = (this.inventory.slots['craft3x3'] && this.inventory.slots['craft3x3'][idx]) ? this.inventory.slots['craft3x3'][idx] : null;
+                    if (key && this.inventory.Inventory && this.inventory.Inventory.has(key)){
+                        const entry = this.inventory.Inventory.get(key);
+                        entry.data.amount = (entry.data.amount || 1) - 1;
+                        if (entry.data.amount <= 0){
+                            // clear slot and delete entry
+                            this.inventory.clearSlot('craft3x3', idx);
+                        } else {
+                            this.inventory.Inventory.get(key).data.amount = entry.data.amount;
+                        }
+                    }
+                }
+            }
+            // mark that inputs were consumed for this crafted output so we don't double-consume later
+            this._craftInputsConsumed = true;
+            // refresh UI
+            this.syncSlotsWithPlayer();
+            this.updateCraftPreview();
+        }catch(e){ console.warn('craft failed', e); }
+    }
+
+    /** Consume one unit from each input slot of the current recipe (used when player takes the crafted output) */
+    consumeCurrentRecipeInputs(){
+        try{
+            if (!this.currentRecipe || !this.craftingManager) return;
+            // find matched translation for current grid
+            const grid = this._buildCraftGrid();
+            const match = this.craftingManager.findMatch(grid);
+            if (!match || !match.recipe) return;
+            const pattern = match.recipe.input || [];
+            // compute normalized bounding box same as CraftingManager
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (let y = 0; y < pattern.length; y++){
+                const row = pattern[y] || [];
+                for (let x = 0; x < row.length; x++){
+                    const need = row[x];
+                    if (need !== null && typeof need !== 'undefined' && String(need).trim() !== ''){
+                        if (x < minX) minX = x; if (y < minY) minY = y; if (x > maxX) maxX = x; if (y > maxY) maxY = y;
+                    }
+                }
+            }
+            if (minX === Infinity) return;
+            const pW = maxX - minX + 1; const pH = maxY - minY + 1;
+            const ox = match.ox; const oy = match.oy;
+            for (let y = 0; y < pH; y++){
+                for (let x = 0; x < pW; x++){
+                    const srcX = minX + x; const srcY = minY + y;
+                    const need = (pattern[srcY] && pattern[srcY][srcX]) ? pattern[srcY][srcX] : '';
+                    if (!need || String(need).trim() === '') continue;
+                    const gridR = oy + y; const gridC = ox + x; const idx = gridR * 3 + gridC;
+                    const key = (this.inventory.slots['craft3x3'] && this.inventory.slots['craft3x3'][idx]) ? this.inventory.slots['craft3x3'][idx] : null;
+                    if (key && this.inventory.Inventory && this.inventory.Inventory.has(key)){
+                        const entry = this.inventory.Inventory.get(key);
+                        entry.data.amount = (entry.data.amount || 1) - 1;
+                        if (entry.data.amount <= 0){
+                            // clear slot and delete entry
+                            this.inventory.clearSlot('craft3x3', idx);
+                        } else {
+                            this.inventory.Inventory.get(key).data.amount = entry.data.amount;
+                        }
+                    }
+                }
+            }
+            // refresh UI
+            try{ this.syncSlotsWithPlayer(); }catch(e){}
+            try{ this.updateCraftPreview(); }catch(e){}
+        }catch(e){ console.warn('consume inputs failed', e); }
+    }
 
     /**
      * Open the inventory UI. If `meta` is provided and contains crafting data,
@@ -177,166 +414,6 @@ export default class InventoryManager{
                 try{ this.menu.removeElement(k); }catch(e){}
                 try{ this.menu.addElement(k, el); }catch(e){}
             }
-        }catch(e){}
-    }
-
-    /**
-     * Return combined list of all slot instances (quick + craft)
-     */
-    getAllSlots(){
-        return (this.slots || []).concat(this.cslots || []);
-    }
-
-    /**
-     * Temporary handler for craft-slot drops. For now it only positions the
-     * element into the craft slot visually and records a mapping. Craft logic
-     * (consuming inputs / outputs) will be implemented separately.
-     */
-    _handleCraftStore(slotIndex, element, prev){
-        try{
-            if (!this.craftItems) this.craftItems = {};
-            if (!element){ this.craftItems[slotIndex] = null; return; }
-            // record reference (prefer inventory key)
-            const key = element._invKey || null;
-            this.craftItems[slotIndex] = key || element;
-            // ensure element snaps into slot visually (UISlot.collide normally does this,
-            // but ensure canonical pos is set)
-            try{ element.pos = this.cslots[slotIndex].pos.add(new Vector(10,10)); }catch(e){}
-            // ensure element is registered with slots so it can be moved back
-            try{ for (const s of this.getAllSlots()) s.assign(element); }catch(e){}
-            // update canonical player.inventory if present
-            try{ if (key && this.player && this.player.inventory && this.player.inventory.items){ const meta = this.player.inventory.items.get(key); if (meta){ meta.pos = element.pos.clone ? element.pos.clone() : { x: element.pos.x, y: element.pos.y }; this.player.inventory.items.set(key, meta); } } }catch(e){}
-            // After placing an item into a craft slot, ask the crafting manager to
-            // evaluate the current 3x3 grid and create/update an output placeholder.
-            try{
-                if (this.craftingManager){
-                    // build 3x3 grid of item ids
-                    const grid = [ ["","",""],["","",""],["","",""] ];
-                    for (let i = 0; i < 9; i++){
-                        const val = this.craftItems[i];
-                        let el = null;
-                        if (!val) { grid[Math.floor(i/3)][i%3] = ""; continue; }
-                        if (typeof val === 'string') el = this.items.get(val);
-                        else el = val;
-                        const tid = (el && el.tile) ? el.tile : "";
-                        grid[Math.floor(i/3)][i%3] = tid || "";
-                    }
-                    const recipe = this.craftingManager.matchGrid(grid);
-                    // output slot is last (index 9) in this.cslots
-                    try{
-                        const outSlot = (this.cslots && this.cslots.length > 9) ? this.cslots[9] : null;
-                        // remove existing placeholder if recipe doesn't match
-                        if (!recipe){
-                            try{ if (this.craftOutputKey) { this.removeItem(this.craftOutputKey); this.craftOutputKey = null; } }catch(e){}
-                            try{ if (this.craftingManager) this.craftingManager.clearPreview(); }catch(e){}
-                        } else {
-                            // ensure placeholder exists and shows the recipe output
-                            if (!this.craftOutputKey){
-                                try{
-                                    const elSize = outSlot ? outSlot.size.clone().sub(new Vector(16,16)) : v(112,112);
-                                    const topLeft = outSlot ? outSlot.pos.add(outSlot.size.sub(elSize).div(2)) : new Vector(this.menu.pos.x+600,this.menu.pos.y+200);
-                                    const placeholder = this.getUISpriteFor(recipe.output, topLeft.clone(), elSize.clone(), 3, true);
-                                    if (placeholder){
-                                        placeholder.dragBounds = this.itemBounds;
-                                        placeholder.passcode = "Inventory";
-                                        placeholder.data = placeholder.data || {};
-                                        placeholder.data.amount = recipe.amount || 1;
-                                        placeholder._isCraftPlaceholder = true;
-                                        placeholder._craftRecipe = recipe;
-                                        const keyOut = `craft_output`;
-                                        placeholder._invKey = keyOut;
-                                        // when player releases the placeholder (after dragging), convert into real item
-                                        try{ if (!placeholder._craftReleaseAttached){ placeholder.onRelease.connect(()=>{
-                                            try{
-                                                // guard against double invocation
-                                                if (placeholder._consumed) return;
-                                                // if still inside output slot, do nothing
-                                                const absPos = placeholder.pos.add(placeholder.offset || new Vector(0,0));
-                                                const center = absPos.add(placeholder.size.div(2));
-                                                if (outSlot && Geometry.pointInRect(center, outSlot.pos.add(outSlot.offset||new Vector(0,0)), outSlot.size)){
-                                                    return;
-                                                }
-                                                // mark consumed and remove placeholder immediately to avoid duplicate spawns
-                                                placeholder._consumed = true;
-                                                try{ if (this.craftOutputKey){ const keyToRemove = this.craftOutputKey; this.craftOutputKey = null; this.removeItem(keyToRemove); } }catch(e){}
-                                                try{ if (this.craftingManager) this.craftingManager.clearPreview(); }catch(e){}
-                                                // spawn actual crafted item at current position
-                                                try{ this.spawnItem(placeholder.pos.clone(), recipe.output, recipe.amount || 1, 0, placeholder.size.clone()); }catch(e){}
-                                                // consume one unit from each input slot specified by recipe
-                                                try{
-                                                    for (let si = 0; si < 9; si++){
-                                                        const ry = Math.floor(si/3); const rx = si%3;
-                                                        const need = (recipe.input && recipe.input[ry] && recipe.input[ry][rx]) ? recipe.input[ry][rx] : "";
-                                                        if (!need) continue;
-                                                        const stored = this.craftItems[si];
-                                                        if (!stored) continue;
-                                                        let sourceKey = null;
-                                                        if (typeof stored === 'string') sourceKey = stored;
-                                                        else if (stored && stored._invKey) sourceKey = stored._invKey;
-                                                        // if sourceKey maps to a quickslot element
-                                                        let handled = false;
-                                                        try{
-                                                            const oldSlot = this.slotItems.indexOf(sourceKey);
-                                                            if (oldSlot !== -1){
-                                                                const smeta = this.player.slots[oldSlot];
-                                                                if (smeta){
-                                                                    smeta.amount = (smeta.amount || 0) - 1;
-                                                                    if (smeta.amount <= 0){ this.player.slots[oldSlot] = null; this.slotItems[oldSlot] = null; }
-                                                                    handled = true;
-                                                                }
-                                                            }
-                                                        }catch(e){}
-                                                        // if not quickslot, try inventory map entries
-                                                        if (!handled && sourceKey && this.player.inventory && this.player.inventory.items && this.player.inventory.items.has(sourceKey)){
-                                                            try{
-                                                                const meta = this.player.inventory.items.get(sourceKey);
-                                                                meta.amount = (meta.amount || 0) - 1;
-                                                                if (meta.amount <= 0){ this.player.inventory.items.delete(sourceKey); this.removeItem(sourceKey); }
-                                                                else { this.player.inventory.items.set(sourceKey, meta); const el = this.items.get(sourceKey); if (el) el.data.amount = meta.amount; }
-                                                                handled = true;
-                                                            }catch(e){}
-                                                        }
-                                                        // if still not handled, try to find UI element and decrement or remove
-                                                        if (!handled){
-                                                            try{
-                                                                const el = (typeof stored === 'string') ? this.items.get(stored) : stored;
-                                                                if (el){ el.data = el.data || {}; el.data.amount = (el.data.amount || 1) - 1; if (el.data.amount <= 0){ const findKey = Array.from(this.items.entries()).find(([k,v])=>v===el)?.[0]; if (findKey) this.removeItem(findKey); } }
-                                                            }catch(e){}
-                                                        }
-                                                        // clear craft slot
-                                                        try{ this.craftItems[si] = null; const cs = this.cslots[si]; if (cs && cs._prevStored) cs._prevStored = null; }catch(e){}
-                                                    }
-                                                }catch(e){}
-                                                // after consuming, refresh UI slots and crafting output
-                                                try{ this.syncSlotsWithPlayer(); }catch(e){}
-                                                try{ // rebuild grid and re-evaluate
-                                                    const newGrid = [["","",""],["","",""],["","",""]];
-                                                    for (let ii=0; ii<9; ii++){ const v = this.craftItems[ii]; let el2 = null; if (!v) { newGrid[Math.floor(ii/3)][ii%3] = ""; continue;} if (typeof v === 'string') el2 = this.items.get(v); else el2 = v; newGrid[Math.floor(ii/3)][ii%3] = (el2 && el2.tile) ? el2.tile : ""; }
-                                                    const newRec = this.craftingManager.matchGrid(newGrid);
-                                                    if (!newRec){ try{ if (this.craftOutputKey){ this.removeItem(this.craftOutputKey); this.craftOutputKey = null; } }catch(e){} }
-                                                    else {
-                                                        // update placeholder amount if still present
-                                                        try{ if (this.craftOutputKey){ const p = this.items.get(this.craftOutputKey); if (p) p.data.amount = newRec.amount || 1; } }catch(e){}
-                                                    }
-                                                }catch(e){}
-                                            }catch(e){}
-                                        }); placeholder._craftReleaseAttached = true; } }catch(e){}
-                                        try{ this.menu.addElement(keyOut, placeholder); }catch(e){}
-                                        this.items.set(keyOut, placeholder);
-                                        this.craftOutputKey = keyOut;
-                                        try{ if (this.craftingManager) this.craftingManager.setPreview(recipe); }catch(e){}
-                                        // ensure assigned to slots
-                                        try{ for (const s of this.getAllSlots()) s.assign(placeholder); }catch(e){}
-                                    }
-                                }catch(e){}
-                            } else {
-                                // if placeholder exists, update amount
-                                try{ const p = this.items.get(this.craftOutputKey); if (p) p.data.amount = recipe.amount || 1; }catch(e){}
-                            }
-                        }
-                    }catch(e){}
-                }
-            }catch(e){}
         }catch(e){}
     }
 
@@ -364,333 +441,16 @@ export default class InventoryManager{
     }
 
     /**
-     * Enter crafting mode: expand the inventory UI to show the crafting area
-     * @param {object} meta - meta describing crafting area (e.g. { type:'anvil', size:[3,3], target })
-     */
-    enterCrafting(meta){
-        if (this._crafting) return;
-        this._crafting = true;
-        this._craftMeta = meta || {};
-        // remember original sizes so we can restore
-        try{ this._origMenuSize = this.menu.size.clone(); }catch(e){ this._origMenuSize = this.menu.size ? { x: this.menu.size.x, y: this.menu.size.y } : null }
-        try{ this._origItemBounds = { pos: this.itemBounds.pos.clone(), size: this.itemBounds.size.clone() }; }catch(e){ this._origItemBounds = { pos: this.itemBounds.pos, size: this.itemBounds.size } }
-        // expand menu and item area to the right by 384 pixels (approx 3 slots)
-        try{ this.menu.size.x = (this.menu.size.x || 0) + 444; }catch(e){}
-        try{ this.itemBounds.size.x = (this.itemBounds.size.x || 0) + 444; }catch(e){}
-        // ensure all inventory UI elements have dragBounds updated and are inside bounds
-        try{
-            for (const [k, el] of this.items){
-                try{ el.dragBounds = this.itemBounds; }catch(e){}
-                try{
-                    // clamp element.pos to itemBounds area (relative to menu)
-                    if (el.pos && el.size){
-                        const minX = this.itemBounds.pos.x;
-                        const minY = this.itemBounds.pos.y;
-                        const maxX = this.itemBounds.pos.x + this.itemBounds.size.x - el.size.x;
-                        const maxY = this.itemBounds.pos.y + this.itemBounds.size.y - el.size.y;
-                        let nx = Math.max(minX, Math.min(maxX, el.pos.x));
-                        let ny = Math.max(minY, Math.min(maxY, el.pos.y));
-                        el.pos = el.pos.clone ? new Vector(nx, ny) : { x: nx, y: ny };
-                    }
-                }catch(e){}
-            }
-        }catch(e){}
-
-        // create crafting slot grid in the expanded area if not already present
-        try{
-            if (!this.cslots){
-                this.cslots = [];
-                this.craftItems = {};
-                // layout: create a 3x3 crafting input grid + one output slot below (total 10 slots)
-                const cols = 3; const gridRows = 3;
-                // compute starting position inside the expanded area to the right
-                const origWidth = (this._origItemBounds && this._origItemBounds.size && this._origItemBounds.size.x) ? this._origItemBounds.size.x : 750;
-                const startX = (this.itemBounds.pos.x || 220) + origWidth + 24; // right of original item area
-                const startY = (this.itemBounds.pos.y || 10) + 10;
-                const slotSpacingX = 128 + 10;
-                const slotSpacingY = 138;
-                // crafting input grid (3x3)
-                for (let r = 0; r < gridRows; r++){
-                    for (let c = 0; c < cols; c++){
-                        const idx = r*cols + c; // 0..8
-                        const pos = v(startX + c*slotSpacingX, startY + r*slotSpacingY);
-                        const s = new UISlot(pos, v(128,128), 2, "#242424ff", 'craft', idx);
-                        s.mouse = this.mouse;
-                        s.passcode = "Inventory";
-                        s.color = '#111111'
-                        // wire the store event to a craft handler (non-destructive for now)
-                        try{ s.onStore.connect((el, prev) => { this._handleCraftStore(idx, el, prev); }); }catch(e){}
-                        this.menu.addElement(`craft_slot_${r}_${c}`, s);
-                        this.cslots.push(s);
-                    }
-                }
-                // single output slot centered under the grid two rows below (row index 4)
-                try{
-                    const outRow = 4;
-                    const outCol = 1; // center column
-                    const outIdx = gridRows * cols; // 9
-                    const outPos = v(startX + outCol*slotSpacingX, startY + outRow*slotSpacingY);
-                    const outSlot = new UISlot(outPos, v(128,128), 2, "#2a2a2aff", 'craft_output', outIdx);
-                    outSlot.mouse = this.mouse;
-                    outSlot.passcode = "Inventory";
-                    try{ outSlot.onStore.connect((el, prev) => { this._handleCraftStore(outIdx, el, prev); }); }catch(e){}
-                    this.menu.addElement(`craft_output_slot`, outSlot);
-                    this.cslots.push(outSlot);
-                }catch(e){}
-                // register existing items with craft slots as well
-                try{ for (const [k, el] of this.items) { try{ for (const s of this.cslots) s.assign(el); }catch(e){} } }catch(e){}
-            }
-        }catch(e){}
-    }
-
-    /**
-     * Exit crafting mode and restore inventory UI
-     */
-    exitCrafting(){
-        if (!this._crafting) return;
-        this._crafting = false;
-        this._craftMeta = null;
-        try{
-            // restore menu size fully (x and y) if available
-            if (this._origMenuSize && this.menu && this.menu.size) {
-                try{ this.menu.size.x = this._origMenuSize.x; }catch(e){}
-                try{ this.menu.size.y = this._origMenuSize.y; }catch(e){}
-            }
-            // Restore itemBounds by mutating the existing size object so any UIRect
-            // instance that references it will observe the change. If the original
-            // sizes were stored as clones, use their numeric components.
-            if (this._origItemBounds && this.itemBounds){
-                try{
-                    if (this.itemBounds.size && this._origItemBounds.size){
-                        const ox = this._origItemBounds.size.clone ? this._origItemBounds.size.clone().x : this._origItemBounds.size.x;
-                        const oy = this._origItemBounds.size.clone ? this._origItemBounds.size.clone().y : this._origItemBounds.size.y;
-                        this.itemBounds.size.x = ox;
-                        this.itemBounds.size.y = oy;
-                    } else {
-                        this.itemBounds.size = this._origItemBounds.size.clone ? this._origItemBounds.size.clone() : this._origItemBounds.size;
-                    }
-                    if (this.itemBounds.pos && this._origItemBounds.pos){
-                        const px = this._origItemBounds.pos.clone ? this._origItemBounds.pos.clone().x : this._origItemBounds.pos.x;
-                        const py = this._origItemBounds.pos.clone ? this._origItemBounds.pos.clone().y : this._origItemBounds.pos.y;
-                        this.itemBounds.pos.x = px;
-                        this.itemBounds.pos.y = py;
-                    }
-                }catch(e){}
-                // also update the actual UIRect element if present so its visual size matches
-                try{
-                    const bg = this.menu.elements.get('itemBackground');
-                    if (bg && bg.size){ bg.size.x = this.itemBounds.size.x; bg.size.y = this.itemBounds.size.y; }
-                }catch(e){}
-            }
-        }catch(e){}
-        // update drag bounds back to normal
-        try{ 
-            for (const [k, el] of this.items){ 
-                try{ 
-                    // ensure element drag bounds are reset
-                    el.dragBounds = this.itemBounds; 
-                }catch(e){}
-                try{
-                    // clamp element position into the itemBounds AABB so no element remains outside
-                    if (el && el.pos && el.size){
-                        const minX = this.itemBounds.pos.x;
-                        const minY = this.itemBounds.pos.y;
-                        const maxX = this.itemBounds.pos.x + this.itemBounds.size.x - el.size.x;
-                        const maxY = this.itemBounds.pos.y + this.itemBounds.size.y - el.size.y;
-                        const nx = Math.max(minX, Math.min(maxX, el.pos.x));
-                        const ny = Math.max(minY, Math.min(maxY, el.pos.y));
-                        // only update if changed
-                        if (nx !== el.pos.x || ny !== el.pos.y){
-                            try{ el.pos = el.pos.clone ? new Vector(nx, ny) : { x: nx, y: ny }; }catch(e){}
-                            // update canonical store if this element is tracked
-                            try{ if (el._invKey && this.player && this.player.inventory && this.player.inventory.items){ const meta = this.player.inventory.items.get(el._invKey); if (meta){ meta.pos = el.pos.clone ? el.pos.clone() : { x: el.pos.x, y: el.pos.y }; this.player.inventory.items.set(el._invKey, meta); } } }catch(e){}
-                        }
-                    }
-                }catch(e){}
-            } 
-        }catch(e){}
-    }
-
-    /**
-     * Helper to handle when a UISlot reports an element being dropped into it.
-     * @param {number} slotIndex
-     * @param {object} element UI element instance
-     * @param {object|null} prev previously stored element (may be null)
-     */
-    _handleStore(slotIndex, element){
-        if (!element) {
-            this.player.slots[slotIndex] = null;
-            return;
-        }
-
-        const MAX_STACK = 64;
-        // find inventory key for element (if any)
-        const key = element._invKey || Array.from(this.items.entries()).find(([k,v])=>v===element)?.[0];
-
-        // determine source slot (if element represented a slot item)
-        const oldSlot = this.slotItems.indexOf(key);
-
-        const incomingType = element.tile;
-        const incomingAmount = (element.data && typeof element.data.amount === 'number') ? element.data.amount : 1;
-
-        // destination existing slot meta
-        const dest = (this.player.slots && this.player.slots[slotIndex]) ? this.player.slots[slotIndex] : null;
-
-        // If destination has same type, attempt to merge
-        if (dest && dest.type === incomingType){
-            const destAmt = dest.amount || 0;
-            const space = Math.max(0, MAX_STACK - destAmt);
-            if (space > 0){
-                const toMove = Math.min(space, incomingAmount);
-                dest.amount = destAmt + toMove;
-
-                const remaining = incomingAmount - toMove;
-
-                // If the incoming element was backed by an inventory entry (key), update or remove it
-                if (key && this.player.inventory && this.player.inventory.items && this.player.inventory.items.has(key)){
-                    if (remaining > 0){
-                        // update the UI element and canonical meta with remaining amount
-                        try{ element.data.amount = remaining; }catch(e){}
-                        try{ const meta = this.player.inventory.items.get(key); if (meta) { meta.amount = remaining; this.player.inventory.items.set(key, meta); } }catch(e){}
-                    } else {
-                        // consumed fully: remove UI element and canonical entry
-                        try{ this.removeItem(key); }catch(e){}
-                        try{ this.player.inventory.items.delete(key); }catch(e){}
-                    }
-                } else if (oldSlot !== -1){
-                    // incoming element came from another quickslot (oldSlot)
-                    try{
-                        const oldMeta = this.player.slots[oldSlot];
-                        if (oldMeta){
-                            const oldAmt = oldMeta.amount || 0;
-                            const newOldAmt = Math.max(0, oldAmt - toMove);
-                            if (newOldAmt > 0){
-                                oldMeta.amount = newOldAmt;
-                                this.player.slots[oldSlot] = oldMeta;
-                            } else {
-                                this.player.slots[oldSlot] = null;
-                            }
-                        }
-                    }catch(e){}
-                }
-
-                // If the incoming element originated from a quickslot UI element, update or remove that element
-                if (oldSlot !== -1){
-                    try{
-                        const sourceKey = this.slotItems[oldSlot];
-                        const sourceEl = sourceKey ? this.items.get(sourceKey) : null;
-                        if (sourceEl){
-                            if (remaining > 0){
-                                // update displayed amount on the source element
-                                try{ sourceEl.data = sourceEl.data || {}; sourceEl.data.amount = remaining; }catch(e){}
-                            } else {
-                                // fully consumed: remove the source UI element
-                                try{ if (sourceKey) this.removeItem(sourceKey); else this.removeItem(Array.from(this.items.entries()).find(([k,v])=>v===sourceEl)?.[0]); }catch(e){}
-                                try{ this.slotItems[oldSlot] = null; }catch(e){}
-                            }
-                        }
-                    }catch(e){}
-                }
-
-                // ensure selected slot reflects changes
-                if (this.player.selectedSlot === slotIndex){
-                    const ps = this.player.slots[slotIndex];
-                    this.player.selected = ps && ps.type ? { type: ps.type, rot: ps.rot || 0, invert: !!ps.invert, amount: ps.amount || 0 } : { type: null, rot: 0, invert: false, amount: 0 };
-                }
-
-                // if there is leftover (remaining > 0) and it wasn't already left as element, ensure it's present in inventory
-                if (remaining > 0){
-                    // if element still exists as a UI inventory item (key present), we've already updated it; otherwise spawn a new inventory element
-                    if (!(key && this.player.inventory && this.player.inventory.items && this.player.inventory.items.has(key))){
-                        // spawn a new item representing the remainder at the element's current position
-                        try{
-                            const pos = element.pos ? element.pos.clone() : null;
-                            this.spawnItem(pos || new Vector(this.menu.pos.x+200,this.menu.pos.y+20), incomingType, remaining, element.rot || 0, element.size ? element.size.clone() : new Vector(64,64));
-                        }catch(e){}
-                    }
-                }
-
-                // sync UI
-                // ensure a UI element exists for the destination slot (some flows left player data updated but no slot element)
-                try{
-                    if (!this.slotItems[slotIndex]){
-                        const slotEl = this.slots[slotIndex];
-                        const elSize = slotEl.size.clone().sub(new Vector(16,16));
-                        const topLeft = slotEl.pos.add(slotEl.size.sub(elSize).div(2));
-                        const newEl = this.getUISpriteFor(incomingType, topLeft.clone(), elSize.clone(), 3, true);
-                        if (newEl){
-                            newEl.dragBounds = this.itemBounds;
-                            newEl.passcode = "Inventory";
-                            newEl.data = newEl.data || {};
-                            newEl.data.amount = (this.player.slots && this.player.slots[slotIndex]) ? (this.player.slots[slotIndex].amount || 0) : (incomingAmount || 0);
-                            try{ newEl.rot = (this.player.slots && this.player.slots[slotIndex]) ? (this.player.slots[slotIndex].rot || 0) : (element.rot || 0); }catch(e){}
-                            try{ newEl.invert = (this.player.slots && this.player.slots[slotIndex]) ? (this.player.slots[slotIndex].invert ? new Vector(-1,1) : new Vector(1,1)) : (element.invert || new Vector(1,1)); }catch(e){}
-                            const key = `slotItem_${slotIndex}`;
-                            try{ newEl._invKey = key; }catch(e){}
-                            try{ if (!newEl._slotReleaseAttached) { newEl.onRelease.connect(()=>{ this.getAllSlots().forEach((s)=>{ try{ s.collide(newEl) }catch(e){} }) }); newEl._slotReleaseAttached = true; } }catch(e){}
-                                        try{ this.menu.addElement(key, newEl); }catch(e){}
-                            this.items.set(key, newEl);
-                                        try{ for (const s of this.getAllSlots()) s.assign(newEl); }catch(e){}
-                            this.slotItems[slotIndex] = key;
-                            // remove any canonical inventory entry for this key (shouldn't exist)
-                            try{ if (this.player && this.player.inventory && this.player.inventory.items) this.player.inventory.items.delete(key); }catch(e){}
-                        }
-                    }
-                }catch(e){}
-                try{ this.syncSlotsWithPlayer(); }catch(e){}
-                return;
-            }
-            // if space === 0, can't merge — fall through to replace behavior
-        }
-
-        // At this point, either dest is null or different type, or dest is full.
-        // If the slot currently had an element (different type), move it back into inventory
-        if (this.slotItems[slotIndex]){
-            const prevKey = this.slotItems[slotIndex];
-            const prevEl = this.items.get(prevKey);
-            if (prevEl) {
-                // restore previous element into inventory area
-                try{ this._restoreInventoryEntry(prevKey, prevEl); }catch(e){}
-            }
-            this.slotItems[slotIndex] = null;
-            this.player.slots[slotIndex] = null;
-        }
-
-        // Now place incoming element into the slot: if it had a key, remove canonical inventory entry
-        if (key){
-            this.slotItems[slotIndex] = key;
-            try{ this._removeInventoryEntryByKey(key); }catch(e){}
-            try{ this.player.inventory.items.delete(key); }catch(e){}
-        }
-
-        // write structured slot object to player.slots
-        this.player.slots[slotIndex] = { type: incomingType, rot: element.rot, invert: element.invert, amount: incomingAmount };
-        // if this slot is currently selected by the player, update player's selected (normalized)
-        if (this.player.selectedSlot === slotIndex){
-            const ps = this.player.slots[slotIndex];
-            this.player.selected = ps && ps.type ? { type: ps.type, rot: ps.rot || 0, invert: !!ps.invert, amount: ps.amount || 0 } : { type: null, rot: 0, invert: false, amount: 0 };
-        }
-
-        // if the element came from another slot, clear that old slot now
-        if (oldSlot !== -1 && oldSlot !== slotIndex){
-            try{ this.slotItems[oldSlot] = null; }catch(e){}
-            try{ this.player.slots[oldSlot] = null; }catch(e){}
-        }
-
-        // ensure UI elements are synced
-        try{ this.syncSlotsWithPlayer(); }catch(e){}
-    }
-    /**
      * Setup the inventory menu
      */
     getInventoryUI(){
         // Create the base menu
-        this.menu = new Menu(this.mouse,this.keys,v(20,180),v(980,720),2,"#383838ff",true) // grab data needed from MainUI
+        this.menu = new Menu(this.mouse,this.keys,v(20,180),v(944,720),2,"#383838ff",true) // grab data needed from MainUI
         this.menu.passcode = "Inventory"
         this.menu.visible = false;
         this.itemBounds = {
             "pos":v(220,10),
-            "size":v(750,700)
+            "size":v(714,700)
         }
         // Create the background for the item display
         const itemBackground = new UIRect(this.itemBounds.pos,this.itemBounds.size,2,"#222222FF")
@@ -706,373 +466,463 @@ export default class InventoryManager{
         
         // Create the slot bg
         this.menu.addElement('slotBg',new UIRect(v(220,10),v(150,700),2,"#181818ff"))
-        // create UISlot instances instead of plain rects so they can accept drops
-        this.slots = [
-            new UISlot(v(230,20),v(128,128),2,"#242424ff"),
-            new UISlot(v(230,158),v(128,128),2,"#242424ff"),
-            new UISlot(v(230,296),v(128,128),2,"#242424ff"),
-            new UISlot(v(230,434),v(128,128),2,"#242424ff"),
-            new UISlot(v(230,572),v(128,128),2,"#242424ff"),
-        ]
-        for (let i = 0; i < this.slots.length; i++){
-            const s = this.slots[i];
+        // create UISlot instances grouped by logical slot groups (object of arrays)
+        const hotbar = [
+            new UISlot("hotbar/0",v(230,20),v(128,128),2,"#242424ff"),
+            new UISlot("hotbar/1",v(230,158),v(128,128),2,"#242424ff"),
+            new UISlot("hotbar/2",v(230,296),v(128,128),2,"#242424ff"),
+            new UISlot("hotbar/3",v(230,434),v(128,128),2,"#242424ff"),
+            new UISlot("hotbar/4",v(230,572),v(128,128),2,"#242424ff"),
+        ];
+        // track slot-backed keys per group and hotbar elements
+        this.slotItems = {};
+        this.slotGroupElems = {}; // map groupName -> array of slot element objects
+        this.slotItems.hotbar = new Array(hotbar.length).fill(null);
+        this.hotbarSlotElems = [];
+
+        for (let i = 0; i < hotbar.length; i++){
+            const s = hotbar[i];
             s.mouse = this.mouse;
             s.passcode = "Inventory";
-            // wire the store event
-            try{ s.onStore.connect((el, prev) => { this._handleStore(i, el, prev); }); }catch(e){}
-            this.menu.addElement(`slot${i}`, s)
+            // wire the store event to a lightweight handler (refactor will replace)
+            try{ s.onStore.connect((el, prev) => { try{ this._handleStore && this._handleStore('hotbar', i, el, prev); }catch(e){} }); }catch(e){}
+            this.menu.addElement(`slot_hotbar_${i}`, s)
+
+            // Create a tile renderer and border for each hotbar slot (to show item visuals)
+            const hx = s.pos.x + 8;
+            const hy = s.pos.y + 8;
+            const hsize = s.size.x - 16;
+            const htile = new UITile(null, new Vector(hx, hy), new Vector(hsize, hsize), 3);
+            htile.mouse = this.mouse;
+            this.menu.addElement(`hotbar_tile_${i}`, htile);
+            const hborder = new UIRect(new Vector(hx - 4, hy - 4), new Vector(hsize + 8, hsize + 8), 4, '#FFFFFF44', false, true, 6, '#00ff22aa');
+            hborder.visible = false;
+            this.menu.addElement(`hotbar_border_${i}`, hborder);
+            this.hotbarSlotElems.push({ slot: s, tile: htile, border: hborder, index: i });
+            // register in generic map
+            if (!this.slotGroupElems.hotbar) this.slotGroupElems.hotbar = [];
+            this.slotGroupElems.hotbar.push({ slot: s, tile: htile, border: hborder, index: i });
+        }
+
+        // Inventory grid (5x5) to the right of hotbar
+        const gridCols = 4;
+        const gridRows = 5;
+        const gridSlotSize = 128;
+        const gridSpacing = 10;
+        const gridX = 230 + 150; // right of hotbar
+        const gridY = 20;
+        this.slotItems.inventory = new Array(gridCols * gridRows).fill(null);
+        this.invSlotElems = [];
+        if (!this.slotGroupElems.inventory) this.slotGroupElems.inventory = [];
+        for (let r = 0; r < gridRows; r++){
+            for (let c = 0; c < gridCols; c++){
+                const idx = r * gridCols + c;
+                const x = gridX + c * (gridSlotSize + gridSpacing);
+                const y = gridY + r * (gridSlotSize + gridSpacing);
+                // background rect
+                const bg = new UIRect(new Vector(x, y), new Vector(gridSlotSize, gridSlotSize), 2, "#2a2a2aff");
+                bg.mouse = this.mouse;
+                this.menu.addElement(`inv_slot_bg_${idx}`, bg);
+                // create a UISlot so inventory slots mirror hotbar structure
+                const slot = new UISlot(`inventory/${idx}`, new Vector(x, y), new Vector(gridSlotSize, gridSlotSize), 2, "#2a2a2aff");
+                slot.mouse = this.mouse;
+                slot.passcode = "Inventory";
+                this.menu.addElement(`inv_slot_${idx}`, slot);
+                // tile element
+                const tile = new UITile(null, new Vector(x + 6, y + 6), new Vector(gridSlotSize - 12, gridSlotSize - 12), 3);
+                tile.mouse = this.mouse;
+                this.menu.addElement(`inv_slot_tile_${idx}`, tile);
+                // border
+                const border = new UIRect(new Vector(x + 3, y + 3), new Vector(gridSlotSize - 6, gridSlotSize - 6), 4, '#FFFFFF44', false, true, 6, '#00ff22aa');
+                border.visible = false;
+                this.menu.addElement(`inv_slot_border_${idx}`, border);
+
+                const elemObj = { slot, bg, tile, border, x, y, size: gridSlotSize };
+                this.invSlotElems.push(elemObj);
+                this.slotGroupElems.inventory.push(elemObj);
+            }
         }
 
         this.mainUI.menu.addElement('inventory',this.menu)
 
-        // Ensure UI reflects current player slots at creation
-        try{ this.syncSlotsWithPlayer(); }catch(e){}
+        // Ensure UI reflects current player slots at creation (no-op during refactor)
+        try{ if (typeof this.syncSlotsWithPlayer === 'function') this.syncSlotsWithPlayer(); }catch(e){}
     }
 
-
-
-
     /**
-     * Ensure UI slot elements match `this.player.slots`.
-     * - If the player has an item in a slot but UI doesn't, create one.
-     * - If the UI has an item but the player doesn't, remove it.
-     * - If the UI item exists but with a different tile, replace it.
+     * Lightweight placeholder for slot store events. During the refactor this
+     * will be replaced by group-aware logic that maps UI drops into the
+     * canonical inventory model. For now it is intentionally a no-op.
      */
-    syncSlotsWithPlayer(){
-        if (!this.slots || !this.player) return;
-        for (let i = 0; i < this.slots.length; i++){
-            // player.slots entries are now either null or objects: {type,rot,invert,amount}
-            const desiredSlot = (this.player.slots && this.player.slots[i]) ? this.player.slots[i] : null;
-            const existingKey = this.slotItems[i];
-            let existingEl = existingKey ? this.items.get(existingKey) : null;
-
-            if (desiredSlot && desiredSlot.type){
-                // Need a UI element for this tile
-                // If slot references an existing element by key, prefer that element
-                if (desiredSlot.key && this.items.has(desiredSlot.key)){
-                    existingEl = this.items.get(desiredSlot.key);
-                    // ensure it's positioned in the slot
-                    try{ const topLeft = this.slots[i].pos.add(this.slots[i].size.sub(existingEl.size).div(2)); existingEl.pos = topLeft.clone(); }catch(e){}
-                    this.slotItems[i] = desiredSlot.key;
-                }
-                if (existingEl && existingEl.tile === desiredSlot.type){
-                    // already correct, but ensure amount is synced
-                    try{ existingEl.data = existingEl.data || {}; existingEl.data.amount = desiredSlot.amount || 0; }catch(e){}
-                    continue;
-                }
-
-                // remove existing mismatched element
-                if (existingKey){
-                    this.removeItem(existingKey);
-                    this.slotItems[i] = null;
-                }
-
-                // create a new UI element sized to fit the slot
-                const slot = this.slots[i];
-                const elSize = slot.size.clone().sub(new Vector(16,16));
-                const topLeft = slot.pos.add(slot.size.sub(elSize).div(2));
-                const element = this.getUISpriteFor(desiredSlot.type, topLeft.clone(), elSize.clone(), 3, true);
-                if (!element) continue;
-                element.dragBounds = this.itemBounds;
-                element.passcode = "Inventory";
-                // attach amount data from player slot
-                element.data = element.data || {};
-                element.data.amount = desiredSlot.amount || 0;
-                // apply rotation and invert from slot meta (invert stored as boolean)
-                try{
-                    element.rot = desiredSlot.rot || 0;
-                    element.invert = (desiredSlot.invert) ? new Vector(-1,1) : new Vector(1,1);
-                }catch(e){}
-                // ensure the element will trigger slot collision checks when released (attach once)
-                try{ if (!element._slotReleaseAttached) { element.onRelease.connect(()=>{ this.getAllSlots().forEach((s)=>{ try{ s.collide(element) }catch(e){} }) }); element._slotReleaseAttached = true; } }catch(e){}
-                // If the player-side slot references a specific UI key, use it
-                const key = desiredSlot.key ? desiredSlot.key : `slotItem_${i}`;
-                this.menu.addElement(key, element);
-                try{ element._invKey = key; }catch(e){}
-                this.items.set(key, element);
-                // if this was a slot-associated element, remove from player.inventory
-                try{ this._removeInventoryEntryByKey(key); }catch(e){}
-                // register this slot element with all UISlots so it can be dragged between them
-                try{ for (const s of this.slots) s.assign(element); }catch(e){}
-                this.spawnedItems = (this.spawnedItems||[]).filter(s=>s.key!==key);
-                this.slotItems[i] = key;
-            } else {
-                // player has no item in this slot -> remove any UI element
-                if (existingKey){
-                    // move the element back into inventory rather than deleting
-                    const el = this.items.get(existingKey);
-                    if (el) this._restoreInventoryEntry(existingKey, el);
-                    this.slotItems[i] = null;
-                }
-            }
-        }
+    _handleStore(groupName, slotIndex, element, prev){
+        // placeholder: groupName is a string like 'hotbar', slotIndex is numeric
+        return;
     }
 
     /**
-     * Create a UI element for the given item/block name.
-     * - If the name corresponds to a block in `this.resources.get('blocks')`, returns a `UITile`
-     * - Otherwise if a spritesheet resource exists for the name, returns a `UISpriteSheet`
-     * @param {string} name
+     * Return a UI tile element for the given block `type`.
+     * If `this.resources` contains a `blocks` map and the type maps to a
+     * texture/tilemap, a `UITile` instance is returned. Otherwise `null`.
+     * @param {string} type
      * @param {Vector} [pos]
      * @param {Vector} [size]
      * @param {number} [layer]
-     * @returns {object|null} UI element (UITile or UISpriteSheet) or null if not found
      */
-    getUISpriteFor(name, pos = new Vector(0,0), size = new Vector(16,16), layer = 2, draggable = true){
+    getTile(type, pos = new Vector(0,0), size = new Vector(16,16), layer = 2){
+        if (!type) return null;
         const res = this.resources || (this.mainUI && this.mainUI.scene ? this.mainUI.scene.SpriteImages : null);
         if (!res) return null;
-        if (res.has && res.has('blocks')){
-            const blocks = res.get('blocks');
-            if (blocks && blocks instanceof Map && blocks.has(name)){
-                const meta = blocks.get(name);
-                const tex = meta.texture;
-                if (tex && tex.tilemap && res.has(tex.tilemap)){
-                    const sheet = res.get(tex.tilemap);
-                    const t = new UITile(sheet, pos.clone(), size.clone(), layer, 0, new Vector(1,1), 1, false, this.mouse, draggable);
-                    t.tile = name;
-                    t.data = t.data || {};
-                    t.data.amount = t.data.amount || 1;
-                    return t;
+        try{
+            if (res.has && res.has('blocks')){
+                const blocks = res.get('blocks');
+                if (blocks && blocks instanceof Map && blocks.has(type)){
+                    const meta = blocks.get(type);
+                    const tex = meta && meta.texture ? meta.texture : null;
+                    if (tex && tex.tilemap && res.has(tex.tilemap)){
+                        const sheet = res.get(tex.tilemap);
+                        const tile = new UITile(sheet, pos.clone ? pos.clone() : pos, size.clone ? size.clone() : size, layer, 0, new Vector(1,1), 1, false, this.mouse, true);
+                        tile.tile = type;
+                        tile.data = tile.data || {};
+                        tile.data.amount = tile.data.amount || 1;
+                        return tile;
+                    }
                 }
+            }
+        }catch(e){}
+        return null;
+    }
+
+    /** Return slot {group,index,elem} under given position or null */
+    _slotUnderPos(pos){
+        if (!pos) return null;
+        // iterate all registered groups and their elements
+        for (const groupName of Object.keys(this.slotGroupElems)){
+            const arr = this.slotGroupElems[groupName] || [];
+            for (let i = 0; i < arr.length; i++){
+                const h = arr[i];
+                try{
+                    // Determine element rect: prefer UISlot, fallback to stored x/y/size, then UITile
+                    let rectPos = null; let rectSize = null;
+                    if (h.slot && h.slot.pos){
+                        rectPos = (h.slot.pos && h.slot.offset && typeof h.slot.pos.add === 'function') ? h.slot.pos.add(h.slot.offset) : h.slot.pos;
+                        rectSize = h.slot.size;
+                    } else if (typeof h.x === 'number' && typeof h.y === 'number' && typeof h.size === 'number'){
+                        rectPos = new Vector(h.x, h.y);
+                        rectSize = new Vector(h.size, h.size);
+                    } else if (h.tile && h.tile.pos && h.tile.size){
+                        rectPos = h.tile.pos;
+                        rectSize = h.tile.size;
+                    }
+                    if (rectPos && rectSize){
+                        if (Geometry.pointInRect(this.mouse.pos, rectPos, rectSize)) return { group: groupName, index: i, elem: h };
+                    }
+                }catch(e){ /* ignore element hit-test errors */ }
             }
         }
         return null;
     }
 
-    /**
-     * Spawn a number of random items inside the item background area.
-     * Spawned items will be clamped to the itemBackground rect.
-     * @param {number} count
-     * @param {Vector} [itemSize]
-     */
-    spawnRandomItems(count = 8, itemSize = new Vector(64,64)){
-        const bg = this.menu.elements.get('itemBackground');
-        if (!bg) return;
-        // absolute bounds of background. Prefer `this.itemBounds` when available.
-        let absStart, absSize;
-        if (this.itemBounds && this.itemBounds.pos && this.itemBounds.size){
-            try{ absStart = this.menu.pos.add(this.itemBounds.pos); }catch(e){ absStart = bg.offset.add(bg.pos); }
-            absSize = this.itemBounds.size;
-        } else {
-            absStart = bg.offset.add(bg.pos);
-            absSize = bg.size;
+    /** Attempt to start a drag from the slot under the mouse */
+    _tryStartDrag(button = 'left'){
+        if (!this.mouse) return;
+        const pos = this.mouse.pos;
+        const hit = this._slotUnderPos(pos);
+        if (!hit) return;
+        let key = this.getSlotKey(hit.group, hit.index);
+        // If output preview present but no real item, materialize the crafted output so it can be dragged
+        if ((!key || key === '') && hit.group === 'output' && this.currentRecipe){
+            try{
+                const amt = this.currentRecipe.amount || 1;
+                const placed = this.inventory.addItem(this.currentRecipe.output, `output/0`, false, 'inventory', amt);
+                if (placed) key = this.getSlotKey(hit.group, hit.index);
+            }catch(e){}
         }
+        if (!key) return;
+        const entry = this.getInventoryEntry(key);
+        if (!entry) return;
 
-        // build candidate list: block ids and sprite keys
-        const res = this.resources || (this.mainUI && this.mainUI.scene ? this.mainUI.scene.SpriteImages : null);
-        if (!res) return;
-        const candidates = [];
-        try{
-            if (res.has && res.has('blocks')){
-                const blocks = res.get('blocks');
-                if (blocks && blocks instanceof Map){
-                    for (const k of blocks.keys()) candidates.push({ type: 'block', key: k });
-                }
-            }
-        }catch(e){}
-
-        if (candidates.length === 0) return;
-
-        this.spawnedItems = this.spawnedItems || [];
-        for (let i = 0; i < count; i++){
-            const pick = candidates[Math.floor(Math.random()*candidates.length)];
-            // random position within bounds (absolute)
-            // avoid spawning over slots by leaving a left margin
-            const leftMargin = absStart.x + 148;
-            const minX = Math.max(absStart.x, leftMargin);
-            const maxX = Math.max(minX, absStart.x + absSize.x - itemSize.x);
-            const minY = absStart.y;
-            const maxY = Math.max(minY, absStart.y + absSize.y - itemSize.y);
-            const rx = minX + Math.floor(Math.random() * Math.max(1, (maxX - minX + 1)));
-            const ry = minY + Math.floor(Math.random() * Math.max(1, (maxY - minY + 1)));
-            // convert to position relative to menu
-            const relX = rx - this.menu.pos.x;
-            const relY = ry - this.menu.pos.y;
-            const pos = new Vector(relX, relY);
-
-            try{ this.spawnItem(pos, pick.key, 1, 0, itemSize); }catch(e){}
+        // begin drag
+        this.drag.active = true;
+        this.drag.key = key;
+        this.drag.entry = entry;
+        this.drag.source.group = hit.group;
+        this.drag.source.index = hit.index;
+        // if we materialized an output this drag, remember it so drop/cancel logic can act
+        if (hit.group === 'output' && (!this._craftMaterialized || this._craftMaterialized.key !== key)){
+            this._craftMaterialized = { key: key, group: hit.group, index: hit.index };
+            // ensure future placement consumes inputs (this was materialized at drag-start)
+            this._craftInputsConsumed = false;
         }
+        // if right-button, only drag one item; otherwise drag whole stack
+        if (button === 'right') this.drag.amount = 1;
+        else this.drag.amount = (entry.data && typeof entry.data.amount === 'number') ? entry.data.amount : 1;
+        // do not re-trigger grab here (onGrab already fired)
     }
 
-    /**
-     * Spawn a single inventory item into the UI and canonical player.inventory.
-     * @param {Vector} pos position relative to menu
-     * @param {string} type block/sprite id
-     * @param {number} [amount]
-     * @param {number} [rot]
-     * @param {Vector} [size]
-     * @returns {string|null} key of spawned element or null
-     */
-    spawnItem(pos, type, amount = 1, rot = 0, size = new Vector(64,64)){
-        try{
-            if (!pos || !type) return null;
-            const element = this.getUISpriteFor(type, pos, size.clone(), 3, true);
-            if (!element) return null;
-            element.dragBounds = this.itemBounds;
-            element.passcode = "Inventory";
-            element.data = element.data || {};
-            element.data.amount = amount || 1;
-            element.rot = rot || 0;
-            try{ if (!element._slotReleaseAttached) { element.onRelease.connect(()=>{ this.getAllSlots().forEach((slot)=>{ try{ slot.collide(element) }catch(e){} }) }); element._slotReleaseAttached = true; } }catch(e){}
-            const key = `spawnItem_${Date.now()}_${Math.floor(Math.random()*100000)}`;
-            this.menu.addElement(key, element);
-            this.items.set(key, element);
-            // canonical store
+    /** Handle drop when mouse grab ends or when release detected */
+    _handleDrop(button = 'left', pos = null){
+        if (!this.drag.active) return;
+        pos = pos || (this.mouse ? this.mouse.pos : null);
+        const hit = this._slotUnderPos(pos);
+
+        // If no target, just cancel (no movement)
+        if (!hit){
+            // if we had materialized the output for this drag, undo it (remove created entry)
             try{
-                if (this.player && this.player.inventory && this.player.inventory.items){
-                    const meta = { key, type, pos: element.pos ? element.pos.clone() : null, size: size.clone(), rot: rot || 0, invert: !!element.invert, amount: amount || 1 };
-                    this.player.inventory.items.set(key, meta);
+                if (this._craftMaterialized && this._craftMaterialized.key === this.drag.key){
+                    try{ this.inventory.Inventory.delete(this.drag.key); }catch(e){}
+                    try{ this.setSlotKey(this._craftMaterialized.group, this._craftMaterialized.index, ""); }catch(e){}
+                    this._craftMaterialized = null;
                 }
             }catch(e){}
-            // register element with slots
-            try{ for (const s of this.getAllSlots()) s.assign(element); }catch(e){}
-            return key;
-        }catch(e){ return null; }
+            this.drag.active = false;
+            this.drag.key = null; this.drag.entry = null; this.drag.amount = 0;
+            return;
+        }
+
+        const srcGroup = this.drag.source.group; const srcIndex = this.drag.source.index;
+        const dstGroup = hit.group; const dstIndex = hit.index;
+        // Prevent dragging arbitrary items into the crafting output slot.
+        // Only allow drops into `output` if the source was also `output` (i.e., internal moves).
+        if (dstGroup === 'output' && srcGroup !== 'output'){
+            // cancel the drag without modifying inventory
+            this.drag.active = false; this.drag.key = null; this.drag.entry = null; this.drag.amount = 0;
+            try{ this.mouse.releaseGrab(button); }catch(e){}
+            return;
+        }
+        // Right click: move a single item (split stack if necessary)
+        if (button === 'right'){
+            const dstKey = this.getSlotKey(dstGroup, dstIndex);
+            const srcEntry = this.drag.entry;
+            const srcAmt = srcEntry && srcEntry.data ? (srcEntry.data.amount || 1) : 1;
+            const srcName = srcEntry && srcEntry.data && (srcEntry.data.tile || srcEntry.data.id || srcEntry.data.coord);
+
+            // If dropping back onto the same slot we started from, do nothing.
+            if (dstKey === this.drag.key && srcEntry && this.drag.source && this.drag.source.group === dstGroup && this.drag.source.index === dstIndex){
+                this.drag.active = false; this.drag.key = null; this.drag.entry = null; this.drag.amount = 0;
+                try{ this.mouse.releaseGrab('right'); }catch(e){}
+                return;
+            }
+
+            // If destination empty: create a new single-item entry there
+            if (!dstKey){
+                // prefer using inventory.addItem to create a proper entry
+                if (srcName){
+                    this.inventory.addItem(srcName, `${dstGroup}/${dstIndex}`, false, 'inventory', 1);
+                    // decrement source
+                    if (srcEntry.data){
+                        srcEntry.data.amount = srcAmt - 1;
+                        if (srcEntry.data.amount <= 0){
+                            this.inventory.Inventory.delete(this.drag.key);
+                            this.setSlotKey(srcGroup, srcIndex, "");
+                        } else {
+                            if (this.inventory.Inventory.has(this.drag.key)) this.inventory.Inventory.get(this.drag.key).data.amount = srcEntry.data.amount;
+                        }
+                    }
+                    // If the source was a materialized crafted output, emit placement signal
+                    try{ if (srcGroup === 'output' && this._craftMaterialized && this._craftMaterialized.key === this.drag.key){ this.onCraftOutputPlaced && this.onCraftOutputPlaced.emit({ source: { group: srcGroup, index: srcIndex }, dest: { group: dstGroup, index: dstIndex } }); this._craftMaterialized = null; } }catch(e){}
+                }
+                this.drag.active = false; this.drag.key = null; this.drag.entry = null; this.drag.amount = 0;
+                return;
+            }
+
+            // Destination exists: try stacking if same type
+            const dstEntry = this.getInventoryEntry(dstKey);
+            const dstName = dstEntry && dstEntry.data && (dstEntry.data.tile || dstEntry.data.id || dstEntry.data.coord);
+            if (dstEntry && srcName && dstName && dstName === srcName){
+                const dstAmt = dstEntry.data.amount || 0;
+                if (dstAmt < 64){
+                    // move one (or less if source has <1)
+                    const move = Math.min(1, srcAmt);
+                    dstEntry.data.amount = dstAmt + move;
+                    // decrement source
+                    if (srcEntry.data){
+                        srcEntry.data.amount = srcAmt - move;
+                        if (srcEntry.data.amount <= 0){
+                            this.inventory.Inventory.delete(this.drag.key);
+                            this.setSlotKey(srcGroup, srcIndex, "");
+                        } else {
+                            if (this.inventory.Inventory.has(this.drag.key)) this.inventory.Inventory.get(this.drag.key).data.amount = srcEntry.data.amount;
+                        }
+                    }
+                    this.drag.active = false; this.drag.key = null; this.drag.entry = null; this.drag.amount = 0;
+                    // If the source was a materialized crafted output, emit placement signal
+                    try{ if (srcGroup === 'output' && this._craftMaterialized && this._craftMaterialized.key === this.drag.key){ this.onCraftOutputPlaced && this.onCraftOutputPlaced.emit({ source: { group: srcGroup, index: srcIndex }, dest: { group: dstGroup, index: dstIndex } }); this._craftMaterialized = null; } }catch(e){}
+                    return;
+                }
+                // destination full -> fallthrough to swap
+            }
+
+            // fallback: if different item, perform swap (same as left behavior)
+        }
+
+        // Left click: move whole stack (swap if needed)
+        const dstKey = this.getSlotKey(dstGroup, dstIndex);
+        // If destination already contains this same key, do nothing
+        if (dstKey === this.drag.key){
+            // nothing to do
+            this.drag.active = false; this.drag.key = null; this.drag.entry = null; this.drag.amount = 0;
+            try{ this.mouse.releaseGrab('left'); }catch(e){}
+            return;
+        }
+        // If destination has an entry and it's a different key, try stacking
+        if (dstKey){
+            const dstEntry = this.getInventoryEntry(dstKey);
+            const srcEntry = this.drag.entry;
+            const dstName = dstEntry && dstEntry.data && (dstEntry.data.tile || dstEntry.data.id || dstEntry.data.coord);
+            const srcName = srcEntry && srcEntry.data && (srcEntry.data.tile || srcEntry.data.id || srcEntry.data.coord);
+            // If they are the same item type, merge up to max stack (64)
+            if (dstEntry && srcEntry && dstName && srcName && dstName === srcName){
+                const dstAmt = dstEntry.data.amount || 0;
+                const srcAmt = srcEntry.data.amount || 0;
+                const space = 64 - dstAmt;
+                if (space > 0){
+                    const move = Math.min(space, srcAmt);
+                    dstEntry.data.amount = dstAmt + move;
+                    // reduce source
+                    srcEntry.data.amount = srcAmt - move;
+                    // if source emptied, remove entry and clear its slot
+                    if (srcEntry.data.amount <= 0){
+                        this.inventory.Inventory.delete(this.drag.key);
+                        this.setSlotKey(srcGroup, srcIndex, "");
+                    } else {
+                        // update map entry amount (slotPath remains the same)
+                        if (this.inventory.Inventory.has(this.drag.key)) this.inventory.Inventory.get(this.drag.key).data.amount = srcEntry.data.amount;
+                    }
+                    // finish drag
+                    this.drag.active = false; this.drag.key = null; this.drag.entry = null; this.drag.amount = 0;
+                    return;
+                }
+                // if no space, fallthrough to swap behavior
+            }
+        }
+
+        // perform swap: place drag.key into dst, put previous dstKey into source slot
+        const prev = dstKey;
+        // set destination
+        this.setSlotKey(dstGroup, dstIndex, this.drag.key);
+        // place previous into source (or clear)
+        if (prev){
+            // move prev into source slot
+            this.setSlotKey(srcGroup, srcIndex, prev);
+            if (this.inventory.Inventory.has(prev)) this.inventory.Inventory.get(prev).slotPath = `${srcGroup}/${srcIndex}`;
+        } else {
+            // clear source slot without deleting the Inventory Map entry
+            this.setSlotKey(srcGroup, srcIndex, "");
+        }
+
+        // If we moved a materialized crafted output from the output slot, emit placement so inputs are consumed
+        try{ if (srcGroup === 'output' && this._craftMaterialized && this._craftMaterialized.key === this.drag.key){ this.onCraftOutputPlaced && this.onCraftOutputPlaced.emit({ source: { group: srcGroup, index: srcIndex }, dest: { group: dstGroup, index: dstIndex } }); this._craftMaterialized = null; } }catch(e){}
+
+        this.drag.active = false; this.drag.key = null; this.drag.entry = null; this.drag.amount = 0;
+        return;
     }
 
-    
+    /** Sync UI slot elements with player.inventory state */
+    syncSlotsWithPlayer(){
+        if (!this.inventory || !this.inventory.slots) return;
+        // Generic: iterate all slot groups we've created UI elements for
+        for (const groupName of Object.keys(this.slotGroupElems || {})){
+            const arr = this.slotGroupElems[groupName] || [];
+            // capture previous state for change detection (e.g., output slot cleared)
+            const prevArray = this.slotItems[groupName] ? Array.from(this.slotItems[groupName]) : new Array(arr.length).fill(null);
+            // ensure slotItems entry exists
+            if (!this.slotItems[groupName]) this.slotItems[groupName] = new Array(arr.length).fill(null);
+            for (let i = 0; i < arr.length; i++){
+                const elem = arr[i];
+                const key = this.getSlotKey(groupName, i) || (this.inventory.slots[groupName] ? this.inventory.slots[groupName][i] : "");
+                this.slotItems[groupName][i] = key || null;
+                const entry = this.getInventoryEntry(key);
+                if (entry && entry.sheet){
+                    elem.tile.sheet = entry.sheet;
+                    // determine tile identifier
+                    if (entry.data && entry.data.tile) elem.tile.tile = entry.data.tile;
+                    else if (entry.data && entry.data.coord) elem.tile.tile = entry.data.coord;
+                    else elem.tile.tile = entry.data && entry.data.id ? entry.data.id : null;
+                    elem.tile.data = elem.tile.data || {}; elem.tile.data.amount = entry.data && entry.data.amount ? entry.data.amount : 1;
+                } else {
+                    try{
+                        // If this is the crafting output group and we have a preview recipe,
+                        // show the preview even when no actual inventory entry is present.
+                        if (groupName === 'output' && this.craftingMenu && this.craftingMenu.visible && this.currentRecipe){
+                            const out = this.currentRecipe.output;
+                            const resolved = this.inventory.getItem ? this.inventory.getItem(out) : null;
+                            if (resolved && resolved.sheet){
+                                elem.tile.sheet = resolved.sheet;
+                                elem.tile.tile = resolved.data && (resolved.data.tile || resolved.data.coord) ? (resolved.data.tile || resolved.data.coord) : (resolved.data && resolved.data.id ? resolved.data.id : out);
+                            } else {
+                                elem.tile.sheet = resolved ? resolved.sheet : null;
+                                elem.tile.tile = out;
+                            }
+                            elem.tile.data = elem.tile.data || {}; elem.tile.data.amount = this.currentRecipe.amount || 1;
+                        } else {
+                            elem.tile.sheet = null; elem.tile.tile = null; elem.tile.data = elem.tile.data || {}; elem.tile.data.amount = 0;
+                        }
+                    }catch(e){}
+                }
+            }
+            // detect if output slot was cleared by a drag (previously had key, now empty)
+            try{
+                    if (groupName === 'output'){
+                    const prevKey = prevArray && prevArray.length > 0 ? prevArray[0] : null;
+                    const curKey = this.slotItems['output'] && this.slotItems['output'].length > 0 ? this.slotItems['output'][0] : null;
+                    // If output slot transitioned from filled -> empty, consume inputs (subtract one per input)
+                    if (prevKey && (!curKey || curKey === null)){
+                        try{
+                            if (!(this._craftInputsConsumed)) this.consumeCurrentRecipeInputs();
+                            // reset materialized marker after consumption
+                            this._craftMaterialized = null;
+                        }catch(e){}
+                    }
+                }
+            }catch(e){}
+        }
+        
+    }
 
     /**
      * Update inventory manager (handle drop into slots)
      * @param {number} delta
      */
     update(delta){
-        if (!this.slots || this.slots.length === 0) return;
-        // If we have no items yet, attempt to spawn once (helps if resources loaded after ctor)
-        if ((this.items && this.items.size === 0) && !this._spawnedOnce){
-            this.spawnRandomItems(8, v(112,112));
-            this._spawnedOnce = true;
-        }
-        // Keep UI slots in sync with the player's inventory
+        if(!this.menu.visible) return;
+        // Sync player.inventory.items -> UI elements every frame during refactor.
+        if (!this.player) return;
         this.syncSlotsWithPlayer();
-
-    }
-
-    /**
-     * Return array of all tracked inventory UI elements
-     */
-    getAllItems(){
-        return Array.from(this.items.values());
-    }
-
-    /**
-     * Iterate over all inventory UI elements
-     * @param {function(string, object)} fn (key, element)
-     */
-    forEachItem(fn){
-        for (const [k,v] of this.items) {
-            try{ fn(k,v); }catch(e){}
+        if (this.craftingMenu && this.craftingMenu.visible) this.updateCraftPreview();
+        // Start drag when mouse pressed over a slot (if not already dragging)
+        const pass = this.menu.passcode;
+        if (this.mouse.pressed('left', pass)){
+            this._tryStartDrag('left');
+            this.mouse.grab(this.mouse.pos, 'left');
+        }
+        // right-click starts a single-item drag
+        if (this.mouse.pressed('right', pass)){
+            this._tryStartDrag('right');
+            this.mouse.grab(this.mouse.pos, 'right');
+        }
+        // If currently dragging, detect release to complete drop
+        if (this.drag.active){
+            if (this.mouse.released('left', pass)){
+                this._handleDrop('left');
+                this.mouse.releaseGrab('left');
+            }
+            if (this.mouse.released('right', pass)){
+                this._handleDrop('right');
+                this.mouse.releaseGrab('right');
+            }
         }
     }
-
-    /**
-     * Remove an inventory UI element by key
-     */
-    removeItem(key){
-        try{
-            const el = this.items.get(key);
-            if (el && el.onRemove) try{ el.onRemove.emit(); }catch(e){}
-            this.items.delete(key);
-            try{ this.menu.removeElement(key); }catch(e){}
-        }catch(e){}
-    }
-
-    /**
-     * Remove an entry from the spawnedItems list by key (does not remove the UI element)
-     * @param {string} key
-     */
-    _removeInventoryEntryByKey(key){
-        try{
-            // also remove from player.inventory if present
-            try{ if (this.player && this.player.inventory && this.player.inventory.items) this.player.inventory.items.delete(key); }catch(e){}
-        }catch(e){}
-    }
-
-    /**
-     * Add an existing UI element back into the inventory area (spawnedItems) so it's draggable
-     * and registered with slots. This does not duplicate the element if it's already present.
-     * @param {string} key
-     * @param {object} element
-     */
-    _addInventoryEntry(key, element){
-        try{
-            if (!key || !element) return;
-            // ensure items map contains it
-            if (!this.items.has(key)){
-                this.items.set(key, element);
+    draw(draw){
+        // Draw preview while dragging
+        if (this.drag && this.drag.active && this.drag.entry){
+            const ms = this.mouse.pos;
+            if (ms){
+                const half = new Vector(this.drag.previewSize.x / 2, this.drag.previewSize.y / 2);
+                const drawPos = ms.sub ? ms.sub(half) : new Vector(ms.x - half.x, ms.y - half.y);
+                const tileId = (this.drag.entry.data && (this.drag.entry.data.tile || this.drag.entry.data.coord)) ? (this.drag.entry.data.tile || this.drag.entry.data.coord) : (this.drag.entry.data && this.drag.entry.data.id ? this.drag.entry.data.id : null);
+                try{ draw.tile(this.drag.entry.sheet, drawPos, this.drag.previewSize, tileId, 0, null, 1, false); }catch(e){}
             }
-            // ensure menu contains it
-            try{
-                if (!this.menu.elements.has(key)) this.menu.addElement(key, element);
-            }catch(e){}
-            // tag and settings
-            try{ element._invKey = key; }catch(e){}
-            element.passcode = element.passcode || "Inventory";
-            element.dragBounds = element.dragBounds || this.itemBounds;
-            try{ if (!element._slotReleaseAttached) { element.onRelease.connect(()=>{ this.getAllSlots().forEach((s)=>{ try{ s.collide(element) }catch(e){} }) }); element._slotReleaseAttached = true; } }catch(e){}
-
-            // position element somewhere inside itemBackground bounds (relative to menu)
-            try{
-                const absStart = this.menu.pos.add(this.itemBounds.pos);
-                const absSize = this.itemBounds.size;
-                const leftMargin = absStart.x + 148;
-                const minX = Math.max(absStart.x, leftMargin);
-                const maxX = Math.max(minX, absStart.x + absSize.x - element.size.x);
-                const minY = absStart.y;
-                const maxY = Math.max(minY, absStart.y + absSize.y - element.size.y);
-                const rx = minX + Math.floor(Math.random() * Math.max(1, (maxX - minX + 1)));
-                const ry = minY + Math.floor(Math.random() * Math.max(1, (maxY - minY + 1)));
-                element.pos = new Vector(rx - this.menu.pos.x, ry - this.menu.pos.y);
-            }catch(e){}
-
-            // register element with all slots so it can be dragged into them
-            try{ for (const s of this.getAllSlots()) s.assign(element); }catch(e){}
-            // update player.inventory canonical store
-            try{
-                if (this.player && this.player.inventory && this.player.inventory.items){
-                    const meta = { key, type: element.tile || null, pos: element.pos ? element.pos.clone() : null, size: element.size ? element.size.clone() : null, rot: element.rot || 0, invert: !!element.invert, amount: (element.data && element.data.amount) ? element.data.amount : 1 };
-                    this.player.inventory.items.set(key, meta);
-                }
-            }catch(e){}
-        }catch(e){}
-    }
-
-    /**
-     * Restore an existing UI element back into the inventory area without changing its current position.
-     * Unlike `_addInventoryEntry`, this preserves `element.pos` (useful for returning an item after drag).
-     * @param {string} key
-     * @param {object} element
-     */
-    _restoreInventoryEntry(key, element){
-        try{
-            if (!key || !element) return;
-            if (!this.items.has(key)) this.items.set(key, element);
-            try{ if (!this.menu.elements.has(key)) this.menu.addElement(key, element); }catch(e){}
-            try{ element._invKey = key; }catch(e){}
-            element.passcode = element.passcode || "Inventory";
-            element.dragBounds = element.dragBounds || this.itemBounds;
-
-            // ensure slot collision checks run when this element is released (attach once)
-            try{ if (!element._slotReleaseAttached) { element.onRelease.connect(()=>{ this.slots.forEach((s)=>{ try{ s.collide(element) }catch(e){} }) }); element._slotReleaseAttached = true; } }catch(e){}
-
-            // ensure element has a position; if not, place it dropped near the background
-            try{
-                if (!element.pos){
-                    const absStart = this.menu.pos.add(this.itemBounds.pos);
-                    element.pos = new Vector(absStart.x + 160 - this.menu.pos.x, absStart.y - this.menu.pos.y + 20);
-                }
-            }catch(e){}
-
-            // register element with all slots so it can be dragged into them
-            try{ for (const s of this.getAllSlots()) s.assign(element); }catch(e){}
-
-            // update player.inventory canonical store with current element position
-            try{
-                if (this.player && this.player.inventory && this.player.inventory.items){
-                    const meta = { key, type: element.tile || null, pos: element.pos ? element.pos.clone() : null, size: element.size ? element.size.clone() : null, rot: element.rot || 0, invert: !!element.invert, amount: (element.data && element.data.amount) ? element.data.amount : 1 };
-                    this.player.inventory.items.set(key, meta);
-                }
-            }catch(e){}
-        }catch(e){}
+        }
     }
 }

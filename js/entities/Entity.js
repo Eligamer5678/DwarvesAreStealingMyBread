@@ -54,7 +54,6 @@ export default class Entity {
      */
     setComponent(name,component){
         this.components.set(name,component)
-        console.log('set component:',name)
         return component
     }
     /**
@@ -97,7 +96,6 @@ export default class Entity {
         const cloned = new Entity(this.pos,this.size)
         this.components.forEach((component,key)=>{
             const clonedComp = component.clone(cloned)
-            console.log(key)
             cloned.setComponent(key,clonedComp)
         })
         cloned.team = this.team;

@@ -16,6 +16,11 @@
                 ["",""            ,""],
                 ["","sand",""],
                 ["",""            ,""]
+            ]},
+            {"output":"anvil","amount":1,"tool":"none","input":[
+                ["stone","stone","stone"],
+                ["","stone",""],
+                ["stone","stone","stone"]
             ]}
         ]
     },

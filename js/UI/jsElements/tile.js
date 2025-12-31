@@ -45,7 +45,13 @@ export default class UITile {
         }
     }
     startDrag(){
-        if (this._dragging || !this.mouse.pressed('left', this.passcode)) return;
+        if (this._dragging) return;
+        // Allow left OR right to start a drag. Record which button started it
+        let btn = null;
+        if (this.mouse.pressed('left', this.passcode)) btn = 'left';
+        else if (this.mouse.pressed('right', this.passcode)) btn = 'right';
+        if (!btn) return;
+        this._dragButton = btn;
         this.hash = Math.random()
         this._dragging = true;
         try{ this.mouse.grab(this.mouse.pos); }catch(e){}
@@ -77,7 +83,8 @@ export default class UITile {
         this.pos = newPos;
         
 
-        if (this.mouse.released('left',this.hash)){
+        const checkBtn = this._dragButton || 'left';
+        if (this.mouse.released(checkBtn,this.hash)){
             const finalDelta = this.mouse.getGrabDelta();
             this.mouse.focus(this.passcode);
             let finalPos = this._dragStartPos.add(finalDelta);

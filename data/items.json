@@ -1,6 +1,6 @@
 {
 	"items":{
-		"briocheoid":{
+		"briocheoid-item":{
 			"texture":{
 				"item":"briocheoid-item",
 				"coord":[0,0]
@@ -9,7 +9,7 @@
 				"stackAmount":64
 			}
 		},
-		"coal":{
+		"coal-item":{
 			"texture":{
 				"item":"coal-item",
 				"coord":[0,0]
@@ -18,7 +18,7 @@
 				"stackAmount":64
 			}
 		},
-		"pretzelstick":{
+		"pretzelstick-item":{
 			"texture":{
 				"item":"pretzelstick-item",
 				"coord":[0,0]
@@ -27,7 +27,7 @@
 				"stackAmount":64
 			}
 		},
-		"rotirock":{
+		"rotirock-item":{
 			"texture":{
 				"item":"rotirock-item",
 				"coord":[0,0]
@@ -36,7 +36,7 @@
 				"stackAmount":64
 			}
 		},
-		"salt":{
+		"salt-item":{
 			"texture":{
 				"item":"salt-item",
 				"coord":[0,0]

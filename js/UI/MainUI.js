@@ -141,54 +141,33 @@ export default class MainUI {
     // update slot visuals each frame
     _updateSlots() {
         if (!this._slotElems) return;
-        const resources = (this.scene && this.scene.SpriteImages) ? this.scene.SpriteImages : ((this.opts && this.opts.resources) ? this.opts.resources : null);
-        const player = (this.scene && this.scene.player) ? this.scene.player : this.player;
+        const player = this.scene.player;
         for (let i = 0; i < this._slotElems.length; i++) {
             const el = this._slotElems[i];
-            // determine which block id to show: prefer player's per-slot selection object, then fallback to buildPalette
-            let bid = null;
-            // Prefer explicit player slot data if the player has a slots array.
-            let slotObj = null;
-            if (player && Array.isArray(player.slots) && i < player.slots.length) {
-                slotObj = player.slots[i];
-                if (slotObj && slotObj.type) bid = slotObj.type;
-                else bid = null; // keep empty when player has explicit slots
-            } else if (player && Array.isArray(player.buildPalette) && i < player.buildPalette.length) {
-                // fallback to buildPalette only when player.slots is not present
-                bid = player.buildPalette[i];
-            }
-            // resolve tilesheet and assign to UITile
-            if (bid && resources && typeof resources.get === 'function') {
-                try {
-                    const rblocks = resources.get('blocks');
-                    if (rblocks && rblocks instanceof Map && rblocks.has(bid)) {
-                        const meta = rblocks.get(bid);
-                        const tex = meta.texture;
-                        if (tex && tex.tilemap && resources.has(tex.tilemap)) {
-                            el.tile.sheet = resources.get(tex.tilemap);
-                            el.tile.tile = bid;
-                            // sync displayed amount/rotation from player slot metadata when available
-                            try{
-                                el.tile.data = el.tile.data || {};
-                                el.tile.data.amount = (slotObj && slotObj.amount) ? slotObj.amount : 0;
-                                el.tile.rot = (slotObj && typeof slotObj.rot === 'number') ? slotObj.rot : 0;
-                                el.tile.invert = (slotObj && slotObj.invert) ? slotObj.invert : new Vector(1,1);
-                            }catch(e){}
-                        } else {
-                            el.tile.sheet = null;
-                            el.tile.tile = null;
-                            try{ el.tile.data = el.tile.data || {}; el.tile.data.amount = 0; }catch(e){}
-                        }
-                    } else {
-                        el.tile.sheet = null;
-                        el.tile.tile = null;
-                        try{ el.tile.data = el.tile.data || {}; el.tile.data.amount = 0; }catch(e){}
+            // Determine which inventory key is in the hotbar slot and resolve its entry.
+            let entry = null;
+            try {
+                if (player && player.inventory && player.inventory.slots && Array.isArray(player.inventory.slots.hotbar) && i < player.inventory.slots.hotbar.length) {
+                    const key = player.inventory.slots.hotbar[i];
+                    if (key && player.inventory.Inventory && player.inventory.Inventory.has(key)) {
+                        entry = player.inventory.Inventory.get(key);
+                    } else if (this.InventoryManager) {
+                        // fallback: InventoryManager helper
+                        entry = this.InventoryManager.getInventoryEntry ? this.InventoryManager.getInventoryEntry(key) : null;
                     }
-                } catch (e) {
-                    el.tile.sheet = null; el.tile.tile = null;
                 }
+
+            } catch (e) { entry = null; }
+
+            // Apply resolved entry to UITile
+            if (entry && entry.sheet) {
+                el.tile.sheet = entry.sheet;
+                if (entry.data && entry.data.tile) el.tile.tile = entry.data.tile;
+                else if (entry.data && entry.data.coord) el.tile.tile = entry.data.coord;
+                else el.tile.tile = entry.data && entry.data.id ? entry.data.id : null;
+                try { el.tile.data = el.tile.data || {}; el.tile.data.amount = entry.data && entry.data.amount ? entry.data.amount : 0; } catch (e) {}
             } else {
-                el.tile.sheet = null; el.tile.tile = null;
+                el.tile.sheet = null; el.tile.tile = null; try { el.tile.data = el.tile.data || {}; el.tile.data.amount = 0; } catch (e) {}
             }
 
             // highlight currently selected slot (player.selectedIndex)
@@ -254,14 +233,15 @@ export default class MainUI {
      */
     update(delta) {
         if (!this.visible) return;
+        this.InventoryManager.update(delta);
         // keep UI slot visuals in sync with player state
         this.menu.update(delta)
         // update inventory state first so slot counts are current
-        this.InventoryManager.update(delta);
         this._updateSlots();
     }
     draw() {
         if (!this.visible) return;
         this.menu.draw(this.Draw)
+        this.InventoryManager.draw(this.Draw)
     }
 }

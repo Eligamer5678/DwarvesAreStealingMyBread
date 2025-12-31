@@ -209,7 +209,8 @@ export default class Mouse {
         return returnTime ? b.time : !!b.state;
     }
 
-    released(button,passcode) {
+    released(button,passcode="") {
+        //passcode does nothing here; just a placeholder in case
         if (this.pauseTime > 0) return false;
         if (!this._allowed()) return false;
         return !!this.buttons[button].justReleased;
@@ -222,14 +223,48 @@ export default class Mouse {
         this.passcode = '';
         this.pause(0.2)
     }
-
-    grab(pos) { 
+    /**
+     * Allows dragging stuff.
+     * 
+     * How to use drag API:
+     * ```
+     * // Set positions
+     * let oldPos = new Vector(5,5); // Original position
+     * let newPos = oldPos.clone(); // New position
+     * 
+     * 
+     * // In update loop
+     * update(){
+     *    // Start grab
+     *    if(this.mouse.pressed('any'),passcode) this.mouse.grab();
+     * 
+     *    newPos = oldPos.add(this.mouse.getGrabDelta()); // Use for preview  
+     *    if(this.mouse.released('left')) this.mouse.releaseGrab();
+     * 
+     *    // You can also do something like this:
+     *    if(this.mouse.released('right')) {
+     *       this.mouse.releaseGrab('right'); // now right-drag can have seperate behavior
+     *    }else if(this.mouse.released('left'){
+     *       this.mouse.releaseGrab('left');
+     *    }
+     * 
+     * }
+     * 
+     * // In constructor
+     * this.mouse.onEndGrab.connect((newPos,button)=>{
+     *      // Put stuff here you want to do when the mouse is released, ussally call a seperate method.
+     *      // You can also do this instead when the mouse is released, but this tends to be more organized.
+     * })
+     * ```
+     * @param {*} pos Start pos to lock onto
+    */
+    grab(pos = this.pos) { 
         this.grabPos = pos.clone(); 
         this.onGrab.emit(this.pos.clone());
     }
-    releaseGrab() { 
+    releaseGrab(button='left') { 
         this.grabPos = null; 
-        this.onEndGrab.emit(this.pos.clone());
+        this.onEndGrab.emit(this.pos.clone(),button);
     }
 
     getGrabDelta() {

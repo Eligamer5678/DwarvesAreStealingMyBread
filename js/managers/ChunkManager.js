@@ -772,11 +772,6 @@ export default class ChunkManager {
             const savedEntities = (saved && Array.isArray(saved.entities)) ? saved.entities : [];
 
             const merged = specEntities.slice();
-            try {
-                // Log saved entity entries and the merged list before spawning.
-                // This helps debug torch reload issues (saved vs spec entities).
-                console.log(`ChunkManager: loading entities for chunk ${cx},${cy} -- savedEntities:`, savedEntities, 'merged:', merged);
-            } catch (e) { /* ignore logging errors */ }
             for (const se of savedEntities) {
                 if (!se) continue;
                 let replaced = false;
@@ -1338,7 +1333,6 @@ export default class ChunkManager {
             if (ents.length > 0) out.entities = ents;
             console.log('saved')
         } catch (e) { /* ignore torch serialization errors */ }
-        console.log('saved chunk')
         if (opts && opts.download === false) {
             return out;
         }

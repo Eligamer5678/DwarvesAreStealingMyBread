@@ -120,7 +120,6 @@ export class MainScene extends Scene {
         this.chunkManager.entityManager = this.entityManager;
         // Prime initial chunks around origin
         this.chunkManager.generateChunksAround(this.player.pos.x, this.player.pos.y, 3);
-        console.log('update2')
         this.isReady = true;
         this.chunkManager.ready = true;
 
@@ -153,9 +152,6 @@ export class MainScene extends Scene {
         // lighting system
         this.lighting = new LightingSystem(this.chunkManager, {});
         this.chunkManager.lightingSystem = this.lighting
-
-        
-        console.log('adding emanager')
         this.lighting.markDirty();
         this.lighting.update();
         this.entityManager.setLightingSystem(this.lighting);

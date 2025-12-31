@@ -215,3 +215,9 @@ export default class Vector {
         return this;
     }
 }
+/**
+ * simple shorthand for creating a vector
+ */
+export function v(x,y){
+    return new Vector(x,y)
+}
