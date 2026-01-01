@@ -69,8 +69,8 @@ export class MainScene extends Scene {
                 console.warn('MainScene: PrefabLoader preload failed', e);
             }
 
-            Saver.loadJSON('./data/recipes.json',(json)=>{
-                this.player.recipes = json;
+            await Saver.loadJSON('./data/recipes.json',(json)=>{
+                this.recipes = json;
             })
 
             this.isPreloaded = true;
@@ -87,7 +87,7 @@ export class MainScene extends Scene {
         // Initialize minimal UI. Subsystems (entities, blocks, rendering)
         // will be registered by the new component-based engine.
         // pass the scene reference so UI can resolve resources and player
-        this.mainUI = new MainUI(this.Draw, this.mouse, this.keys, this, {});
+        this.mainUI = new MainUI(this.Draw, this.mouse, this.keys, this, {'recipes':this.recipes});
 
         
         

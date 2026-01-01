@@ -5,17 +5,13 @@ import UIRect from "../UI/jsElements/Rect.js";
 import UIText from "../UI/jsElements/Text.js";
 
 export default class CraftingManager{
-    constructor(){
+    constructor(recipes){
         // Load the recipes
-        this.recipes = null;
-        Saver.loadJSON("../data/recipes.json", (json) => {this.setup(json);});
-
+        this.recipes = recipes;
         this.currentItem = 'null'
         this.onCraft = new Signal()
     }
-    setup(json){
-        this.recipes = json
-    }
+
 
 
     /**

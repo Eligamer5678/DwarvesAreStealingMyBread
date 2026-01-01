@@ -24,6 +24,9 @@
             ]}
         ]
     },
+    "mine":[
+        {"output":"cobblestone","input":["stone"],"power":0.25}
+    ],
     "smelting":[
         {"output":"glass","input":["sand"],"fuel":["coal","magma"],"power":1,"temp":5}
     ],

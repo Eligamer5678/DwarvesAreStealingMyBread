@@ -4,11 +4,11 @@ import Saver from "../managers/Saver.js";
 export default class Inventory {
     constructor (){
         this.slots = { // elements = itemid
-            'hotbar':["","","","",""], // Basic hotbar
-            'inventory':new Array(20).fill("")
-            // crafting groups (3x3 grid and output slot)
-            , 'craft3x3': new Array(9).fill("")
-            , 'output': new Array(1).fill("")
+            'hotbar':["","","","",""], 
+            'inventory':new Array(20).fill(""),
+            'dwarf':[""],
+            'craft3x3': new Array(9).fill(""),
+            'output': new Array(1).fill("")
         }
         this.Inventory = new Map() //"itemName_itemIndex": slotpath,extra}
         this._nextItemId = 1;

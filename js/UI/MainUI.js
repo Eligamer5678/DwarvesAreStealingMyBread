@@ -40,7 +40,7 @@ export default class MainUI {
             'h1': new Color(255,255,255,1,'rgb')
         }
         
-        
+        this.recipes = opts.recipes
         this.menu = new Menu(this.mouse,this.keys,new Vector(0,-1),new Vector(0,0),1,this.colors.bg)
 
         this.createText()
@@ -124,7 +124,7 @@ export default class MainUI {
         const resources = (this.scene && this.scene.SpriteImages) ? this.scene.SpriteImages : (this.opts && this.opts.resources ? this.opts.resources : null);
         this.InventoryManager = new InventoryManager(this, resources)
         // register crafting manager and hook player.onCraft to open expanded inventory
-        try{ this.CraftingManager = new CraftingManager(); }catch(e){}
+        try{ this.CraftingManager = new CraftingManager(this.recipes); }catch(e){}
         try{ this.InventoryManager.setCraftingManager(this.CraftingManager); }catch(e){}
         // When player uses an anvil (onCraft), open inventory and expand it
         try{

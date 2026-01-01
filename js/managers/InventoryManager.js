@@ -101,6 +101,7 @@ export default class InventoryManager{
         })
         this.inventory = this.player.inventory;
         this.inventory.startup(this.resources)
+        try{ if (!this.inventory.slots['dwarf']) this.inventory.slots['dwarf'] = new Array(1).fill(""); }catch(e){}
 
         // Drag state
         this.drag = {
@@ -110,6 +111,15 @@ export default class InventoryManager{
             source: { group: null, index: null },
             amount: 0,
             previewSize: new Vector(48,48),
+        };
+
+        // Dwarf converter processor state
+        this.dwarfProcessor = {
+            active: false,
+            key: null,
+            recipe: null,
+            progress: 0,
+            timeNeeded: 0
         };
 
         // Mouse drag lifecycle hooks: we'll manage grab/release inside update()
@@ -294,8 +304,51 @@ export default class InventoryManager{
                     this.outputTile.tile = out;
                 }
                 this.currentRecipe = match.recipe;
+                // compute how many times this recipe can be crafted given input slot amounts
+                try{
+                    // Determine normalized pattern bounding box for the recipe
+                    const pattern = match.recipe.input || [];
+                    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                    for (let y = 0; y < pattern.length; y++){
+                        const row = pattern[y] || [];
+                        for (let x = 0; x < row.length; x++){
+                            const need = row[x];
+                            if (need !== null && typeof need !== 'undefined' && String(need).trim() !== ''){
+                                if (x < minX) minX = x; if (y < minY) minY = y; if (x > maxX) maxX = x; if (y > maxY) maxY = y;
+                            }
+                        }
+                    }
+                    let craftMax = 0;
+                    if (minX !== Infinity){
+                        const pW = maxX - minX + 1; const pH = maxY - minY + 1;
+                        const ox = (typeof match.ox === 'number') ? match.ox : 0;
+                        const oy = (typeof match.oy === 'number') ? match.oy : 0;
+                        // For each required cell, gather available amount and take min
+                        let mins = [];
+                        for (let ry = 0; ry < pH; ry++){
+                            for (let rx = 0; rx < pW; rx++){
+                                const need = (pattern[minY + ry] && pattern[minY + ry][minX + rx]) ? pattern[minY + ry][minX + rx] : '';
+                                if (!need || String(need).trim() === '') continue;
+                                const gridR = oy + ry; const gridC = ox + rx; const idx = gridR * 3 + gridC;
+                                const key = (this.inventory.slots['craft3x3'] && this.inventory.slots['craft3x3'][idx]) ? this.inventory.slots['craft3x3'][idx] : null;
+                                if (!key || !this.inventory.Inventory || !this.inventory.Inventory.has(key)){
+                                    mins.push(0);
+                                } else {
+                                    const entry = this.inventory.Inventory.get(key);
+                                    mins.push(entry.data && entry.data.amount ? entry.data.amount : 0);
+                                }
+                            }
+                        }
+                        if (mins.length > 0) craftMax = Math.max(0, Math.min(...mins));
+                    }
+                    // save craftable count on craftingManager for use during materialize
+                    try{ if (this.craftingManager) this.craftingManager.currentCraftMax = craftMax; }catch(e){}
+                    // show total output amount on tile preview (number of outputs possible)
+                    try{ this.outputTile.data = this.outputTile.data || {}; this.outputTile.data.amount = (this.currentRecipe.amount || 1) * (craftMax || 0); }catch(e){}
+                }catch(e){}
             } else {
                 this.outputTile.sheet = null; this.outputTile.tile = null; this.currentRecipe = null;
+                try{ if (this.craftingManager) this.craftingManager.currentCraftMax = 0; }catch(e){}
             }
         }catch(e){}
     }
@@ -478,6 +531,28 @@ export default class InventoryManager{
         this.menu.addElement('spriteRect',spriteRect)
         const funnyGuy = new UISpriteSheet(this.player.baseSheet,v(10,10),v(200,200),4,'mine')
         this.menu.addElement('funnyGuy',funnyGuy)
+        // Dwarf converter slot pinned to the funnyGuy (bottom-right of sprite)
+        try{
+            const dwarfSlotPos = new Vector(10 + 200 - 63, 10 + 200 - 63);
+            const dwarfSlotSize = 66;
+            const dwarfSlot = new UISlot("dwarf/0", dwarfSlotPos, new Vector(dwarfSlotSize, dwarfSlotSize), 2, "#2a2a2a00");
+            dwarfSlot.mouse = this.mouse;
+            dwarfSlot.passcode = "Inventory";
+            this.menu.addElement('dwarf_slot_0', dwarfSlot);
+            const dwarfTile = new UITile(null, new Vector(dwarfSlotPos.x + 4, dwarfSlotPos.y + 4), new Vector(dwarfSlotSize - 6, dwarfSlotSize - 6), 3);
+            dwarfTile.mouse = this.mouse;
+            this.menu.addElement('dwarf_slot_tile_0', dwarfTile);
+            const dwarfBorder = new UIRect(new Vector(dwarfSlotPos.x + 3, dwarfSlotPos.y + 3), new Vector(dwarfSlotSize - 6, dwarfSlotSize - 6), 4, '#FFFFFF44', false, true, 4, '#494949ff');
+            dwarfBorder.visible = false;
+            dwarfBorder.mask = true;
+            dwarfBorder.mouse = this.mouse;
+            this.menu.addElement('dwarf_slot_border_0', dwarfBorder);
+            // register in slot groups so generic sync/hit-tests include it
+            try{ if (!this.slotItems) this.slotItems = {}; }catch(e){}
+            this.slotItems.dwarf = new Array(1).fill(null);
+            if (!this.slotGroupElems.dwarf) this.slotGroupElems.dwarf = [];
+            this.slotGroupElems.dwarf.push({ slot: dwarfSlot, tile: dwarfTile, border: dwarfBorder, index: 0 });
+        }catch(e){}
         
         // Create the slot bg
         this.menu.addElement('slotBg',new UIRect(v(220,10),v(150,700),2,"#181818ff"))
@@ -555,6 +630,23 @@ export default class InventoryManager{
         }
 
         this.mainUI.menu.addElement('inventory',this.menu)
+
+        // Ensure dwarf slot UI (created earlier) is registered in slotGroupElems/slotItems
+        try{
+            if (!this.slotGroupElems) this.slotGroupElems = {};
+            if (!this.slotItems) this.slotItems = {};
+            if (!this.slotGroupElems.dwarf) this.slotGroupElems.dwarf = [];
+            if (!this.slotItems.dwarf) this.slotItems.dwarf = new Array(1).fill(null);
+            // retrieve elements we previously added to the menu
+            try{
+                const ds = this.menu.elements.get('dwarf_slot_0');
+                const dt = this.menu.elements.get('dwarf_slot_tile_0');
+                const db = this.menu.elements.get('dwarf_slot_border_0');
+                if (ds && dt) this.slotGroupElems.dwarf.push({ slot: ds, tile: dt, border: db || null, index: 0 });
+            }catch(e){}
+            // ensure inventory has dwarf group
+            try{ if (!this.inventory.slots['dwarf']) this.inventory.slots['dwarf'] = new Array(1).fill(""); }catch(e){}
+        }catch(e){}
 
         // Ensure UI reflects current player slots at creation (no-op during refactor)
         try{ if (typeof this.syncSlotsWithPlayer === 'function') this.syncSlotsWithPlayer(); }catch(e){}
@@ -643,7 +735,9 @@ export default class InventoryManager{
         // If output preview present but no real item, materialize the crafted output so it can be dragged
         if ((!key || key === '') && hit.group === 'output' && this.currentRecipe){
             try{
-                const amt = this.currentRecipe.amount || 1;
+                // Determine the amount to materialize: recipe output amount * craftable count
+                const craftCount = (this.craftingManager && typeof this.craftingManager.currentCraftMax === 'number') ? this.craftingManager.currentCraftMax : 1;
+                const amt = (this.currentRecipe.amount || 1) * Math.max(1, craftCount);
                 const placed = this.inventory.addItem(this.currentRecipe.output, `output/0`, false, 'inventory', amt);
                 if (placed) key = this.getSlotKey(hit.group, hit.index);
             }catch(e){}
@@ -891,14 +985,90 @@ export default class InventoryManager{
         
     }
 
+    /** Process dwarf converter slot over time (converts items via recipes.mine) */
+    _processDwarf(delta){
+        try{
+            if (!this.inventory || !this.inventory.slots || !this.inventory.slots['dwarf']) return;
+            const key = this.getSlotKey('dwarf', 0);
+            // nothing to process
+            if (!key || key === ''){
+                this.dwarfProcessor.active = false; this.dwarfProcessor.key = null; this.dwarfProcessor.recipe = null; this.dwarfProcessor.progress = 0; this.dwarfProcessor.timeNeeded = 0;
+                // hide border if present
+                try{ if (this.slotGroupElems && this.slotGroupElems.dwarf && this.slotGroupElems.dwarf[0] && this.slotGroupElems.dwarf[0].border) this.slotGroupElems.dwarf[0].border.visible = false; }catch(e){}
+                return;
+            }
+            const entry = this.getInventoryEntry(key);
+            if (!entry) return;
+
+            // If processor is not active for this key, try to find a matching mine recipe
+            if (!this.dwarfProcessor.active || this.dwarfProcessor.key !== key){
+                const name = entry.data && (entry.data.tile || entry.data.id || entry.data.coord);
+                if (!name) return;
+                let mineList = null;
+                try{ if (this.craftingManager && this.craftingManager.recipes && this.craftingManager.recipes.mine) mineList = this.craftingManager.recipes.mine; }catch(e){}
+                try{ if (!mineList && this.mainUI && this.mainUI.recipes && this.mainUI.recipes.mine) mineList = this.mainUI.recipes.mine; }catch(e){}
+                if (!mineList) return;
+                let found = null;
+                for (const r of mineList){
+                    const inputs = r.input || [];
+                    for (const inp of inputs){ if (inp === name){ found = r; break; } }
+                    if (found) break;
+                }
+                if (!found){
+                    this.dwarfProcessor.active = false; this.dwarfProcessor.key = null; this.dwarfProcessor.recipe = null; this.dwarfProcessor.progress = 0; this.dwarfProcessor.timeNeeded = 0;
+                    try{ if (this.slotGroupElems && this.slotGroupElems.dwarf && this.slotGroupElems.dwarf[0] && this.slotGroupElems.dwarf[0].border) this.slotGroupElems.dwarf[0].border.visible = false; }catch(e){}
+                    return;
+                }
+                // initialize processor for this key
+                this.dwarfProcessor.active = true;
+                this.dwarfProcessor.key = key;
+                this.dwarfProcessor.recipe = found;
+                const speed = (this.player && this.player.currentTool && typeof this.player.currentTool.speed === 'number') ? this.player.currentTool.speed : 1;
+                this.dwarfProcessor.timeNeeded = (found.power || 1) / Math.max(0.00001, speed);
+                this.dwarfProcessor.progress = 0;
+            }
+
+            // accumulate progress
+            this.dwarfProcessor.progress += delta;
+            // show progress visually via border visibility
+            try{ if (this.slotGroupElems && this.slotGroupElems.dwarf && this.slotGroupElems.dwarf[0] && this.slotGroupElems.dwarf[0].border) this.slotGroupElems.dwarf[0].border.visible = this.dwarfProcessor.active; }catch(e){}
+
+            if (this.dwarfProcessor.progress >= (this.dwarfProcessor.timeNeeded || 0)){
+                // produce output
+                try{
+                    const out = this.dwarfProcessor.recipe && this.dwarfProcessor.recipe.output;
+                    if (out){
+                        this.inventory.addItem(out, 'inventory', false, 'inventory', 1,true);
+                    }
+                    // decrement input item
+                    if (entry.data){
+                        entry.data.amount = (entry.data.amount || 1) - 1;
+                        if (entry.data.amount <= 0){
+                            // remove the inventory entry and clear dwarf slot
+                            this.inventory.Inventory.delete(key);
+                            this.setSlotKey('dwarf', 0, "");
+                        } else {
+                            if (this.inventory.Inventory.has(key)) this.inventory.Inventory.get(key).data.amount = entry.data.amount;
+                        }
+                    }
+                }catch(e){}
+                // reset processor so next item (if present) will be detected next frame
+                this.dwarfProcessor.active = false; this.dwarfProcessor.key = null; this.dwarfProcessor.recipe = null; this.dwarfProcessor.progress = 0; this.dwarfProcessor.timeNeeded = 0;
+                try{ this.syncSlotsWithPlayer(); }catch(e){}
+            }
+        }catch(e){}
+    }
+
     /**
      * Update inventory manager (handle drop into slots)
      * @param {number} delta
      */
     update(delta){
-        if(!this.menu.visible) return;
         // Sync player.inventory.items -> UI elements every frame during refactor.
         if (!this.player) return;
+        try{ this._processDwarf(delta); }catch(e){}
+        if(!this.menu.visible) return;
+        // process dwarf converter slot progress
         this.syncSlotsWithPlayer();
         if (this.craftingMenu && this.craftingMenu.visible) this.updateCraftPreview();
         // Start drag when mouse pressed over a slot (if not already dragging)
