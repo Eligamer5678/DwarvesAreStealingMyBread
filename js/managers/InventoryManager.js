@@ -224,11 +224,23 @@ export default class InventoryManager{
                 // Listener consumes the inputs when appropriate.
                 this.onCraftOutputPlaced = new Signal();
                 // flag: inputs already consumed for the current created output (to avoid double-consume)
-                this._craftInputsConsumed = false;
+                this._craftInputsConsumed = true;
                 this.onCraftOutputPlaced.connect((info) => {
                     try{
                         if (!(this._craftInputsConsumed) && info && info.source && info.source.group === 'output'){
-                            try{ this.consumeCurrentRecipeInputs(); this._craftInputsConsumed = true; }catch(e){}
+                            try{
+                                // determine how many crafts to consume:
+                                // if the emitter provided an `amount` (number of output items moved), convert to craft count
+                                let times = 1;
+                                if (info && typeof info.amount === 'number'){
+                                    const perCraft = (this.currentRecipe && this.currentRecipe.amount) ? this.currentRecipe.amount : 1;
+                                    times = Math.max(1, Math.ceil(info.amount / perCraft));
+                                } else if (this._craftMaterialized && typeof this._craftMaterialized.times === 'number'){
+                                    times = this._craftMaterialized.times;
+                                }
+                                this.consumeCurrentRecipeInputs(times);
+                                this._craftInputsConsumed = true;
+                            }catch(e){}
                         }
                     }catch(e){}
                 });
@@ -407,10 +419,10 @@ export default class InventoryManager{
         }catch(e){ console.warn('craft failed', e); }
     }
 
-    /** Consume one unit from each input slot of the current recipe (used when player takes the crafted output) */
-    consumeCurrentRecipeInputs(){
+    /** Consume `times` units from each input slot of the current recipe (used when player takes the crafted output) */
+    consumeCurrentRecipeInputs(times = 1){
+        if (!this.currentRecipe || !this.craftingManager) return;
         try{
-            if (!this.currentRecipe || !this.craftingManager) return;
             // find matched translation for current grid
             const grid = this._buildCraftGrid();
             const match = this.craftingManager.findMatch(grid);
@@ -439,7 +451,7 @@ export default class InventoryManager{
                     const key = (this.inventory.slots['craft3x3'] && this.inventory.slots['craft3x3'][idx]) ? this.inventory.slots['craft3x3'][idx] : null;
                     if (key && this.inventory.Inventory && this.inventory.Inventory.has(key)){
                         const entry = this.inventory.Inventory.get(key);
-                        entry.data.amount = (entry.data.amount || 1) - 1;
+                        entry.data.amount = (entry.data.amount || 1) - times;
                         if (entry.data.amount <= 0){
                             // clear slot and delete entry
                             this.inventory.clearSlot('craft3x3', idx);
@@ -535,7 +547,7 @@ export default class InventoryManager{
         try{
             const dwarfSlotPos = new Vector(10 + 200 - 63, 10 + 200 - 63);
             const dwarfSlotSize = 66;
-            const dwarfSlot = new UISlot("dwarf/0", dwarfSlotPos, new Vector(dwarfSlotSize, dwarfSlotSize), 2, "#2a2a2a00");
+            const dwarfSlot = new UISlot("dwarf/0", new Vector(10,10), new Vector(200, 200), 2, "#2a2a2a00");
             dwarfSlot.mouse = this.mouse;
             dwarfSlot.passcode = "Inventory";
             this.menu.addElement('dwarf_slot_0', dwarfSlot);
@@ -735,11 +747,17 @@ export default class InventoryManager{
         // If output preview present but no real item, materialize the crafted output so it can be dragged
         if ((!key || key === '') && hit.group === 'output' && this.currentRecipe){
             try{
-                // Determine the amount to materialize: recipe output amount * craftable count
+                // Determine the number of crafts to materialize (times) and total amount
                 const craftCount = (this.craftingManager && typeof this.craftingManager.currentCraftMax === 'number') ? this.craftingManager.currentCraftMax : 1;
-                const amt = (this.currentRecipe.amount || 1) * Math.max(1, craftCount);
+                const times = Math.max(1, craftCount);
+                const amt = (this.currentRecipe.amount || 1) * times;
                 const placed = this.inventory.addItem(this.currentRecipe.output, `output/0`, false, 'inventory', amt);
-                if (placed) key = this.getSlotKey(hit.group, hit.index);
+                if (placed) {
+                    key = this.getSlotKey(hit.group, hit.index);
+                    // record how many crafts were materialized so inputs can be consumed accordingly
+                    this._craftMaterialized = { key: key, group: hit.group, index: hit.index, times: times };
+                    this._craftInputsConsumed = false;
+                }
             }catch(e){}
         }
         if (!key) return;
@@ -753,14 +771,38 @@ export default class InventoryManager{
         this.drag.source.group = hit.group;
         this.drag.source.index = hit.index;
         // if we materialized an output this drag, remember it so drop/cancel logic can act
-        if (hit.group === 'output' && (!this._craftMaterialized || this._craftMaterialized.key !== key)){
-            this._craftMaterialized = { key: key, group: hit.group, index: hit.index };
-            // ensure future placement consumes inputs (this was materialized at drag-start)
-            this._craftInputsConsumed = false;
+        if (hit.group === 'output'){
+            if (!this._craftMaterialized || this._craftMaterialized.key !== key){
+                // preserve any recorded times if already set, otherwise default to 1
+                const times = (this._craftMaterialized && typeof this._craftMaterialized.times === 'number') ? this._craftMaterialized.times : 1;
+                this._craftMaterialized = { key: key, group: hit.group, index: hit.index, times: times };
+                // ensure future placement consumes inputs (this was materialized at drag-start)
+                this._craftInputsConsumed = false;
+            }
         }
-        // if right-button, only drag one item; otherwise drag whole stack
-        if (button === 'right') this.drag.amount = 1;
-        else this.drag.amount = (entry.data && typeof entry.data.amount === 'number') ? entry.data.amount : 1;
+        // if right-button, compute drag.amount; otherwise drag whole stack
+        if (button === 'right'){
+            try{
+                const srcAmt = (entry.data && typeof entry.data.amount === 'number') ? entry.data.amount : 1;
+                const ctrl = (this.keys && this.keys.held) ? this.keys.held('Control', true, 'Inventory') : false;
+                // Special-case crafted output: right-drag should move in multiples of recipe.amount
+                if (hit.group === 'output' && this.currentRecipe){
+                    const perCraft = (this.currentRecipe && typeof this.currentRecipe.amount === 'number') ? this.currentRecipe.amount : 1;
+                    const totalCrafts = Math.floor(srcAmt / perCraft);
+                    if (ctrl){
+                        if (totalCrafts >= 1) this.drag.amount = Math.max(perCraft, Math.ceil(totalCrafts / 2) * perCraft);
+                        else this.drag.amount = Math.min(srcAmt, perCraft);
+                    } else {
+                        if (totalCrafts >= 1) this.drag.amount = perCraft;
+                        else this.drag.amount = Math.max(1, srcAmt);
+                    }
+                } else {
+                    // Non-output behavior: Ctrl+right moves half the stack (ceil), otherwise single
+                    if (ctrl) this.drag.amount = Math.max(1, Math.ceil(srcAmt / 2));
+                    else this.drag.amount = 1;
+                }
+            }catch(e){ this.drag.amount = 1; }
+        } else this.drag.amount = (entry.data && typeof entry.data.amount === 'number') ? entry.data.amount : 1;
         // do not re-trigger grab here (onGrab already fired)
     }
 
@@ -809,14 +851,16 @@ export default class InventoryManager{
                 return;
             }
 
-            // If destination empty: create a new single-item entry there
+            // If destination empty: create a new entry there (move count from drag state)
             if (!dstKey){
                 // prefer using inventory.addItem to create a proper entry
                 if (srcName){
-                    this.inventory.addItem(srcName, `${dstGroup}/${dstIndex}`, false, 'inventory', 1);
+                    // determine move count from drag state (set on drag start)
+                    const moveCount = (this.drag && typeof this.drag.amount === 'number') ? this.drag.amount : 1;
+                    this.inventory.addItem(srcName, `${dstGroup}/${dstIndex}`, false, 'inventory', moveCount);
                     // decrement source
                     if (srcEntry.data){
-                        srcEntry.data.amount = srcAmt - 1;
+                        srcEntry.data.amount = srcAmt - moveCount;
                         if (srcEntry.data.amount <= 0){
                             this.inventory.Inventory.delete(this.drag.key);
                             this.setSlotKey(srcGroup, srcIndex, "");
@@ -824,8 +868,8 @@ export default class InventoryManager{
                             if (this.inventory.Inventory.has(this.drag.key)) this.inventory.Inventory.get(this.drag.key).data.amount = srcEntry.data.amount;
                         }
                     }
-                    // If the source was a materialized crafted output, emit placement signal
-                    try{ if (srcGroup === 'output' && this._craftMaterialized && this._craftMaterialized.key === this.drag.key){ this.onCraftOutputPlaced && this.onCraftOutputPlaced.emit({ source: { group: srcGroup, index: srcIndex }, dest: { group: dstGroup, index: dstIndex } }); this._craftMaterialized = null; } }catch(e){}
+                    // If the source was a materialized crafted output, emit placement signal with moved amount
+                    try{ if (srcGroup === 'output' && this._craftMaterialized && this._craftMaterialized.key === this.drag.key){ const moved = moveCount; this.onCraftOutputPlaced && this.onCraftOutputPlaced.emit({ source: { group: srcGroup, index: srcIndex }, dest: { group: dstGroup, index: dstIndex }, amount: moved }); this._craftMaterialized = null; } }catch(e){}
                 }
                 this.drag.active = false; this.drag.key = null; this.drag.entry = null; this.drag.amount = 0;
                 return;
@@ -834,27 +878,34 @@ export default class InventoryManager{
             // Destination exists: try stacking if same type
             const dstEntry = this.getInventoryEntry(dstKey);
             const dstName = dstEntry && dstEntry.data && (dstEntry.data.tile || dstEntry.data.id || dstEntry.data.coord);
-            if (dstEntry && srcName && dstName && dstName === srcName){
+                    if (dstEntry && srcName && dstName && dstName === srcName){
                 const dstAmt = dstEntry.data.amount || 0;
                 if (dstAmt < 64){
-                    // move one (or less if source has <1)
-                    const move = Math.min(1, srcAmt);
-                    dstEntry.data.amount = dstAmt + move;
-                    // decrement source
-                    if (srcEntry.data){
-                        srcEntry.data.amount = srcAmt - move;
-                        if (srcEntry.data.amount <= 0){
-                            this.inventory.Inventory.delete(this.drag.key);
-                            this.setSlotKey(srcGroup, srcIndex, "");
-                        } else {
-                            if (this.inventory.Inventory.has(this.drag.key)) this.inventory.Inventory.get(this.drag.key).data.amount = srcEntry.data.amount;
+                    // determine move count from drag state (set on drag start)
+                    const desired = (this.drag && typeof this.drag.amount === 'number') ? this.drag.amount : 1;
+                    const move = Math.min(desired, srcAmt, 64 - dstAmt);
+                        dstEntry.data.amount = dstAmt + move;
+                        // decrement source
+                        if (srcEntry.data){
+                            srcEntry.data.amount = srcAmt - move;
+                            if (srcEntry.data.amount <= 0){
+                                this.inventory.Inventory.delete(this.drag.key);
+                                this.setSlotKey(srcGroup, srcIndex, "");
+                            } else {
+                                if (this.inventory.Inventory.has(this.drag.key)) this.inventory.Inventory.get(this.drag.key).data.amount = srcEntry.data.amount;
+                            }
                         }
+                        this.drag.active = false; this.drag.key = null; this.drag.entry = null; this.drag.amount = 0;
+                        // If the source was a materialized crafted output, emit placement signal (moved `move`)
+                        try{
+                            if (srcGroup === 'output' && this._craftMaterialized && this._craftMaterialized.key === this.drag.key){
+                                const moved = move || 1;
+                                this.onCraftOutputPlaced && this.onCraftOutputPlaced.emit({ source: { group: srcGroup, index: srcIndex }, dest: { group: dstGroup, index: dstIndex }, amount: moved });
+                                this._craftMaterialized = null;
+                            }
+                        }catch(e){}
+                        return;
                     }
-                    this.drag.active = false; this.drag.key = null; this.drag.entry = null; this.drag.amount = 0;
-                    // If the source was a materialized crafted output, emit placement signal
-                    try{ if (srcGroup === 'output' && this._craftMaterialized && this._craftMaterialized.key === this.drag.key){ this.onCraftOutputPlaced && this.onCraftOutputPlaced.emit({ source: { group: srcGroup, index: srcIndex }, dest: { group: dstGroup, index: dstIndex } }); this._craftMaterialized = null; } }catch(e){}
-                    return;
-                }
                 // destination full -> fallthrough to swap
             }
 
@@ -917,7 +968,15 @@ export default class InventoryManager{
         }
 
         // If we moved a materialized crafted output from the output slot, emit placement so inputs are consumed
-        try{ if (srcGroup === 'output' && this._craftMaterialized && this._craftMaterialized.key === this.drag.key){ this.onCraftOutputPlaced && this.onCraftOutputPlaced.emit({ source: { group: srcGroup, index: srcIndex }, dest: { group: dstGroup, index: dstIndex } }); this._craftMaterialized = null; } }catch(e){}
+        try{
+            if (srcGroup === 'output' && this._craftMaterialized && this._craftMaterialized.key === this.drag.key){
+                // moved full stack — determine moved amount from the moved entry
+                let moved = 1;
+                try{ const movedEntry = this.getInventoryEntry(this.drag.key); moved = (movedEntry && movedEntry.data && typeof movedEntry.data.amount === 'number') ? movedEntry.data.amount : moved; }catch(e){}
+                this.onCraftOutputPlaced && this.onCraftOutputPlaced.emit({ source: { group: srcGroup, index: srcIndex }, dest: { group: dstGroup, index: dstIndex }, amount: moved });
+                this._craftMaterialized = null;
+            }
+        }catch(e){}
 
         this.drag.active = false; this.drag.key = null; this.drag.entry = null; this.drag.amount = 0;
         return;
@@ -968,13 +1027,16 @@ export default class InventoryManager{
             }
             // detect if output slot was cleared by a drag (previously had key, now empty)
             try{
-                    if (groupName === 'output'){
+                if (groupName === 'output'){
                     const prevKey = prevArray && prevArray.length > 0 ? prevArray[0] : null;
                     const curKey = this.slotItems['output'] && this.slotItems['output'].length > 0 ? this.slotItems['output'][0] : null;
                     // If output slot transitioned from filled -> empty, consume inputs (subtract one per input)
                     if (prevKey && (!curKey || curKey === null)){
                         try{
-                            if (!(this._craftInputsConsumed)) this.consumeCurrentRecipeInputs();
+                            if (!(this._craftInputsConsumed)) {
+                                const times = (this._craftMaterialized && typeof this._craftMaterialized.times === 'number') ? this._craftMaterialized.times : 1;
+                                this.consumeCurrentRecipeInputs(times);
+                            }
                             // reset materialized marker after consumption
                             this._craftMaterialized = null;
                         }catch(e){}
@@ -1038,7 +1100,8 @@ export default class InventoryManager{
                 try{
                     const out = this.dwarfProcessor.recipe && this.dwarfProcessor.recipe.output;
                     if (out){
-                        this.inventory.addItem(out, 'inventory', false, 'inventory', 1,true);
+                        const per = (this.dwarfProcessor.recipe && typeof this.dwarfProcessor.recipe.amount === 'number') ? this.dwarfProcessor.recipe.amount : 1;
+                        this.inventory.addItem(out, 'inventory', false, 'inventory', per, true);
                     }
                     // decrement input item
                     if (entry.data){

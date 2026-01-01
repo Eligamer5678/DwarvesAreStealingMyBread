@@ -6,6 +6,12 @@
         "1x1":[
             {"output":"seed_wheat","amount":1,"tool":"none","input":[["wheat"]]}
         ],
+        "2x2":[
+            {"output":"polished_cobblestone","amount":4,"tool":"none","input":[
+                ["cobblestone","cobblestone"],
+                ["cobblestone","cobblestone"]
+            ]}
+        ],
         "3x3":[
             {"output":"ladder","amount":16,"tool":"none","input":[
                 ["pretzelstick",""            ,"pretzelstick"],
@@ -25,7 +31,8 @@
         ]
     },
     "mine":[
-        {"output":"cobblestone","input":["stone"],"power":0.25}
+        {"output":"cobblestone","input":["stone"],"power":0.5, "amount": 1},
+        {"output":"cobblestone","input":["polished_cobblestone"],"power":0.5, "amount": 1}
     ],
     "smelting":[
         {"output":"glass","input":["sand"],"fuel":["coal","magma"],"power":1,"temp":5}
