@@ -5,7 +5,7 @@ import SpriteSheet from '../js/modules/Spritesheet.js';
 import Timer from '../js/modules/Timer.js';
 import Geometry from '../js/modules/Geometry.js';
 
-export class TSSBOTAFHScene extends Scene {
+export class egg_gameScene extends Scene {
     constructor(...args) {
         super('TSSBOTAFH', ...args);
         this.loaded = 0;

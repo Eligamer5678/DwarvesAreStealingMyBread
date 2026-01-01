@@ -43,7 +43,7 @@ export default class CraftingManager{
      * attempt to match a recipe. Returns the matching recipe object or null.
      * @param {Array<Array<string>>} grid
      */
-    matchGrid(grid){
+    matchGrid(grid, strict = false){
         try{
             if (!this.recipes || !this.recipes.crafting) return null;
             // Iterate all recipe groups (1x1, 3x3, etc.) and all recipes within
@@ -89,10 +89,29 @@ export default class CraftingManager{
                                 for (let x = 0; x < pW; x++){
                                     const need = norm[y][x] || '';
                                     const have = (grid[oy+y] && typeof grid[oy+y][ox+x] !== 'undefined') ? (grid[oy+y][ox+x] || '') : '';
-                                    if (need === '') continue; // pattern doesn't require anything here
+                                    if (need === ''){
+                                        if (strict){
+                                            // strict mode: blank required to be blank
+                                            if (have !== ''){ ok = false; break; }
+                                        } else {
+                                            // permissive mode: ignore blanks in pattern
+                                            continue;
+                                        }
+                                        continue;
+                                    }
                                     if (need !== have){ ok = false; break; }
                                 }
                                 if (!ok) break;
+                            }
+                            // ensure all cells outside the matched region are empty (only in strict mode)
+                            if (ok && strict){
+                                for (let gy = 0; gy < 3 && ok; gy++){
+                                    for (let gx = 0; gx < 3; gx++){
+                                        if (gy >= oy && gy < oy + pH && gx >= ox && gx < ox + pW) continue;
+                                        const outsideHave = (grid[gy] && typeof grid[gy][gx] !== 'undefined') ? (grid[gy][gx] || '') : '';
+                                        if (outsideHave && String(outsideHave).trim() !== ''){ ok = false; break; }
+                                    }
+                                }
                             }
                             if (ok) return r;
                         }
@@ -108,7 +127,7 @@ export default class CraftingManager{
      * within the 3x3 grid when a recipe matches. Returns { recipe, ox, oy } or null.
      * @param {Array<Array<string>>} grid
      */
-    findMatch(grid){
+    findMatch(grid, strict = false){
         try{
             if (!this.recipes || !this.recipes.crafting) return null;
             for (const sizeKey in this.recipes.crafting){
@@ -149,10 +168,27 @@ export default class CraftingManager{
                                 for (let x = 0; x < pW; x++){
                                     const need = norm[y][x] || '';
                                     const have = (grid[oy+y] && typeof grid[oy+y][ox+x] !== 'undefined') ? (grid[oy+y][ox+x] || '') : '';
-                                    if (need === '') continue;
+                                    if (need === ''){
+                                        if (strict){
+                                            if (have !== ''){ ok = false; break; }
+                                        } else {
+                                            continue;
+                                        }
+                                        continue;
+                                    }
                                     if (need !== have){ ok = false; break; }
                                 }
                                 if (!ok) break;
+                            }
+                            // ensure all cells outside the matched region are empty (only in strict mode)
+                            if (ok && strict){
+                                for (let gy = 0; gy < 3 && ok; gy++){
+                                    for (let gx = 0; gx < 3; gx++){
+                                        if (gy >= oy && gy < oy + pH && gx >= ox && gx < ox + pW) continue;
+                                        const outsideHave = (grid[gy] && typeof grid[gy][gx] !== 'undefined') ? (grid[gy][gx] || '') : '';
+                                        if (outsideHave && String(outsideHave).trim() !== ''){ ok = false; break; }
+                                    }
+                                }
                             }
                             if (ok) return { recipe: r, ox, oy };
                         }

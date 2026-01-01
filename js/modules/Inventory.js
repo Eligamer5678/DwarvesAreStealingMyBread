@@ -114,7 +114,7 @@ export default class Inventory {
      * @param {string} kickPath - fallback slot group to attempt to place kicked items (default: "inventory")
      * @returns {boolean} true if item placed (and any kicked items relocated), false if item ended up deleted (no slots available)
      */
-    addItem(itemname, slotPath, replace = false, kickPath = "inventory", amount = 1){
+    addItem(itemname, slotPath, replace = false, kickPath = "inventory", amount = 1,normalize = false){
         if (!itemname) return false;
 
         // Create a unique inventory key for this placed item and register metadata
@@ -147,6 +147,38 @@ export default class Inventory {
         const placeIntoGroup = (ikey, group, preferIndex = null, allowReplace = false) => {
             const arr = this.slots[group];
             if (!arr || !Array.isArray(arr)) return false;
+
+            // Attempt to merge into existing stacks of the same item in this group first
+            if (normalize && this.Inventory.has(ikey)){
+                const ikeyEntry = this.Inventory.get(ikey);
+                const ikeyName = ikeyEntry && ikeyEntry.data && (ikeyEntry.data.tile || ikeyEntry.data.id || ikeyEntry.data.coord) ? (ikeyEntry.data.tile || ikeyEntry.data.id || ikeyEntry.data.coord) : null;
+                if (ikeyName){
+                    for (let mi = 0; mi < arr.length; mi++){
+                        const slotVal = arr[mi];
+                        if (!slotVal || slotVal === ikey) continue;
+                        if (this.Inventory.has(slotVal)){
+                            const other = this.Inventory.get(slotVal);
+                            const otherName = other && other.data && (other.data.tile || other.data.id || other.data.coord) ? (other.data.tile || other.data.id || other.data.coord) : null;
+                            if (otherName && otherName === ikeyName){
+                                const otherAmt = other.data.amount || 0;
+                                if (otherAmt < 64){
+                                    const space = 64 - otherAmt;
+                                    const move = Math.min(space, ikeyEntry.data.amount || 0);
+                                    if (move > 0){
+                                        other.data.amount = otherAmt + move;
+                                        ikeyEntry.data.amount = (ikeyEntry.data.amount || 0) - move;
+                                        // if ikey fully merged, remove it and return success
+                                        if ((ikeyEntry.data.amount || 0) <= 0){
+                                            if (this.Inventory.has(ikey)) this.Inventory.delete(ikey);
+                                            return { placed: true, kicked: null, group, index: mi };
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             // if preferIndex specified
             if (preferIndex !== null && preferIndex >= 0 && preferIndex < arr.length) {

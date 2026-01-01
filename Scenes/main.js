@@ -8,6 +8,7 @@ import CollisionSystem from '../js/systems/CollisionSystem.js';
 import LightingSystem from '../js/systems/LightingSystem.js';
 import EntityManager from '../js/managers/EntityManager.js';
 import PrefabLoader from '../js/utils/PrefabLoader.js';
+import Saver from '../js/managers/Saver.js';
 
 export class MainScene extends Scene {
     constructor(...args) {
@@ -26,8 +27,8 @@ export class MainScene extends Scene {
     async onPreload(resources = null) {
         try {
             if (!this.SpriteImages) this.SpriteImages = new Map();
-            if (resources && resources instanceof Map) {
-                for (const [k, v] of resources) this.SpriteImages.set(k, v);
+            if (resources?.spriteImages instanceof Map) {
+                for (const [k, v] of resources.spriteImages) this.SpriteImages.set(k, v);
             } else {
                 // If no resources provided, try to load textures.json via AssetManager
                 try {
@@ -67,6 +68,10 @@ export class MainScene extends Scene {
             } catch (e) {
                 console.warn('MainScene: PrefabLoader preload failed', e);
             }
+
+            Saver.loadJSON('./data/recipes.json',(json)=>{
+                this.player.recipes = json;
+            })
 
             this.isPreloaded = true;
             return true;

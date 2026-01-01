@@ -56,8 +56,8 @@ export default class InventoryManager{
                     }
 
                     // Try to place into the quickslot (hotbar) first, fall back to inventory
-                    const placed = this.inventory.addItem(name, `hotbar/${slotIndex}`, false, 'inventory', amount);
-                    if (!placed) this.inventory.addItem(name, 'inventory', false, 'inventory', amount);
+                    const placed = this.inventory.addItem(name, `hotbar/${slotIndex}`, false, 'inventory', amount,true);
+                    if (!placed) this.inventory.addItem(name, 'inventory', false, 'inventory', amount,true);
                     return;
                 }
 
@@ -151,20 +151,23 @@ export default class InventoryManager{
      * @param {object} meta
      */
     enterCrafting(meta){
+        this.menu.pos.x = 50
+        this.menu.pos.y = 180
+        this.menu.addOffset(this.menu.offset)
         try{
             if (!this.craftingManager) return;
             // Create crafting popup if not already
             if (!this.craftingMenu){
-                const center = v(1980/2 - 220, 1080/2 - 160);
-                this.craftingMenu = new Menu(this.mouse, this.keys, center, v(440,320), 3, '#0069afff', true);
+                const center = v(60+this.menu.size.x, 1080/2 - 222);
+                this.craftingMenu = new Menu(this.mouse, this.keys, center, v(582,444), 3, "#383838ff", true);
                 this.craftingMenu.passcode = 'Inventory';
                 // background (acts as mask so only edges drag the menu)
-                const bg = new UIRect(v(10,10), v(420,300), 2, '#003457ff');
+                const bg = new UIRect(v(10,10), v(562,424), 2, "#222222FF");
                 bg.mouse = this.mouse;
                 bg.mask = true;
                 this.craftingMenu.addElement('bg', bg);
                 // build 3x3 grid tiles
-                const slotSize = 64; const spacing = 8;
+                const slotSize = 128; const spacing = 10;
                 const gridX = 20; const gridY = 20;
                 this.craftElems = [];
                 for (let r = 0; r < 3; r++){
@@ -172,23 +175,25 @@ export default class InventoryManager{
                         const idx = r*3 + c;
                         const x = gridX + c * (slotSize + spacing);
                         const y = gridY + r * (slotSize + spacing);
-                        const slot = new UISlot(`craft3x3/${idx}`, new Vector(x, y), new Vector(slotSize, slotSize), 2, '#00538aff');
+                        const slot = new UISlot(`craft3x3/${idx}`, new Vector(x, y), new Vector(slotSize, slotSize), 2, "#2a2a2aff");
                         slot.mouse = this.mouse; slot.passcode = 'Inventory';
                         this.craftingMenu.addElement(`craft_slot_${idx}`, slot);
-                        const tile = new UITile(null, new Vector(x+4,y+4), new Vector(slotSize-8, slotSize-8), 3);
+                        const tile = new UITile(null, new Vector(x+10,y+10), new Vector(slotSize-20, slotSize-20), 3);
                         tile.mouse = this.mouse;
                         this.craftingMenu.addElement(`craft_tile_${idx}`, tile);
                         this.craftElems.push({ slot, tile, index: idx });
                     }
                 }
                 // output tile and craft button
-                const outX = gridX + 3*(slotSize + spacing) + 12;
-                const outY = gridY + slotSize;
+                const outX = gridX + 3*(slotSize + spacing);
+                const outY = gridY + slotSize+10;
                 // create an output UISlot so users can drag the crafted item out like a normal slot
-                const outSlot = new UISlot('output/0', new Vector(outX, outY), new Vector(slotSize, slotSize), 2, '#00538aff');
+                const outOutline = new UIRect(new Vector(outX, outY), new Vector(slotSize, slotSize),2,"#274e13ff")
+                const outSlot = new UISlot('output/0', new Vector(outX+7.5, outY+7.5), new Vector(slotSize-15, slotSize-15), 2, "#38761dff");
                 outSlot.mouse = this.mouse; outSlot.passcode = 'Inventory';
+                this.craftingMenu.addElement('output_outline', outOutline);
                 this.craftingMenu.addElement('output_slot', outSlot);
-                const outTile = new UITile(null, new Vector(outX+4, outY+4), new Vector(slotSize-8, slotSize-8), 3);
+                const outTile = new UITile(null, new Vector(outX+4+7.5, outY+4+7.5), new Vector(slotSize-8-15, slotSize-8-15), 3);
                 outTile.mouse = this.mouse;
                 this.craftingMenu.addElement('output_tile', outTile);
                 // expose as properties for preview/update
@@ -230,6 +235,9 @@ export default class InventoryManager{
             if (!this.inventory.slots['output']) this.inventory.slots['output'] = new Array(1).fill("");
             this.updateCraftPreview();
         }catch(e){}
+        this.craftingMenu.pos.x = 60+this.menu.size.x
+        this.craftingMenu.pos.y = 1080/2 - 222
+        this.craftingMenu.addOffset(this.craftingMenu.offset)
     }
 
     /** Clear all craft3x3 slots and refresh UI */
@@ -274,7 +282,7 @@ export default class InventoryManager{
         try{
             if (!this.craftingManager) return;
             const grid = this._buildCraftGrid();
-            const match = this.craftingManager.findMatch(grid);
+            const match = this.craftingManager.findMatch(grid,true);
             if (match && match.recipe){
                 const out = match.recipe.output;
                 const resolved = this.inventory.getItem ? this.inventory.getItem(out) : null;
@@ -301,7 +309,7 @@ export default class InventoryManager{
             if (!placed) return; // couldn't place output
             // we need to find matched translation to know which slots to consume
             const grid = this._buildCraftGrid();
-            const match = this.craftingManager.findMatch(grid);
+            const match = this.craftingManager.findMatch(grid,true);
             if (!match || !match.recipe) return;
             const pattern = match.recipe.input || [];
             // compute normalized bounding box same as CraftingManager
@@ -400,7 +408,12 @@ export default class InventoryManager{
      * @param {object} [meta]
      */
     open(meta){
-        try{ this.menu.visible = true; }catch(e){}
+        try{ 
+            this.menu.visible = true; 
+            this.menu.pos.x = 488
+            this.menu.pos.y = 180
+            this.menu.addOffset(this.menu.offset)
+        }catch(e){}
         try{ this.keys.focus('Inventory'); this.mouse.focus('Inventory'); }catch(e){}
         // if meta requests crafting, enter crafting, otherwise ensure crafting is off
         try{
@@ -445,8 +458,10 @@ export default class InventoryManager{
      */
     getInventoryUI(){
         // Create the base menu
-        this.menu = new Menu(this.mouse,this.keys,v(20,180),v(944,720),2,"#383838ff",true) // grab data needed from MainUI
+        this.menu = new Menu(this.mouse,this.keys,v(488,180),v(944,720),2,"#383838ff",true) // grab data needed from MainUI
         this.menu.passcode = "Inventory"
+        this.menu.pos.x = 488
+            this.menu.pos.y = 180
         this.menu.visible = false;
         this.itemBounds = {
             "pos":v(220,10),
@@ -519,10 +534,6 @@ export default class InventoryManager{
                 const idx = r * gridCols + c;
                 const x = gridX + c * (gridSlotSize + gridSpacing);
                 const y = gridY + r * (gridSlotSize + gridSpacing);
-                // background rect
-                const bg = new UIRect(new Vector(x, y), new Vector(gridSlotSize, gridSlotSize), 2, "#2a2a2aff");
-                bg.mouse = this.mouse;
-                this.menu.addElement(`inv_slot_bg_${idx}`, bg);
                 // create a UISlot so inventory slots mirror hotbar structure
                 const slot = new UISlot(`inventory/${idx}`, new Vector(x, y), new Vector(gridSlotSize, gridSlotSize), 2, "#2a2a2aff");
                 slot.mouse = this.mouse;
