@@ -119,7 +119,7 @@ export default class UITile {
                 const pad = Math.max(4, Math.floor(Math.min(this.size.x, this.size.y) * 0.08));
                 const fontSize = Math.max(10, Math.floor(Math.min(this.size.x, this.size.y) * 0.22));
                 const textPos = this.pos.add(this.offset).add(new Vector(this.size.x - pad, this.size.y - pad));
-                Draw.text(String(amt), textPos, '#FFFFFF', 2, fontSize, { align: 'right', baseline: 'bottom', font: 'monospace' });
+                Draw.text(String(amt), textPos, '#b9b9b9ff', 2, fontSize, { align: 'right', baseline: 'bottom', font: 'monospace' });
             }
         }catch(e){}
     }

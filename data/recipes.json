@@ -7,9 +7,25 @@
             {"output":"seed_wheat","amount":1,"tool":"none","input":[["wheat"]]}
         ],
         "2x2":[
+            {"output":"soda_ash","amount":4,"tool":"none","input":[
+                ["salt","limestone"],
+                ["",""]
+            ]},
             {"output":"polished_cobblestone","amount":4,"tool":"none","input":[
                 ["cobblestone","cobblestone"],
                 ["cobblestone","cobblestone"]
+            ]},
+            {"output":"red_polished_sandstone","amount":4,"tool":"none","input":[
+                ["red_sandstone","red_sandstone"],
+                ["red_sandstone","red_sandstone"]
+            ]},
+            {"output":"polished_sandstone","amount":4,"tool":"none","input":[
+                ["sandstone","sandstone"],
+                ["sandstone","sandstone"]
+            ]},
+            {"output":"polished_stone","amount":4,"tool":"none","input":[
+                ["stone","stone"],
+                ["stone","stone"]
             ]}
         ],
         "3x3":[
@@ -18,27 +34,159 @@
                 ["pretzelstick","pretzelstick","pretzelstick"],
                 ["pretzelstick",""            ,"pretzelstick"]
             ]},
-            {"output":"glass","amount":1,"tool":"none","input":[
-                ["",""            ,""],
-                ["","sand",""],
-                ["",""            ,""]
-            ]},
             {"output":"anvil","amount":1,"tool":"none","input":[
                 ["stone","stone","stone"],
                 ["","stone",""],
                 ["stone","stone","stone"]
+            ]},
+            {"output":"cobblestone_wall","amount":4,"tool":"none","input":[
+                ["","cobblestone",""],
+                ["","cobblestone",""],
+                ["","cobblestone",""]
+            ]},
+            {"output":"furnace","amount":1,"tool":"none","input":[
+                ["polished_cobblestone","polished_cobblestone","polished_cobblestone"],
+                ["polished_cobblestone","","polished_cobblestone"],
+                ["polished_cobblestone","polished_cobblestone","polished_cobblestone"]
+            ]},
+            {"output":"cobblestone_slab","amount":3,"tool":"none","input":[
+                ["","",""],
+                ["cobblestone","cobblestone","cobblestone"],
+                ["","",""]
+            ]},
+            {"output":"cobblestone_stair","amount":6,"tool":"none","input":[
+                ["cobblestone","",""],
+                ["cobblestone","cobblestone",""],
+                ["cobblestone","cobblestone","cobblestone"]
+            ]},
+            {"output":"polished_stone_window","amount":4,"tool":"none","input":[
+                ["polished_stone","polished_stone","polished_stone"],
+                ["polished_stone","glass","polished_stone"],
+                ["polished_stone","polished_stone","polished_stone"]
+            ]},
+            {"output":"polished_cobblestone_window","amount":4,"tool":"none","input":[
+                ["polished_cobblestone","polished_cobblestone","polished_cobblestone"],
+                ["polished_cobblestone","glass","polished_cobblestone"],
+                ["polished_cobblestone","polished_cobblestone","polished_cobblestone"]
+            ]},
+            {"output":"polished_cobblestone_wall","amount":4,"tool":"none","input":[
+                ["","polished_cobblestone",""],
+                ["","polished_cobblestone",""],
+                ["","polished_cobblestone",""]
+            ]},
+            {"output":"polished_cobblestone_pillar","amount":3,"tool":"none","input":[
+                ["","polished_cobblestone","polished_cobblestone"],
+                ["","polished_cobblestone","polished_cobblestone"],
+                ["","polished_cobblestone","polished_cobblestone"]
+            ]},
+            {"output":"polished_cobblestone_slab","amount":3,"tool":"none","input":[
+                ["","",""],
+                ["","",""],
+                ["polished_cobblestone","polished_cobblestone","polished_cobblestone"]
+            ]},
+            {"output":"polished_cobblestone_stair","amount":6,"tool":"none","input":[
+                ["polished_cobblestone","",""],
+                ["polished_cobblestone","polished_cobblestone",""],
+                ["polished_cobblestone","polished_cobblestone","polished_cobblestone"]
+            ]},
+            {"output":"polished_stone_wall","amount":4,"tool":"none","input":[
+                ["","polished_stone",""],
+                ["","polished_stone",""],
+                ["","polished_stone",""]
+            ]},
+            {"output":"polished_stone_pillar","amount":3,"tool":"none","input":[
+                ["","polished_stone","polished_stone"],
+                ["","polished_stone","polished_stone"],
+                ["","polished_stone","polished_stone"]
+            ]},
+            {"output":"polished_stone_slab","amount":3,"tool":"none","input":[
+                ["","",""],
+                ["","",""],
+                ["polished_stone","polished_stone","polished_stone"]
+            ]},
+            {"output":"polished_stone_stair","amount":6,"tool":"none","input":[
+                ["polished_stone","",""],
+                ["polished_stone","polished_stone",""],
+                ["polished_stone","polished_stone","polished_stone"]
+            ]},
+            {"output":"polished_stone_door_top","amount":1,"tool":"none","input":[
+                ["pretzelstick","glass","polished_stone"],
+                ["pretzelstick","polished_stone","polished_stone"],
+                ["","polished_stone","polished_stone"]
+            ]},
+            {"output":"polished_stone_door_bottom","amount":1,"tool":"none","input":[
+                ["","polished_stone","polished_stone"],
+                ["pretzelstick","polished_stone","polished_stone"],
+                ["pretzelstick","polished_stone","polished_stone"]
+            ]},
+            {"output":"polished_cobblestone_door_top","amount":1,"tool":"none","input":[
+                ["pretzelstick","glass","polished_cobblestone"],
+                ["pretzelstick","polished_cobblestone","polished_cobblestone"],
+                ["","polished_cobblestone","polished_cobblestone"]
+            ]},
+            {"output":"polished_cobblestone_door_bottom","amount":1,"tool":"none","input":[
+                ["","polished_cobblestone","polished_cobblestone"],
+                ["pretzelstick","polished_cobblestone","polished_cobblestone"],
+                ["pretzelstick","polished_cobblestone","polished_cobblestone"]
+            ]}
+            ,{"output":"pillar_sandstone","amount":3,"tool":"none","input":[
+                ["","sandstone","sandstone"],
+                ["","sandstone","sandstone"],
+                ["","sandstone","sandstone"]
+            ]},
+            {"output":"red_pillar_sandstone","amount":3,"tool":"none","input":[
+                ["","red_sandstone","red_sandstone"],
+                ["","red_sandstone","red_sandstone"],
+                ["","red_sandstone","red_sandstone"]
             ]}
         ]
     },
     "mine":[
         {"output":"cobblestone","input":["stone"],"power":0.5, "amount": 1},
-        {"output":"cobblestone","input":["polished_cobblestone"],"power":0.5, "amount": 1}
+        {"output":"cracked_egg","input":["egg"],"power":0.5, "amount": 1},
+        {"output":"sand","input":["sandstone"],"power":0.5, "amount": 1},
+        {"output":"sand","input":["polished_sandstone"],"power":0.5, "amount": 1},
+        {"output":"sand","input":["pillar_sandstone"],"power":0.5, "amount": 1},
+        {"output":"red_sand","input":["red_pillar_sandstone"],"power":0.5, "amount": 1},
+        {"output":"red_sand","input":["red_polished_sandstone"],"power":0.5, "amount": 1},
+        {"output":"red_sand","input":["red_sandstone"],"power":0.5, "amount": 1},
+        {"output":"cobblestone","input":["polished_cobblestone"],"power":0.5, "amount": 1},
+        {"output":"cobblestone","input":["cobblestone_wall"],"power":0.5, "amount": 1},
+        {"output":"cobblestone","input":["cobblestone_slab"],"power":0.5, "amount": 1},
+        {"output":"cobblestone","input":["cobblestone_stair"],"power":0.5, "amount": 1},
+        {"output":"cobblestone","input":["polished_cobblestone_wall"],"power":0.5, "amount": 1},
+        {"output":"cobblestone","input":["polished_cobblestone_pillar"],"power":0.5, "amount": 1},
+        {"output":"cobblestone","input":["polished_cobblestone_slab"],"power":0.5, "amount": 1},
+        {"output":"cobblestone","input":["polished_cobblestone_stair"],"power":0.5, "amount": 1},
+        {"output":"cobblestone","input":["polished_cobblestone_window"],"power":0.5, "amount": 1},
+        {"output":"cobblestone","input":["polished_cobblestone_door_top"],"power":0.5, "amount": 1},
+        {"output":"cobblestone","input":["polished_cobblestone_door_bottom"],"power":0.5, "amount": 1},
+        {"output":"cobblestone","input":["polished_stone"],"power":0.5, "amount": 1},
+        {"output":"cobblestone","input":["polished_stone_wall"],"power":0.5, "amount": 1},
+        {"output":"cobblestone","input":["polished_stone_pillar"],"power":0.5, "amount": 1},
+        {"output":"cobblestone","input":["polished_stone_slab"],"power":0.5, "amount": 1},
+        {"output":"cobblestone","input":["polished_stone_stair"],"power":0.5, "amount": 1},
+        {"output":"cobblestone","input":["polished_stone_window"],"power":0.5, "amount": 1},
+        {"output":"salt_powder","input":["salt"],"power":5, "amount": 1},
+        {"output":"stick","input":["pretzelstick"],"power":3, "amount": 1},
+        {"output":"stick","input":["deadbush"],"power":0.5, "amount": 2},
+        {"output":"charcoal","input":["coal"],"power":1, "amount": 1}
     ],
     "smelting":[
-        {"output":"glass","input":["sand"],"fuel":["coal","magma"],"power":1,"temp":5}
+        {"output":"red_sandstone","input":["red_sand"],"fuel":["charcoal"],"power":1,"amount":1,"auto":true},
+        {"output":"sandstone","input":["sand"],"fuel":["charcoal"],"power":1,"amount":1,"auto":true},
+        {"output":"glass","input":["sandstone","sandstone"],"fuel":["charcoal","charcoal"],"power":5,"amount":1,"auto":true},
+        {"output":"glass","input":["red_sandstone","red_sandstone"],"fuel":["charcoal","charcoal"],"power":5,"amount":1,"auto":true},
+        {"output":"stone","input":["cobblestone"],"fuel":["charcoal"],"power":2,"amount":1,"auto":true},
+        {"output":"baking_soda","input":["water_bucket","soda_ash"],"fuel":["charcoal"],"power":0.75,"amount":1,"auto":false,"overburn":1,"consume_bucket":false},
+        {"output":"boiling_water_bucket","input":["water_bucket"],"fuel":["charcoal"],"power":3,"amount":1,"auto":true},
+
+        {"output":"pound_cake","input":["butter","sugar","cracked_egg","cracked_egg","cracked_egg","cracked_egg","vanilla_extract","flour"],"fuel":["charcoal"],"power":2,"amount":1,"auto":false,"overburn":5}
+
     ],
-    "grinder":[
-        {"output":"wheat-flour","input":["wheat"],"power":0.2}
-    ]
+    "fuel":{
+        "coal":3,
+        "charcoal":3
+    }
     
 }

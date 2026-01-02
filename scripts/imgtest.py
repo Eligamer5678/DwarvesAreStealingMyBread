@@ -9,6 +9,8 @@ pixel color changes while traversing top-left → bottom-right. Transparent pixe
 rendered as an invisible, same-width blank (space by default) and do not trigger tag
 changes.
 
+this is to make images for a specific game chat
+
 Usage:
   python3 imgtest.py [path_to_image] [size]
 

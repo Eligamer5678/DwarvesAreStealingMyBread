@@ -10,6 +10,16 @@
                 "hardness":0.75
             }
         },
+        "limestone":{
+            "texture":{
+                "tilemap":"ores",
+                "pos":[0,0]
+            },
+            "data":{
+                "mode":"solid",
+                "hardness":0.75
+            }
+        },
         "rotirock":{
             "texture":{
                 "tilemap":"ores",
@@ -17,7 +27,7 @@
             },
             "data":{
                 "mode":"solid",
-                "hardness":50
+                "hardness":15
             }
         },
         "briocheoid":{
@@ -37,7 +47,7 @@
             },
             "data":{
                 "mode":"solid",
-                "hardness":20
+                "hardness":30
             }
         },
         "breadstone":{
@@ -47,7 +57,7 @@
             },
             "data":{
                 "mode":"solid",
-                "hardness":10
+                "hardness":30
             }
         },
         "salt":{
@@ -77,7 +87,7 @@
             },
             "data":{
                 "mode":"solid",
-                "hardness":100
+                "hardness":4
             }
         },
         "sand":{
@@ -413,6 +423,226 @@
             "data":{
                 "mode":"anvil",
                 "hardness":5
+            }
+        },
+        "furnace":{
+            "texture":{
+                "tilemap":"furnace",
+                "pos":[0,0]
+            },
+            "data":{
+                "mode":"furnace",
+                "hardness":2
+            }
+        },
+        "stick":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[1,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "briocheoid_rock":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[0,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "tortila":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[2,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "charcoal":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[4,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "bucket":{
+            "texture":{
+                "tilemap":"bucket",
+                "pos":[0,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "water_bucket":{
+            "texture":{
+                "tilemap":"bucket",
+                "pos":[1,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "water":{
+            "texture":{
+                "tilemap":"water",
+                "pos":[0,0]
+            },
+            "data":{
+                "mode":"water",
+                "hardness":0.2
+            }
+        },
+        "boiling_water_bucket":{
+            "texture":{
+                "tilemap":"bucket",
+                "pos":[2,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "egg":{
+            "texture":{
+                "tilemap":"egg",
+                "pos":[0,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "cracked_egg":{
+            "texture":{
+                "tilemap":"egg",
+                "pos":[1,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "baking_soda":{
+            "texture":{
+                "tilemap":"ingredients",
+                "pos":[0,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "baking_powder":{
+            "texture":{
+                "tilemap":"ingredients",
+                "pos":[1,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "flour":{
+            "texture":{
+                "tilemap":"ingredients",
+                "pos":[2,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "salt_powder":{
+            "texture":{
+                "tilemap":"ingredients",
+                "pos":[3,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "soda_ash":{
+            "texture":{
+                "tilemap":"ingredients",
+                "pos":[4,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "sugar":{
+            "texture":{
+                "tilemap":"ingredients",
+                "pos":[5,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "brown_sugar":{
+            "texture":{
+                "tilemap":"ingredients",
+                "pos":[6,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "butter":{
+            "texture":{
+                "tilemap":"ingredients",
+                "pos":[7,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "vanilla_extract":{
+            "texture":{
+                "tilemap":"ingredients",
+                "pos":[8,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "milk":{
+            "texture":{
+                "tilemap":"ingredients",
+                "pos":[9,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "pound_cake":{
+            "texture":{
+                "tilemap":"products",
+                "pos":[0,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
             }
         }
     }

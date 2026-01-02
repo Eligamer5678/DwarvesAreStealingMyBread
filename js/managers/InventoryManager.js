@@ -40,9 +40,47 @@ export default class InventoryManager{
         this.player.onEdit.connect((slotIndex, amount, itemName) => {
             try {
                 // PICKUP / MINED: amount > 0
-                if (amount > 0) {
-                    const name = (itemName && typeof itemName === 'object') ? (itemName.id || itemName.type || null) : itemName;
+                if (amount > 0 ) {
+                    let name = (itemName && typeof itemName === 'object') ? (itemName.id || itemName.type || null) : itemName;
+                    this.player._applySelectedSlot()
                     if (!name) return;
+
+                    // Special-case: if mined water and the hotbar slot contains one or
+                    // more `bucket`s, consume up to `amount` buckets and create
+                    // corresponding `water_bucket` items. If the hotbar slot is
+                    // emptied by consumption, convert that slot in-place to
+                    // `water_bucket` so the same hotbar slot remains used.
+                    if (name === 'water' && amount > 0){
+                        const existingKey = this.getSlotKey('hotbar', slotIndex);
+                        if (existingKey && this.inventory.Inventory && this.inventory.Inventory.has(existingKey)){
+                            const existingEntry = this.inventory.Inventory.get(existingKey);
+                            const existingName = existingEntry && existingEntry.data && (existingEntry.data.tile || existingEntry.data.id || existingEntry.data.coord);
+                            let existingAmt = existingEntry && existingEntry.data && typeof existingEntry.data.amount === 'number' ? existingEntry.data.amount : 1;
+                            if (existingName === 'bucket' && existingAmt > 0){
+                                // determine how many buckets to consume (can't exceed available)
+                                const consume = Math.min(amount, existingAmt);
+                                try{
+                                    if (existingAmt === consume){
+                                        // consumed entire stack: convert this slot in-place to water_bucket
+                                        existingEntry.data.tile = 'water_bucket';
+                                        existingEntry.data.id = 'water_bucket';
+                                        existingEntry.data.amount = consume;
+                                        if (this.inventory.Inventory && this.inventory.Inventory.has(existingKey)) this.inventory.Inventory.set(existingKey, existingEntry);
+                                    } else {
+                                        // decrement bucket stack and add water_buckets into inventory
+                                        existingEntry.data.amount = existingAmt - consume;
+                                        if (this.inventory.Inventory && this.inventory.Inventory.has(existingKey)) this.inventory.Inventory.get(existingKey).data.amount = existingEntry.data.amount;
+                                        try{ this.inventory.addItem('water_bucket', 'inventory', false, 'inventory', consume, true); }catch(e){}
+                                    }
+                                }catch(e){}
+                                this.player._applySelectedSlot();
+                                return;
+                            }
+                        }
+                        this.player._applySelectedSlot();
+                        return;
+                    }
+                    
 
                     // If hotbar slot already contains same item, increment amount
                     const existingKey = this.getSlotKey('hotbar', slotIndex);
@@ -51,6 +89,7 @@ export default class InventoryManager{
                         const existingName = existingEntry && existingEntry.data && (existingEntry.data.tile || existingEntry.data.id || existingEntry.data.coord);
                         if (existingName === name){
                             existingEntry.data.amount = (existingEntry.data.amount || 0) + amount;
+                            this.player._applySelectedSlot()
                             return;
                         }
                     }
@@ -58,6 +97,7 @@ export default class InventoryManager{
                     // Try to place into the quickslot (hotbar) first, fall back to inventory
                     const placed = this.inventory.addItem(name, `hotbar/${slotIndex}`, false, 'inventory', amount,true);
                     if (!placed) this.inventory.addItem(name, 'inventory', false, 'inventory', amount,true);
+                    this.player._applySelectedSlot()
                     return;
                 }
 
@@ -68,11 +108,35 @@ export default class InventoryManager{
                     if (key && this.inventory.Inventory && this.inventory.Inventory.has(key)){
                         const entry = this.inventory.Inventory.get(key);
                         entry.data.amount = (entry.data.amount || 1) + amount; // amount is negative
+                        // If this was a water_bucket placement, convert it to an empty bucket
+                        if (itemName === 'water_bucket'){
+                            // If this consumed the last water_bucket in the slot, replace the slot
+                            // with a bucket entry (so the slot remains usable).
+                            if (entry.data.amount <= 0){
+                                // Instead of deleting the entry and calling addItem (which may
+                                // allocate a new slot elsewhere), convert the existing inventory
+                                // entry in-place to a `bucket` so the same hotbar slot remains used.
+                                try{
+                                    entry.data.tile = 'bucket'; entry.data.id = 'bucket'; entry.data.amount = 1;
+                                    // ensure the entry remains recorded in the Inventory map
+                                    if (this.inventory.Inventory && this.inventory.Inventory.has(key)) this.inventory.Inventory.set(key, entry);
+                                }catch(e){}
+                                this.player._applySelectedSlot();
+                                return;
+                            } else {
+                                // Stack still has water_buckets; decrement already applied.
+                                // Add an empty bucket into the player's inventory (not overwriting hotbar)
+                                try{ this.inventory.addItem('bucket', 'inventory', false, 'inventory', 1, true); }catch(e){}
+                                this.player._applySelectedSlot();
+                                return;
+                            }
+                        }
+                        // Non-bucket default behavior: if slot emptied, clear reference
                         if (entry.data.amount <= 0){
-                            // remove inventory entry and clear slot
-                            this.inventory.Inventory.delete(key);
+                            try{ this.inventory.Inventory.delete(key); }catch(e){}
                             this.setSlotKey('hotbar', slotIndex, "");
                         }
+                        this.player._applySelectedSlot();
                         return;
                     }
 
@@ -98,6 +162,7 @@ export default class InventoryManager{
                     }
                 }
             } catch (e) { /* swallow inventory update errors */ }
+            
         })
         this.inventory = this.player.inventory;
         this.inventory.startup(this.resources)
@@ -122,8 +187,428 @@ export default class InventoryManager{
             timeNeeded: 0
         };
 
+        // Furnace/smelting processor state
+        this.furnaceProcessor = {
+            active: false,
+            recipe: null,
+            progress: 0,
+            timeNeeded: 0,
+            // track which fuel slots were used when starting
+            fuelSlotsUsed: [],
+            // waitingOutput: when a non-auto recipe finishes, we wait for an overburn window
+            waitingOutput: null, // { timer: 0, target: n, recipe: {...} }
+        };
+
         // Mouse drag lifecycle hooks: we'll manage grab/release inside update()
         this.mouse.onEndGrab.connect((pos, button) => { try{ this._handleDrop(button, pos); } catch(e){} });
+    }
+
+    /** Open the furnace UI (3x3 grid + fuel slots + output) */
+    enterFurnace(meta){
+        try{
+            if (!this.furnaceMenu){
+                const center = v(60+this.menu.size.x, 1080/2 - 222);
+                this.furnaceMenu = new Menu(this.mouse, this.keys, center, v(466,582), 3, "#383838ff", true);
+                this.furnaceMenu.passcode = 'Inventory';
+                const bg = new UIRect(v(10,10), v(446,562), 2, "#222222FF");
+                bg.mouse = this.mouse; bg.mask = true;
+                this.furnaceMenu.addElement('bg', bg);
+
+                // 3x3 input grid (reuse sizes from crafting)
+                const slotSize = 128; const spacing = 10;
+                const gridX = 20; const gridY = 20;
+                this.furnaceElems = [];
+                for (let r = 0; r < 3; r++){
+                    for (let c = 0; c < 3; c++){
+                        const idx = r*3 + c;
+                        const x = gridX + c * (slotSize + spacing);
+                        const y = gridY + r * (slotSize + spacing);
+                        const slot = new UISlot(`furnace3x3/${idx}`, new Vector(x, y), new Vector(slotSize, slotSize), 2, "#2a2a2aff");
+                        slot.mouse = this.mouse; slot.passcode = 'Inventory';
+                        this.furnaceMenu.addElement(`furn_slot_${idx}`, slot);
+                        const tile = new UITile(null, new Vector(x+10,y+10), new Vector(slotSize-20, slotSize-20), 3);
+                        tile.mouse = this.mouse;
+                        this.furnaceMenu.addElement(`furn_tile_${idx}`, tile);
+                        this.furnaceElems.push({ slot, tile, index: idx });
+                    }
+                }
+
+                // Output slot
+                const outX = 20;
+                const outY = 434;
+                const outOutline = new UIRect(new Vector(outX, outY), new Vector(slotSize, slotSize),2,"#274e13ff")
+                const outSlot = new UISlot('furnace_output/0', new Vector(outX+7.5, outY+7.5), new Vector(slotSize-15, slotSize-15), 2, "#38761dff");
+                outSlot.mouse = this.mouse; outSlot.passcode = 'Inventory';
+                this.furnaceMenu.addElement('furn_output_outline', outOutline);
+                this.furnaceMenu.addElement('furn_output_slot', outSlot);
+                const outTile = new UITile(null, new Vector(outX+4+7.5, outY+4+7.5), new Vector(slotSize-8-15, slotSize-8-15), 3);
+                outTile.mouse = this.mouse;
+                this.furnaceMenu.addElement('furn_output_tile', outTile);
+                this.furnaceOutputSlot = outSlot; this.furnaceOutputTile = outTile;
+
+                // Timer text below the output (for overburn timing)
+                const timerPos = new Vector(158+64, 444+64);
+                const timerText = new UIText("", timerPos, 2, "#b90303ff", 40, {'baseline':'middle','align':'center'});
+                timerText.mouse = this.mouse;
+                this.furnaceMenu.addElement('furn_timer_text', timerText);
+
+                const burnoutText = new UIText("Overburn", timerPos.sub(v(0,40)), 2, "#030101ff", 20, {'baseline':'middle','align':'center'});
+                this.furnaceMenu.addElement('burnout_text', burnoutText);
+                
+                this.furnaceTimerText = timerText;
+
+                // Progress bar on right (background + foreground)
+                const fX = 434;
+                const pbBg = new UIRect(new Vector(fX, gridY), new Vector(20, 542), 2, '#221100ff'); pbBg.mouse = this.mouse; pbBg.mask = false;
+                const pbFg = new UIRect(new Vector(fX, gridY + 542), new Vector(20, 0), 2, '#ff3300ff'); pbFg.mouse = this.mouse; pbFg.mask = false;
+                this.furnaceMenu.addElement('furn_pb_bg', pbBg);
+                this.furnaceMenu.addElement('furn_pb_fg', pbFg);
+                this.furnaceProgressBg = pbBg; this.furnaceProgressFg = pbFg;
+
+                // register slot groups
+                if (!this.slotGroupElems['furnace3x3']) this.slotGroupElems['furnace3x3'] = [];
+                for (const el of this.furnaceElems) this.slotGroupElems['furnace3x3'].push(el);
+                if (!this.slotGroupElems['furnace_output']) this.slotGroupElems['furnace_output'] = [];
+                this.slotGroupElems['furnace_output'].push({ slot: outSlot, tile: outTile, border: null, index: 0 });
+
+                try{ this.mainUI.menu.addElement('furnacePopup', this.furnaceMenu); }catch(e){}
+            }
+            this.furnaceMenu.visible = true;
+            // ensure inventory has furnace groups
+            if (!this.inventory.slots['furnace3x3']) this.inventory.slots['furnace3x3'] = new Array(9).fill("");
+            if (!this.inventory.slots['furnace_output']) this.inventory.slots['furnace_output'] = new Array(1).fill("");
+            this.updateFurnacePreview();
+        }catch(e){}
+        try{ this.furnaceMenu.pos.x = 60+this.menu.size.x; this.furnaceMenu.pos.y = 1080/2 - 222; this.furnaceMenu.addOffset(this.furnaceMenu.offset); }catch(e){}
+    }
+
+    exitFurnace(){ try{ if (this.furnaceMenu) this.furnaceMenu.visible = false; }catch(e){} }
+
+    /** Build simple list of item ids in the furnace 3x3 grid */
+    _buildFurnaceInputList(){
+        const list = [];
+        try{
+            const arr = this.inventory.slots['furnace3x3'] || new Array(9).fill("");
+            for (let i = 0; i < 9; i++){
+                const key = arr[i];
+                if (key && this.inventory.Inventory && this.inventory.Inventory.has(key)){
+                    const entry = this.inventory.Inventory.get(key);
+                    const id = entry && entry.data && (entry.data.tile || entry.data.id || entry.data.coord) ? (entry.data.tile || entry.data.id || entry.data.coord) : null;
+                    if (id) list.push(id);
+                }
+            }
+        }catch(e){}
+        return list;
+    }
+
+    /** Update furnace output preview and compute possible smelt */
+    updateFurnacePreview(render = true){
+        try{
+            // If there's a materialized output in the furnace output slot, show that first
+            try{
+                const outKey = this.getSlotKey('furnace_output', 0);
+                if (outKey && outKey !== ''){
+                    // If it's an inventory entry, render it; otherwise try to resolve by name
+                    let entry = null;
+                    if (this.inventory.Inventory && this.inventory.Inventory.has(outKey)) entry = this.inventory.Inventory.get(outKey);
+                    if (entry){
+                        const outId = entry && entry.data && (entry.data.tile || entry.data.id || entry.data.coord) ? (entry.data.tile || entry.data.id || entry.data.coord) : null;
+                        const resolved = outId ? this.inventory.getItem(outId) : null;
+                        if (resolved && resolved.sheet){ this.furnaceOutputTile.sheet = resolved.sheet; this.furnaceOutputTile.tile = resolved.data && (resolved.data.tile || resolved.data.coord) ? (resolved.data.tile || resolved.data.coord) : (resolved.data && resolved.data.id ? resolved.data.id : outId); }
+                        else { this.furnaceOutputTile.sheet = resolved ? resolved.sheet : null; this.furnaceOutputTile.tile = outId; }
+                    } else {
+                        // outKey might be a plain id string
+                        const resolved = this.inventory.getItem(outKey) || null;
+                        if (resolved && resolved.sheet){ this.furnaceOutputTile.sheet = resolved.sheet; this.furnaceOutputTile.tile = resolved.data && (resolved.data.tile || resolved.data.coord) ? (resolved.data.tile || resolved.data.coord) : (resolved.data && resolved.data.id ? resolved.data.id : outKey); }
+                        else { this.furnaceOutputTile.sheet = resolved ? resolved.sheet : null; this.furnaceOutputTile.tile = outKey; }
+                    }
+                    // keep displaying the materialized output regardless of input slots
+                    if (render) return;
+                    // if not rendering, still bail out (no recipe computation needed)
+                    this.currentFurnaceRecipe = null;
+                    return;
+                }
+            }catch(e){}
+
+            // If furnace is actively smelting, hide the preview until smelt finishes
+            try{ if (this.furnaceProcessor && this.furnaceProcessor.active){ if (render){ this.furnaceOutputTile.sheet = null; this.furnaceOutputTile.tile = null; } this.currentFurnaceRecipe = null; return; } }catch(e){}
+
+            if (!this.craftingManager) return;
+            const inputs = this._buildFurnaceInputList();
+            // try to find a matching smelting recipe (order-insensitive)
+            let matchRecipe = null;
+            let recipes = null;
+            try{ recipes = (this.craftingManager && this.craftingManager.recipes && this.craftingManager.recipes.smelting) ? this.craftingManager.recipes.smelting : (this.mainUI && this.mainUI.recipes && this.mainUI.recipes.smelting ? this.mainUI.recipes.smelting : null); }catch(e){}
+            if (recipes && Array.isArray(recipes)){
+                for (const r of recipes){
+                    try{
+                        const req = Array.isArray(r.input) ? r.input.flat().filter(v=>v && String(v).trim()!=='') : [];
+                        if (req.length === 0) continue;
+                        // build counts
+                        const needCounts = {};
+                        for (const it of req) needCounts[it] = (needCounts[it]||0)+1;
+                        const haveCounts = {};
+                        for (const it of inputs) haveCounts[it] = (haveCounts[it]||0)+1;
+                        let ok = true;
+                        for (const k of Object.keys(needCounts)){
+                            if (!haveCounts[k] || haveCounts[k] < needCounts[k]){ ok = false; break; }
+                        }
+                        if (ok){ matchRecipe = r; break; }
+                    }catch(e){}
+                }
+            }
+            if (matchRecipe){
+                // Ensure the player has at least the required fuel present in the 3x3 grid
+                try{
+                    const fuelMap = (this.craftingManager && this.craftingManager.recipes && this.craftingManager.recipes.fuel) ? this.craftingManager.recipes.fuel : (this.mainUI && this.mainUI.recipes && this.mainUI.recipes.fuel ? this.mainUI.recipes.fuel : {});
+                    const furnaceArr = this.inventory.slots['furnace3x3'] || [];
+                    let usedFuelCount = 0;
+                    for (let i = 0; i < (furnaceArr.length||0); i++){
+                        try{
+                            const key = furnaceArr[i];
+                            let id = null;
+                            if (this.inventory.Inventory && this.inventory.Inventory.has(key)){
+                                const entry = this.inventory.Inventory.get(key);
+                                id = entry && entry.data && (entry.data.tile || entry.data.id || entry.data.coord) ? (entry.data.tile || entry.data.id || entry.data.coord) : null;
+                            } else if (typeof key === 'string' && String(key).trim() !== ''){
+                                id = key;
+                            }
+                            if (id && fuelMap && fuelMap[id]) usedFuelCount++;
+                        }catch(e){}
+                    }
+                    const reqFuel = (matchRecipe && Array.isArray(matchRecipe.fuel)) ? matchRecipe.fuel.length : 1;
+                    if (usedFuelCount < reqFuel){
+                        // not enough fuel -> do not show recipe preview
+                        this.currentFurnaceRecipe = null;
+                        if (render){ this.furnaceOutputTile.sheet = null; this.furnaceOutputTile.tile = null; }
+                        return;
+                    }
+                }catch(e){}
+                // store recipe for potential starting; only render visuals if requested
+                this.currentFurnaceRecipe = matchRecipe;
+                if (render){
+                    const out = matchRecipe.output;
+                    const resolved = this.inventory.getItem ? this.inventory.getItem(out) : null;
+                    if (resolved && resolved.sheet){ this.furnaceOutputTile.sheet = resolved.sheet; this.furnaceOutputTile.tile = resolved.data && (resolved.data.tile || resolved.data.coord) ? (resolved.data.tile || resolved.data.coord) : (resolved.data && resolved.data.id ? resolved.data.id : out); }
+                    else { this.furnaceOutputTile.sheet = resolved ? resolved.sheet : null; this.furnaceOutputTile.tile = out; }
+                }
+                // compute how many can be smelted given inputs
+                try{ // count min available
+                    const req = Array.isArray(matchRecipe.input) ? matchRecipe.input.flat().filter(v=>v && String(v).trim()!=='') : [];
+                    if (req.length > 0){
+                        const needCounts = {};
+                        for (const it of req) needCounts[it] = (needCounts[it]||0)+1;
+                        // compute available per required
+                        let craftMax = Infinity;
+                        for (const k of Object.keys(needCounts)){
+                            let avail = 0;
+                            for (const key of (this.inventory.slots['furnace3x3']||[])){
+                                if (key && this.inventory.Inventory && this.inventory.Inventory.has(key)){
+                                    const e = this.inventory.Inventory.get(key);
+                                    const id = e && e.data && (e.data.tile || e.data.id || e.data.coord) ? (e.data.tile || e.data.id || e.data.coord) : null;
+                                    if (id === k) avail += (e.data && e.data.amount) ? e.data.amount : 1;
+                                }
+                            }
+                            craftMax = Math.min(craftMax, Math.floor(avail / needCounts[k]));
+                        }
+                        if (render) this.furnaceOutputTile.data = this.furnaceOutputTile.data || {}; this.furnaceOutputTile.data.amount = (matchRecipe.amount || 1) * (isFinite(craftMax) ? craftMax : 0);
+                    }
+                }catch(e){}
+            } else {
+                if (render){ this.furnaceOutputTile.sheet = null; this.furnaceOutputTile.tile = null; }
+                this.currentFurnaceRecipe = null;
+            }
+        }catch(e){}
+    }
+
+    /** Internal: start smelting process if possible */
+    _tryStartFurnace(){
+        try{
+            if (!this.currentFurnaceRecipe || !this.furnaceMenu || !this.furnaceMenu.visible) return;
+            // ensure output slot empty
+            const outKey = this.getSlotKey('furnace_output', 0);
+            if (outKey && outKey !== '') {
+                return; // can't start if output occupied
+            }
+            // count fuel slots used from the 3x3 grid (any slot holding a fuel item counts)
+            const furnaceArr = this.inventory.slots['furnace3x3'] || [];
+            let used = 0; const usedIdx = [];
+            const fuelMap = (this.craftingManager && this.craftingManager.recipes && this.craftingManager.recipes.fuel) ? this.craftingManager.recipes.fuel : (this.mainUI && this.mainUI.recipes && this.mainUI.recipes.fuel ? this.mainUI.recipes.fuel : {});
+            for (let i = 0; i < (furnaceArr.length||0); i++){
+                try{
+                    const key = furnaceArr[i];
+                    if (!key) { continue; }
+                    let id = null;
+                    let entry = null;
+                    if (this.inventory.Inventory && this.inventory.Inventory.has(key)){
+                        entry = this.inventory.Inventory.get(key);
+                        id = entry && entry.data && (entry.data.tile || entry.data.id || entry.data.coord) ? (entry.data.tile || entry.data.id || entry.data.coord) : null;
+                    } else {
+                        // fallback: slot may contain a plain item id string (not an inventory key)
+                        if (typeof key === 'string' && String(key).trim() !== ''){
+                            id = key;
+                        }
+                    }
+                    if (!id) continue;
+                    if (fuelMap && fuelMap[id]){ used++; usedIdx.push(i) }
+                }catch(e){}
+            }
+            const reqFuel = (this.currentFurnaceRecipe && Array.isArray(this.currentFurnaceRecipe.fuel)) ? this.currentFurnaceRecipe.fuel.length : 1;
+  
+            if (used < reqFuel) return; // not enough fuel
+            // compute timeNeeded = recipe.power / (used/reqFuel)
+            const base = (this.currentFurnaceRecipe && typeof this.currentFurnaceRecipe.power === 'number') ? this.currentFurnaceRecipe.power : 1;
+            const speedMul = Math.max(1, used / Math.max(1, reqFuel));
+            this.furnaceProcessor.timeNeeded = base / speedMul;
+            this.furnaceProcessor.progress = 0;
+            this.furnaceProcessor.recipe = this.currentFurnaceRecipe;
+            this.furnaceProcessor.fuelSlotsUsed = usedIdx.slice();
+            this.furnaceProcessor.active = true;
+            // reset visual progress bar immediately so it doesn't appear full
+            try{
+                const bg = this.furnaceProgressBg; const fg = this.furnaceProgressFg;
+                if (bg && fg){
+                    fg.size = new Vector(bg.size.x, 0);
+                    fg.pos = new Vector(bg.pos.x, bg.pos.y + (bg.size ? bg.size.y : 200));
+                }
+            }catch(e){}
+        }catch(e){}
+    }
+
+    /** Internal: process furnace over time */
+    _processFurnace(delta){
+        try{
+            if (!this.furnaceProcessor.active) return;
+            this.furnaceProcessor.progress += delta;
+            // update progress bar height (inverse: show remaining time)
+            try{
+                const bg = this.furnaceProgressBg; const fg = this.furnaceProgressFg;
+                if (bg && fg){
+                    const totalH = bg.size ? bg.size.y : 200;
+                    const t = Math.min(1, Math.max(0, this.furnaceProcessor.progress / (this.furnaceProcessor.timeNeeded || 1)));
+                    // fill from bottom up
+                    fg.pos = new Vector(bg.pos.x, bg.pos.y + (totalH * (1 - t)));
+                    fg.size = new Vector(bg.size.x, Math.max(1, Math.floor(totalH * t)));
+                    // color interpolates from red -> orange
+                    fg.color = '#ff3300ff';
+                }
+            }catch(e){}
+            if (this.furnaceProcessor.progress >= (this.furnaceProcessor.timeNeeded || 0)){
+                // attempt to materialize output
+                try{
+                    const recipe = this.furnaceProcessor.recipe;
+                    if (!recipe) return;
+                    // roll burn chance: if used > required then burnChance = 1/used else 0
+                    const used = (this.furnaceProcessor.fuelSlotsUsed || []).length;
+                    const reqFuel = (Array.isArray(recipe.fuel) ? recipe.fuel.length : 1);
+                    const burnChance = (used > reqFuel) ? (1 / used) : 0;
+                    // If recipe.auto is true, directly move result into player's inventory
+                    const isAuto = !!recipe.auto;
+                    let placed = false;
+                    if (isAuto){
+                        placed = this.inventory.addItem(recipe.output, 'inventory', false, 'inventory', recipe.amount || 1, true);
+                    } else {
+                        placed = this.inventory.addItem(recipe.output, 'furnace_output/0', false, 'inventory', recipe.amount || 1);
+                    }
+                    // consume inputs regardless; inputs consumed per recipe amounts
+                    try{
+                        const req = Array.isArray(recipe.input) ? recipe.input.flat().filter(v=>v && String(v).trim()!=='') : [];
+                        if (req.length > 0){
+                            const needCounts = {};
+                            for (const it of req) needCounts[it] = (needCounts[it]||0)+1;
+                            // decrement from furnace3x3 slots
+                            const slotsArr = this.inventory.slots['furnace3x3'] || [];
+                            for (const k of Object.keys(needCounts)){
+                                let need = needCounts[k];
+                                for (let i = 0; i < (slotsArr.length||0) && need > 0; i++){
+                                    const key = slotsArr[i];
+                                    if (!key || !this.inventory.Inventory || !this.inventory.Inventory.has(key)) continue;
+                                    const entry = this.inventory.Inventory.get(key);
+                                    const id = entry && entry.data && (entry.data.tile || entry.data.id || entry.data.coord) ? (entry.data.tile || entry.data.id || entry.data.coord) : null;
+                                    if (id !== k) continue;
+                                    // reduce amount by 1 per consumed unit
+                                    entry.data.amount = (entry.data.amount || 1) - 1;
+                                    need--;
+                                    if (entry.data.amount <= 0){ this.inventory.Inventory.delete(key); this.setSlotKey('furnace3x3', i, ""); }
+                                    else if (this.inventory.Inventory.has(key)) this.inventory.Inventory.get(key).data.amount = entry.data.amount;
+                                }
+                            }
+                        }
+                    }catch(e){}
+                    // handle burn: if burn occurs, remove output entry
+                    try{
+                        if (placed){
+                            const roll = Math.random();
+                            if (roll < burnChance){
+                                // remove placed output
+                                try{
+                                    if (isAuto){
+                                        // remove last added inventory entry by searching for matching item at end
+                                        // fallback: no-op
+                                    } else {
+                                        this.inventory.Inventory.delete(this.getSlotKey('furnace_output',0));
+                                        this.setSlotKey('furnace_output', 0, '');
+                                    }
+                                }catch(e){}
+                            }
+                        }
+                    }catch(e){}
+                    // If not auto, start waiting window for overburn if placed successfully
+                    try{
+                        if (!isAuto && placed){
+                            const outKey = this.getSlotKey('furnace_output', 0);
+                            const over = (recipe && typeof recipe.overburn === 'number') ? recipe.overburn : null;
+                            this.furnaceProcessor.waitingOutput = { timer: 0, target: over, recipe: recipe, outKey: outKey };
+                            // show initial timer
+                            try{ if (this.furnaceTimerText) this.furnaceTimerText.text = "0"; }catch(e){}
+                        }
+                    }catch(e){}
+                    // consume fuel slots based on fuel power chance
+                    try{
+                        // lookup fuel powers from recipes.fuel map
+                        const fuelMap = (this.craftingManager && this.craftingManager.recipes && this.craftingManager.recipes.fuel) ? this.craftingManager.recipes.fuel : (this.mainUI && this.mainUI.recipes && this.mainUI.recipes.fuel ? this.mainUI.recipes.fuel : {});
+                        for (const idx of (this.furnaceProcessor.fuelSlotsUsed || [])){
+                            try{
+                                const key = (this.inventory.slots['furnace3x3'] && this.inventory.slots['furnace3x3'][idx]) ? this.inventory.slots['furnace3x3'][idx] : null;
+                                if (!key) continue;
+                                // If slot holds an inventory entry key
+                                if (this.inventory.Inventory && this.inventory.Inventory.has(key)){
+                                    const entry = this.inventory.Inventory.get(key);
+                                    const id = entry && entry.data && (entry.data.tile || entry.data.id || entry.data.coord) ? (entry.data.tile || entry.data.id || entry.data.coord) : null;
+                                    const fp = (fuelMap && fuelMap[id]) ? Number(fuelMap[id]) : 0;
+                                    if (fp <= 0 || fp < (recipe.power || 0)){
+                                        // always consumed
+                                        entry.data.amount = (entry.data.amount || 1) - 1;
+                                    } else {
+                                        const chanceConsume = Math.min(1, (recipe.power || 0) / fp);
+                                        if (Math.random() < chanceConsume) entry.data.amount = (entry.data.amount || 1) - 1;
+                                    }
+                                    if (entry.data.amount <= 0){ this.inventory.Inventory.delete(key); this.setSlotKey('furnace3x3', idx, ''); }
+                                    else if (this.inventory.Inventory.has(key)) this.inventory.Inventory.get(key).data.amount = entry.data.amount;
+                                } else {
+                                    // Slot contains a plain id/name — consume as a single item and clear the slot
+                                    try{ this.setSlotKey('furnace3x3', idx, ''); }catch(e){}
+                                }
+                            }catch(e){}
+                        }
+                    }catch(e){}
+                }catch(e){ console.warn('furnace smelt failed', e); }
+                // reset processor
+                this.furnaceProcessor.active = false; this.furnaceProcessor.recipe = null; this.furnaceProcessor.progress = 0; this.furnaceProcessor.timeNeeded = 0; this.furnaceProcessor.fuelSlotsUsed = [];
+                // If we placed an auto result, try to restart immediately (the update loop will also attempt)
+                try{ if (recipe && recipe.auto){ this.updateFurnacePreview(false); if (!this.furnaceProcessor.active) this._tryStartFurnace(); } }catch(e){}
+                // reset visual progress bar so it doesn't remain full
+                try{
+                    const bg = this.furnaceProgressBg; const fg = this.furnaceProgressFg;
+                    if (bg && fg){
+                        fg.size = new Vector(bg.size.x, 0);
+                        fg.pos = new Vector(bg.pos.x, bg.pos.y + (bg.size ? bg.size.y : 200));
+                    }
+                }catch(e){}
+                try{ this.syncSlotsWithPlayer(); }catch(e){}
+                try{ this.updateFurnacePreview(); }catch(e){}
+            }
+        }catch(e){}
     }
 
     /** Return an Inventory entry by inventory key (e.g. "stone_1") */
@@ -475,15 +960,29 @@ export default class InventoryManager{
     open(meta){
         try{ 
             this.menu.visible = true; 
+            // Default menu placement
             this.menu.pos.x = 488
             this.menu.pos.y = 180
+            // If opening the inventory specifically for a furnace, move the base
+            // inventory left so the furnace popup can be positioned to the right.
+            if (meta && meta.type === 'furnace'){
+                try{ this.menu.pos.x = 60; }catch(e){}
+            }
             this.menu.addOffset(this.menu.offset)
         }catch(e){}
         try{ this.keys.focus('Inventory'); this.mouse.focus('Inventory'); }catch(e){}
         // if meta requests crafting, enter crafting, otherwise ensure crafting is off
         try{
-            if (meta && meta.type && this.craftingManager) this.enterCrafting(meta);
-            else this.exitCrafting();
+            if (meta && meta.type){
+                // route by type: anvil -> crafting, furnace -> smelting UI
+                if (meta.type === 'furnace') {
+                    try{ this.enterFurnace(meta); }catch(e){ this.exitCrafting(); }
+                } else if (this.craftingManager) {
+                    try{ this.enterCrafting(meta); }catch(e){ this.exitCrafting(); }
+                } else this.exitCrafting();
+            } else {
+                this.exitCrafting();
+            }
         }catch(e){}
         
         // Reorder inventory items in the menu so they draw after (on top of) slots
@@ -501,7 +1000,9 @@ export default class InventoryManager{
     close(){
         try{ this.menu.visible = false; }catch(e){}
         try{ this.exitCrafting(); }catch(e){}
+        try{ this.exitFurnace(); }catch(e){}
         try{ this.keys.unfocus(); this.mouse.unfocus(); }catch(e){}
+        this.player._applySelectedSlot()
     }
 
     /**
@@ -515,6 +1016,7 @@ export default class InventoryManager{
         }catch(e){
             // fallback: invert visible
             try{ this.menu.visible = !(this.menu.visible); }catch(e){}
+            try{ if (this.menu && !this.menu.visible) this.exitFurnace(); }catch(e){}
         }
     }
 
@@ -814,9 +1316,17 @@ export default class InventoryManager{
 
         // If no target, just cancel (no movement)
         if (!hit){
-            // if we had materialized the output for this drag, undo it (remove created entry)
+            // If the drag originated from the crafting `output` slot and the player
+            // dropped into an invalid area, cancel the drag but keep the
+            // materialized output and inputs intact (do not delete).
             try{
-                if (this._craftMaterialized && this._craftMaterialized.key === this.drag.key){
+                const srcGroup = this.drag && this.drag.source ? this.drag.source.group : null;
+                if (!(this._craftMaterialized && this._craftMaterialized.key === this.drag.key && srcGroup !== 'output')){
+                    // Only undo materialization if it was created and the drag did NOT
+                    // originate from the `output` slot. This preserves materialized
+                    // crafted items when the user cancels the drag by dropping
+                    // outside a valid target.
+                } else {
                     try{ this.inventory.Inventory.delete(this.drag.key); }catch(e){}
                     try{ this.setSlotKey(this._craftMaterialized.group, this._craftMaterialized.index, ""); }catch(e){}
                     this._craftMaterialized = null;
@@ -829,6 +1339,31 @@ export default class InventoryManager{
 
         const srcGroup = this.drag.source.group; const srcIndex = this.drag.source.index;
         const dstGroup = hit.group; const dstIndex = hit.index;
+        // If the drag originated from the furnace output and a waitingOutput exists,
+        // enforce the overburn timing rule: only allow pickup when rounded timer === target.
+        if (srcGroup === 'furnace_output' && this.furnaceProcessor && this.furnaceProcessor.waitingOutput){
+            try{
+                const w = this.furnaceProcessor.waitingOutput;
+                const rounded = Math.round(w.timer || 0);
+                const target = w.target;
+                if (typeof target === 'number'){
+                    if (rounded === target){
+                        // success: clear waiting state and allow normal drop to proceed
+                        this.furnaceProcessor.waitingOutput = null;
+                        try{ if (this.furnaceTimerText) this.furnaceTimerText.text = ""; }catch(e){}
+                    } else {
+                        // failure (too early or too late): remove furnace output and cancel drag
+                        try{ const outKey = this.getSlotKey('furnace_output',0); if (outKey) this.inventory.Inventory.delete(outKey); }catch(e){}
+                        try{ this.setSlotKey('furnace_output', 0, ''); }catch(e){}
+                        this.furnaceProcessor.waitingOutput = null;
+                        try{ if (this.furnaceTimerText) this.furnaceTimerText.text = ""; }catch(e){}
+                        try{ this.syncSlotsWithPlayer(); }catch(e){}
+                        this.drag.active = false; this.drag.key = null; this.drag.entry = null; this.drag.amount = 0;
+                        return;
+                    }
+                }
+            }catch(e){}
+        }
         // Prevent dragging arbitrary items into the crafting output slot.
         // Only allow drops into `output` if the source was also `output` (i.e., internal moves).
         if (dstGroup === 'output' && srcGroup !== 'output'){
@@ -1008,17 +1543,19 @@ export default class InventoryManager{
                     try{
                         // If this is the crafting output group and we have a preview recipe,
                         // show the preview even when no actual inventory entry is present.
-                        if (groupName === 'output' && this.craftingMenu && this.craftingMenu.visible && this.currentRecipe){
+                        if ((groupName === 'output' && this.craftingMenu && this.craftingMenu.visible && this.currentRecipe) ||
+                            (groupName === 'furnace_output' && this.furnaceMenu && this.furnaceMenu.visible && this.currentFurnaceRecipe)){
                             const out = this.currentRecipe.output;
-                            const resolved = this.inventory.getItem ? this.inventory.getItem(out) : null;
+                            const recipeOut = (groupName === 'output') ? (this.currentRecipe && this.currentRecipe.output) : (this.currentFurnaceRecipe && this.currentFurnaceRecipe.output);
+                            const resolved = this.inventory.getItem ? this.inventory.getItem(recipeOut) : null;
                             if (resolved && resolved.sheet){
                                 elem.tile.sheet = resolved.sheet;
-                                elem.tile.tile = resolved.data && (resolved.data.tile || resolved.data.coord) ? (resolved.data.tile || resolved.data.coord) : (resolved.data && resolved.data.id ? resolved.data.id : out);
+                                elem.tile.tile = resolved.data && (resolved.data.tile || resolved.data.coord) ? (resolved.data.tile || resolved.data.coord) : (resolved.data && resolved.data.id ? resolved.data.id : recipeOut);
                             } else {
                                 elem.tile.sheet = resolved ? resolved.sheet : null;
-                                elem.tile.tile = out;
+                                elem.tile.tile = recipeOut;
                             }
-                            elem.tile.data = elem.tile.data || {}; elem.tile.data.amount = this.currentRecipe.amount || 1;
+                            elem.tile.data = elem.tile.data || {}; elem.tile.data.amount = (groupName === 'output' ? (this.currentRecipe && this.currentRecipe.amount) : (this.currentFurnaceRecipe && this.currentFurnaceRecipe.amount)) || 1;
                         } else {
                             elem.tile.sheet = null; elem.tile.tile = null; elem.tile.data = elem.tile.data || {}; elem.tile.data.amount = 0;
                         }
@@ -1134,6 +1671,50 @@ export default class InventoryManager{
         // process dwarf converter slot progress
         this.syncSlotsWithPlayer();
         if (this.craftingMenu && this.craftingMenu.visible) this.updateCraftPreview();
+        if (this.furnaceMenu && this.furnaceMenu.visible) {
+            // compute recipe/state first without rendering to avoid one-frame preview flicker
+            this.updateFurnacePreview(false);
+            if (!this.furnaceProcessor.active) this._tryStartFurnace();
+            try{ this._processFurnace(delta); }catch(e){}
+            // render preview after trying to start / processing so visuals match state
+            this.updateFurnacePreview(true);
+            // Process waitingOutput timer (for non-auto recipes)
+            try{
+                const w = this.furnaceProcessor && this.furnaceProcessor.waitingOutput;
+                if (w){
+                    w.timer += delta;
+                    const rounded = Math.round(w.timer);
+                    try{ if (this.furnaceTimerText) this.furnaceTimerText.text = String(rounded); }catch(e){}
+                    // If we've passed the target (rounded greater than target), the item burns
+                    if (typeof w.target === 'number'){
+                        if (rounded > w.target){
+                            // Instead of deleting immediately (which teaches exact timing),
+                            // set a randomized burn deadline 10-20 seconds beyond current time
+                            // on first pass. If the deadline has been reached, then delete.
+                            try{
+                                if (typeof w.burnDeadline !== 'number'){
+                                    // random extra seconds between 10 and 20 (inclusive)
+                                    const extra = 10 + Math.floor(Math.random() * 11);
+                                    w.burnDeadline = w.timer + extra;
+                                    // Optionally store the extra for debugging
+                                    w._burnExtra = extra;
+                                }
+                                if (typeof w.burnDeadline === 'number' && w.timer >= w.burnDeadline){
+                                    // delete the furnace output after randomized deadline
+                                    try{ const outKey = this.getSlotKey('furnace_output',0); if (outKey) this.inventory.Inventory.delete(outKey); }catch(e){}
+                                    try{ this.setSlotKey('furnace_output', 0, ''); }catch(e){}
+                                    this.furnaceProcessor.waitingOutput = null;
+                                    try{ if (this.furnaceTimerText) this.furnaceTimerText.text = ""; }catch(e){}
+                                    try{ this.syncSlotsWithPlayer(); }catch(e){}
+                                }
+                            }catch(e){}
+                        }
+                    } else {
+                        // no target specified -> just show timer, no auto-burn
+                    }
+                }
+            }catch(e){}
+        }
         // Start drag when mouse pressed over a slot (if not already dragging)
         const pass = this.menu.passcode;
         if (this.mouse.pressed('left', pass)){

@@ -340,6 +340,9 @@ export default class Dwarf extends Sprite {
             // input: -1 up, +1 down
             this.vlos.y = env * this.climbSpeed;
             this.onGround = 0;
+            if(this.onLadder === 'water'){
+                this.vlos.y += this.gravity * delta 
+            }
         } else {
             // apply gravity (downwards positive)
             this.vlos.y += this.gravity * delta;
@@ -366,14 +369,14 @@ export default class Dwarf extends Sprite {
         // If in build mode and space was pressed, place the selected item at target
         // Special-case: when placing ladders, place at the dwarf's position
         // and allow holding space to repeat placements.
-        if (buildModeActive && this.selected.type === 'ladder') {
+        if (buildModeActive && (this.selected.type === 'ladder'||this.selected.type === 'water')) {
             if (this.keys.held(' ')) {
                 if (this._ladderPlaceCooldown === undefined) this._ladderPlaceCooldown = 0;
                 this._ladderPlaceCooldown -= delta;
                 if (this._ladderPlaceCooldown <= 0 && !this.blockMined) {
                     const cx = this.pos.x + this.size.x * 0.5;
                     const cy = this.pos.y + this.size.y * 0.5;
-                    const placed = this.buildAtWorld(cx, cy, 'ladder', { allowOverlap: true });
+                    const placed = this.buildAtWorld(cx, cy, this.selected.type, { allowOverlap: true });
                     if (this.keys.pressed(' ')) this.blockPlaced = placed;
                     if (placed) {
                         this.blockPlaced = true;
@@ -392,7 +395,7 @@ export default class Dwarf extends Sprite {
             if (this.keys.pressed(' ') && !this.blockMined) {
                 const cx = this.pos.x + this.size.x * 0.5;
                 const cy = this.pos.y + this.size.y * 0.5;
-                const placed = this.buildAtWorld(cx, cy, 'ladder', { allowOverlap: true });
+                const placed = this.buildAtWorld(cx, cy, this.selected.type, { allowOverlap: true });
                 if (placed) {
                     this.blockPlaced = true;
                     this.mining = false;
@@ -402,7 +405,7 @@ export default class Dwarf extends Sprite {
             }
         }
 
-        if (buildModeActive && this.selected.type !== 'ladder' && this.miningTarget && (this.keys.held(' ') && this.keys.held('Shift') || this.keys.pressed(' ')) && !this.blockMined) {
+        if (buildModeActive && (this.selected.type !== 'ladder' && this.selected.type !== 'water') && this.miningTarget && (this.keys.held(' ') && this.keys.held('Shift') || this.keys.pressed(' ')) && !this.blockMined) {
             let placed = this.buildAtWorld(this.miningTarget.worldPos.x + this.chunkManager.noiseTileSize*0.5, this.miningTarget.worldPos.y + this.chunkManager.noiseTileSize*0.5, this.selected.type);
             if(this.keys.pressed(' ')) {
                 this.blockPlaced = placed;
@@ -472,7 +475,6 @@ export default class Dwarf extends Sprite {
             }
         })
 
-
     }
     /**
      * Get the player position
@@ -508,7 +510,11 @@ export default class Dwarf extends Sprite {
         try {
             // remove tile (set to null / air)
             // In creative mode we do not modify the player's inventory.
+            if (cur.id==='water'&&(this.selected.amount <= 0 || (this.selected.type !== 'water_bucket'&&this.selected.type !== 'bucket'))){
+                return false;
+            }
             if (!this.creative) this.onEdit.emit(this.selectedSlot,1,cur)
+            this._applySelectedSlot()
             this.chunkManager.setTileValue(sx, sy, null, layer);
             // optional: notify lighting/chunk updates elsewhere
             this.scene.lighting.markDirty();
@@ -520,7 +526,6 @@ export default class Dwarf extends Sprite {
 
     buildAtWorld(worldX, worldY, blockId, opts = {}) {
         const { sx, sy } = this._worldToSample(worldX, worldY);
-
         // Prevent placing a block in any tile overlapped by the dwarf's bounding box
         const ts = this.chunkManager.noiseTileSize;
         const left = this.pos.x + 4;
@@ -542,6 +547,9 @@ export default class Dwarf extends Sprite {
 
         // Build tile value with rotation and invert if they are non-default
         let tileValue = blockId;
+        let name = null;
+        if (this.selected.type === 'water_bucket') {tileValue = "water"; name = 'water_bucket';}
+
         if (this.selected.rot !== 0 || this.selected.invert !== false) {
             tileValue = { id: blockId };
             if (this.selected.rot !== 0) tileValue.rot = this.selected.rot;
@@ -550,7 +558,8 @@ export default class Dwarf extends Sprite {
 
         this.chunkManager.setTileValue(sx, sy, tileValue, layer);
         // In creative mode do not consume items from inventory
-        if (!this.creative) this.onEdit.emit(this.selectedSlot,-1)
+        if (!this.creative) this.onEdit.emit(this.selectedSlot,-1,name)
+        this._applySelectedSlot()
         this.scene.lighting.markDirty();
 
         return true;
@@ -644,7 +653,7 @@ export default class Dwarf extends Sprite {
                 if (!maybeTile || !maybeTile.id) { this.miningProgress = 0; this._lastMiningKey = null; this._activeMiningLayer = null; return; }
                 // If player is holding Shift and interacting with an anvil, emit craft signal instead of mining
                 try{
-                    if (maybeTile && maybeTile.id === 'anvil' && this.keys.held('Shift')){
+                    if (maybeTile && (maybeTile.id === 'anvil' || maybeTile.id === 'furnace') && this.keys.held('Shift')){
                         try{ this.onCraft.emit(this.miningTarget, maybeTile); }catch(e){}
                         this.miningProgress = 0;
                         this._lastMiningKey = null;

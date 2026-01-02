@@ -1249,13 +1249,24 @@ export default class ChunkManager {
 
         // Group tiles by properties
         const groups = this.sortChunk(chunk);
+        // Start with a full-chunk 'air' region so mined/cleared tiles
+        // (which are stored as empty/air and therefore omitted by
+        // `sortChunk`) are preserved when saving. Subsequent regions
+        // will override this baseline.
         const regions = [];
+        try{
+            const w = (chunk.width && Number.isFinite(chunk.width)) ? chunk.width : this.chunkSize;
+            const h = (chunk.height && Number.isFinite(chunk.height)) ? chunk.height : this.chunkSize;
+            regions.push({ region: [[0,0],[Math.max(0,w-1), Math.max(0,h-1)]], block_type: 'air' });
+            // reflect that we've emitted 'air' so compacting logic knows the
+            // previous block_type (we'll set prevBlockType below after vars)
+        }catch(e){}
 
         // Emit regions but compress repeated fields to mimic the compact
         // inheritance used by `_generateChunkJSON`. We track previous
         // emitted values and only include `block_type`, `layer`, or
         // `special` when they change.
-        let prevBlockType = null;
+        let prevBlockType = 'air';
         let prevLayer = undefined;
         let prevRot = 0;
         let prevInvert = false;

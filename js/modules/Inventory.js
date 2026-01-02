@@ -8,7 +8,10 @@ export default class Inventory {
             'inventory':new Array(20).fill(""),
             'dwarf':[""],
             'craft3x3': new Array(9).fill(""),
-            'output': new Array(1).fill("")
+            'output': new Array(1).fill(""),
+            // Furnace slots: 3x3 input grid (also acts as fuel source) and single output
+            'furnace3x3': new Array(9).fill(""),
+            'furnace_output': new Array(1).fill("")
         }
         this.Inventory = new Map() //"itemName_itemIndex": slotpath,extra}
         this._nextItemId = 1;
@@ -30,8 +33,17 @@ export default class Inventory {
             const invEmpty = Array.isArray(this.slots.inventory) ? this.slots.inventory.every(isEmptySlot) : true;
             if (hotEmpty && invEmpty && this.Inventory.size === 0) {
                 // give the player an anvil in hotbar slot 0 and some stone in inventory
-                try { this.addItem('anvil', 'hotbar/0', true, 'inventory', 1); } catch (e){}
-                try { this.addItem('stone', 'inventory', false, 'inventory', 16); } catch (e){}
+                this.addItem('anvil', 'hotbar', true, 'inventory', 64);
+                this.addItem('coal', 'inventory', true, 'inventory', 64);
+                this.addItem('furnace', 'hotbar', false, 'inventory', 64);
+                this.addItem('bucket', 'hotbar', false, 'inventory', 5);
+                this.addItem('water_bucket', 'hotbar', false, 'inventory', 5);
+
+                this.addItem('egg', 'inventory', false, 'inventory', 64);
+                this.addItem('butter', 'inventory', false, 'inventory', 64);
+                this.addItem('sugar', 'inventory', false, 'inventory', 64);
+                this.addItem('vanilla_extract', 'inventory', false, 'inventory', 64);
+                this.addItem('flour', 'inventory', false, 'inventory', 64);
             }
         } catch (e) {}
     }

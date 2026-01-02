@@ -68,7 +68,7 @@ export default class CollisionSystem {
         for (let sy = topSample; sy <= bottomSample; sy++) {
             for (let sx = minSx; sx <= maxSx; sx++) {
                 const tile = this.chunkManager.getTileValue(sx, sy);
-                if (!tile || tile.type !== 'ladder') continue;
+                if (!tile || (tile.type !== 'ladder'&& tile.type !== 'water')) continue;
 
                 const tileWorld = new Vector(sx * this.noiseTileSize, sy * this.noiseTileSize);
                 const pPos = sprite.pos.clone();
@@ -76,7 +76,7 @@ export default class CollisionSystem {
                 const res = Geometry.spriteToTile(pPos, pV, sprite.size, tileWorld, tileSizeVec, 0);
 
                 if (res && res.collided) {
-                    return true;
+                    return tile.type;
                 }
             }
         }
