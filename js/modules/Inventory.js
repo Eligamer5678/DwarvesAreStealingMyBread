@@ -44,6 +44,9 @@ export default class Inventory {
                 this.addItem('sugar', 'inventory', false, 'inventory', 64);
                 this.addItem('vanilla_extract', 'inventory', false, 'inventory', 64);
                 this.addItem('flour', 'inventory', false, 'inventory', 64);
+                this.addItem('yeast', 'inventory', false, 'inventory', 64);
+                this.addItem('tomato', 'inventory', false, 'inventory', 64);
+                this.addItem('chedder', 'inventory', false, 'inventory', 64);
             }
         } catch (e) {}
     }

@@ -44,37 +44,13 @@
         },
         "items":{
             "path":"Assets/Tilemaps/items.png",
-            "size":[1,1],
-            "slicePx":16,
-            "layer":"base"
-        },
-        "bucket":{
-            "path":"Assets/Tilemaps/bucket.png",
-            "size":[1,2],
+            "size":[18,7],
             "slicePx":16,
             "layer":"base"
         },
         "water":{
             "path":"Assets/Tilemaps/water.png",
             "size":[3,1],
-            "slicePx":16,
-            "layer":"base"
-        },
-        "egg":{
-            "path":"Assets/Tilemaps/egg.png",
-            "size":[2,1],
-            "slicePx":16,
-            "layer":"base"
-        },
-        "ingredients":{
-            "path":"Assets/Tilemaps/ingredients.png",
-            "size":[10,1],
-            "slicePx":16,
-            "layer":"base"
-        },
-        "products":{
-            "path":"Assets/Tilemaps/products.png",
-            "size":[1,1],
             "slicePx":16,
             "layer":"base"
         }

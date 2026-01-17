@@ -477,8 +477,8 @@
         },
         "bucket":{
             "texture":{
-                "tilemap":"bucket",
-                "pos":[0,0]
+                "tilemap":"items",
+                "pos":[0,1]
             },
             "data":{
                 "mode":"item",
@@ -487,8 +487,8 @@
         },
         "water_bucket":{
             "texture":{
-                "tilemap":"bucket",
-                "pos":[1,0]
+                "tilemap":"items",
+                "pos":[1,1]
             },
             "data":{
                 "mode":"item",
@@ -507,8 +507,8 @@
         },
         "boiling_water_bucket":{
             "texture":{
-                "tilemap":"bucket",
-                "pos":[2,0]
+                "tilemap":"items",
+                "pos":[2,1]
             },
             "data":{
                 "mode":"item",
@@ -517,8 +517,8 @@
         },
         "egg":{
             "texture":{
-                "tilemap":"egg",
-                "pos":[0,0]
+                "tilemap":"items",
+                "pos":[5,0]
             },
             "data":{
                 "mode":"item",
@@ -527,8 +527,8 @@
         },
         "cracked_egg":{
             "texture":{
-                "tilemap":"egg",
-                "pos":[1,0]
+                "tilemap":"items",
+                "pos":[6,3]
             },
             "data":{
                 "mode":"item",
@@ -537,8 +537,8 @@
         },
         "baking_soda":{
             "texture":{
-                "tilemap":"ingredients",
-                "pos":[0,0]
+                "tilemap":"items",
+                "pos":[11,3]
             },
             "data":{
                 "mode":"item",
@@ -547,8 +547,8 @@
         },
         "baking_powder":{
             "texture":{
-                "tilemap":"ingredients",
-                "pos":[1,0]
+                "tilemap":"items",
+                "pos":[12,3]
             },
             "data":{
                 "mode":"item",
@@ -557,8 +557,8 @@
         },
         "flour":{
             "texture":{
-                "tilemap":"ingredients",
-                "pos":[2,0]
+                "tilemap":"items",
+                "pos":[7,3]
             },
             "data":{
                 "mode":"item",
@@ -567,8 +567,8 @@
         },
         "salt_powder":{
             "texture":{
-                "tilemap":"ingredients",
-                "pos":[3,0]
+                "tilemap":"items",
+                "pos":[8,3]
             },
             "data":{
                 "mode":"item",
@@ -577,8 +577,8 @@
         },
         "soda_ash":{
             "texture":{
-                "tilemap":"ingredients",
-                "pos":[4,0]
+                "tilemap":"items",
+                "pos":[9,3]
             },
             "data":{
                 "mode":"item",
@@ -587,8 +587,8 @@
         },
         "sugar":{
             "texture":{
-                "tilemap":"ingredients",
-                "pos":[5,0]
+                "tilemap":"items",
+                "pos":[2,3]
             },
             "data":{
                 "mode":"item",
@@ -597,8 +597,8 @@
         },
         "brown_sugar":{
             "texture":{
-                "tilemap":"ingredients",
-                "pos":[6,0]
+                "tilemap":"items",
+                "pos":[0,3]
             },
             "data":{
                 "mode":"item",
@@ -607,8 +607,8 @@
         },
         "butter":{
             "texture":{
-                "tilemap":"ingredients",
-                "pos":[7,0]
+                "tilemap":"items",
+                "pos":[10,3]
             },
             "data":{
                 "mode":"item",
@@ -617,8 +617,8 @@
         },
         "vanilla_extract":{
             "texture":{
-                "tilemap":"ingredients",
-                "pos":[8,0]
+                "tilemap":"items",
+                "pos":[1,3]
             },
             "data":{
                 "mode":"item",
@@ -627,8 +627,8 @@
         },
         "milk":{
             "texture":{
-                "tilemap":"ingredients",
-                "pos":[9,0]
+                "tilemap":"items",
+                "pos":[6,0]
             },
             "data":{
                 "mode":"item",
@@ -637,8 +637,268 @@
         },
         "pound_cake":{
             "texture":{
-                "tilemap":"products",
-                "pos":[0,0]
+                "tilemap":"items",
+                "pos":[2,5]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "chocolate":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[3,4]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "white_chocolate":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[4,4]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "sugar_cookies":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[3,5]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "cookies":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[4,5]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "bread":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[1,5]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "bagel":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[0,5]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "chedder":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[1,4]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "parisian":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[0,4]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "mozzarella":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[2,4]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "dough":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[4,3]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "pizza-dough":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[4,3]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "pizza-base":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[0,2]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "pizza?":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[1,2]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "cheese_pizza (chedder)":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[2,2]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "tomato":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[8,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "cheese_pizza (mozzarilla)":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[3,2]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "ice":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[5,3]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "macaroni":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[0,6]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "lazania":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[1,6]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "pasta":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[2,6]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "penne":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[3,6]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "fettuccine":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[4,6]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "yeast":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[7,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "bread1":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[5,4]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "bread2":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[6,4]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "?":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[3,3]
             },
             "data":{
                 "mode":"item",

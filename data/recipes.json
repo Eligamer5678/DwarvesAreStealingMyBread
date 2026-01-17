@@ -138,6 +138,11 @@
                 ["","red_sandstone","red_sandstone"],
                 ["","red_sandstone","red_sandstone"],
                 ["","red_sandstone","red_sandstone"]
+            ]},
+            {"output":"pizza-dough","amount":1,"tool":"none","input":[
+                ["","water_bucket",""],
+                ["flour","yeast","flour"],
+                ["","water_bucket",""]
             ]}
         ]
     },
@@ -180,7 +185,10 @@
         {"output":"stone","input":["cobblestone"],"fuel":["charcoal"],"power":2,"amount":1,"auto":true},
         {"output":"baking_soda","input":["water_bucket","soda_ash"],"fuel":["charcoal"],"power":0.75,"amount":1,"auto":false,"overburn":1,"consume_bucket":false},
         {"output":"boiling_water_bucket","input":["water_bucket"],"fuel":["charcoal"],"power":3,"amount":1,"auto":true},
-
+        
+        {"output":"pizza-base","input":["pizza-dough"],"fuel":["charcoal"],"power":3,"amount":1,"auto":true},
+        {"output":"pizza?","input":["pizza-dough","tomato"],"fuel":["charcoal"],"power":3,"amount":1,"auto":true},
+        {"output":"cheese_pizza (chedder)","input":["pizza-dough","tomato","chedder"],"fuel":["charcoal"],"power":3,"amount":1,"auto":true},
         {"output":"pound_cake","input":["butter","sugar","cracked_egg","cracked_egg","cracked_egg","cracked_egg","vanilla_extract","flour"],"fuel":["charcoal"],"power":2,"amount":1,"auto":false,"overburn":5}
 
     ],
