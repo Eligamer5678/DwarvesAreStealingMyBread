@@ -1,4 +1,10 @@
 /* Reset default margins */
+@font-face {
+    font-family: "Lore";
+    src: url("Assets/lore.ttf") format("truetype");
+    font-display: swap;
+}
+
 html, body {
     margin: 0;
     padding: 0;

@@ -98,6 +98,18 @@
                 "hit":{"row":2,"frameCount":10,"fps":32,"buffer":0,"onStop":"swapTo","swapName":"fly"}
             }
         },
+        "scroll":{
+            "path":"Assets/Sprites/scroll.png",
+            "slicePx":16,
+            "animations":{
+                "recipe":{"row":0,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""},
+                "target":{"row":1,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""},
+                "lore":{"row":2,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""},
+                "help":{"row":3,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""},
+                "direction":{"row":4,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""},
+                "blank":{"row":5,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""}
+            }
+        },
         "dwarf":{
             "path":"Assets/Sprites/dwarf.png",
             "slicePx":16,

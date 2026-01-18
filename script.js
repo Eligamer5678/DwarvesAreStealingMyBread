@@ -30,6 +30,21 @@ import createHLabel from './js/UI/htmlElements/createHLabel.js';
 const mainWidth = 1920;
 const mainheight = 1080;
 
+// Best-effort font preload so canvas text can render with custom fonts
+// immediately (avoids first-frame fallback fonts).
+async function preloadFonts() {
+    try {
+        if (!document.fonts || !document.fonts.load) return;
+        // Load a few common sizes to warm up the font cache.
+        await document.fonts.load('12px Lore');
+        await document.fonts.load('20px Lore');
+        await document.fonts.load('40px Lore');
+        await document.fonts.ready;
+    } catch (e) {
+        // ignore font loading failures
+    }
+}
+
 
 
 class Game {
@@ -375,6 +390,9 @@ class Program {
 
         // === Game/Application Logic ===
         this.game = new Game(this);
+
+        // kick off font loading early (non-blocking)
+        preloadFonts();
 
         this.attachEvents();
         this.loop(0);
