@@ -47,6 +47,7 @@ export default class Inventory {
                 this.addItem('yeast', 'inventory', false, 'inventory', 64);
                 this.addItem('tomato', 'inventory', false, 'inventory', 64);
                 this.addItem('chedder', 'inventory', false, 'inventory', 64);
+                this.addItem('cobblestone', 'inventory', false, 'inventory', 64);
             }
         } catch (e) {}
     }
