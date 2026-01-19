@@ -419,11 +419,17 @@ export default class MainUI {
             // Lightweight draw-only element for the recipe grid
             const self = this;
 
-            // Cache resolved icons/labels so we don't do inventory lookups every frame.
-            // This is the main perf win for weaker devices.
-            const iconFilter = { sepia: 1, saturate: 1.15, brightness: 0.92, contrast: 1.17 };
-            const iconCache = new Map(); // id -> { sheet, tile } | null
-            const iconAttempts = new Map(); // id -> number
+            // PERF: Fullscreen toggles can make canvas filters very expensive.
+            // Instead of drawing with ctx.filter every frame, we pre-render a filtered
+            // icon canvas per recipe item when the popup opens, then draw those raw.
+            const iconFilterOptions = { sepia: 1, saturate: 1.15, brightness: 0.92, contrast: 1.17 };
+            const iconFilterStr = (self.Draw && typeof self.Draw._buildFilter === 'function')
+                ? (self.Draw._buildFilter(iconFilterOptions) || null)
+                : 'sepia(1) saturate(1.15) brightness(0.92) contrast(1.17)';
+
+            const iconCache = new Map(); // id -> { sheet, tile } | null  (source meta)
+            const filteredIconCache = new Map(); // id -> HTMLCanvasElement | ImageBitmap | null
+            const iconAttempts = new Map(); // id -> number (used for lazy retries)
             const labelCache = new Map(); // id -> string
 
             const normalizeLabel = (id) => {
@@ -444,6 +450,79 @@ export default class MainUI {
                 } catch (e) {
                     return null;
                 }
+            };
+
+            const _resolveSourceRect = (tileSheet, tile) => {
+                try {
+                    if (!tileSheet || !tileSheet.sheet || !tileSheet.slicePx) return null;
+                    const slice = tileSheet.slicePx;
+                    const img = tileSheet.sheet;
+                    let meta = null;
+                    if (tile) {
+                        if (Array.isArray(tile) || (typeof tile === 'object' && (tile.row !== undefined || tile[0] !== undefined))) {
+                            if (Array.isArray(tile)) meta = { row: Number(tile[0]) || 0, col: Number(tile[1]) || 0 };
+                            else meta = { row: Number(tile.row) || 0, col: Number(tile.col) || 0 };
+                        } else {
+                            if (tileSheet.tiles instanceof Map) meta = tileSheet.tiles.get(tile);
+                            else if (tileSheet.tiles && tileSheet.tiles[tile]) meta = tileSheet.tiles[tile];
+                        }
+                    }
+                    let sx = 0, sy = 0;
+                    if (meta && (meta.col !== undefined || meta.frame !== undefined)) {
+                        const col = meta.col ?? meta.frame ?? 0;
+                        sx = col * slice;
+                        sy = (meta.row !== undefined) ? meta.row * slice : 0;
+                    } else if (!isNaN(Number(tile))) {
+                        const fi = Math.max(0, Math.floor(Number(tile)));
+                        sx = fi * slice;
+                        sy = 0;
+                    }
+                    return { img, sx, sy, sw: slice, sh: slice, slice };
+                } catch (e) {
+                    return null;
+                }
+            };
+
+            const _buildFilteredIconCanvas = (idKey) => {
+                try {
+                    // source icon meta
+                    let icon = iconCache.get(idKey);
+                    if (icon === undefined) icon = null;
+                    if (!icon) {
+                        icon = resolveIconNow(idKey);
+                        if (icon) iconCache.set(idKey, icon);
+                    }
+                    if (!icon || !icon.sheet) return null;
+                    const src = _resolveSourceRect(icon.sheet, icon.tile);
+                    if (!src || !src.img) return null;
+
+                    const c = document.createElement('canvas');
+                    c.width = src.slice;
+                    c.height = src.slice;
+                    const ctx = c.getContext('2d');
+                    if (!ctx) return null;
+                    try { ctx.imageSmoothingEnabled = false; } catch (e) {}
+                    try { if (iconFilterStr) ctx.filter = iconFilterStr; } catch (e) {}
+                    ctx.drawImage(src.img, src.sx, src.sy, src.sw, src.sh, 0, 0, src.slice, src.slice);
+                    try { ctx.filter = 'none'; } catch (e) {}
+                    return c;
+                } catch (e) {
+                    return null;
+                }
+            };
+
+            const _getFilteredIcon = (idKey) => {
+                // fast path
+                if (filteredIconCache.has(idKey)) return filteredIconCache.get(idKey);
+                const attempts = iconAttempts.get(idKey) || 0;
+                if (attempts >= 3) {
+                    filteredIconCache.set(idKey, null);
+                    return null;
+                }
+                iconAttempts.set(idKey, attempts + 1);
+                const canvas = _buildFilteredIconCanvas(idKey);
+                filteredIconCache.set(idKey, canvas);
+                return canvas;
             };
 
             const primeCachesForRecipe = () => {
@@ -467,13 +546,18 @@ export default class MainUI {
                     const uniq = new Set(ids.map(String));
                     for (const id of uniq) {
                         if (!labelCache.has(id)) labelCache.set(id, normalizeLabel(id));
+                        // Prime both source icon resolution and the filtered icon canvas.
                         if (!iconCache.has(id)) iconCache.set(id, resolveIconNow(id));
-                        if (!iconAttempts.has(id)) iconAttempts.set(id, 1);
+                        if (!iconAttempts.has(id)) iconAttempts.set(id, 0);
+                        _getFilteredIcon(id);
                     }
                 } catch (e) {}
             };
 
             primeCachesForRecipe();
+
+            // attach cache to menu so closeScrollPopup can aggressively free memory
+            try { menu._recipeIconCache = filteredIconCache; } catch (e) {}
 
             const recipeEl = {
                 pos: new Vector(gridLeft, gridTop),
@@ -508,22 +592,13 @@ export default class MainUI {
                             Draw.text(name, new Vector(cx + cellSize / 2, cy + 4), OUTLINE_SOFT, 2, 14, { align: 'center', baseline: 'top', font: FONT, wrap: 'none' });
 
                             // icon
-                            let icon = iconCache.get(idKey);
-                            // If assets weren't ready when opened, retry a couple of times.
-                            if (!icon) {
-                                const attempts = iconAttempts.get(idKey) || 0;
-                                if (attempts < 3) {
-                                    iconAttempts.set(idKey, attempts + 1);
-                                    icon = resolveIconNow(idKey);
-                                    if (icon) iconCache.set(idKey, icon);
-                                }
-                            }
-                            if (!icon) return;
+                            const iconCanvas = _getFilteredIcon(idKey);
+                            if (!iconCanvas) return;
                             const iconSize = Math.floor(cellSize * 0.62);
                             const ix = cx + Math.floor((cellSize - iconSize) / 2);
                             const iy = cy + 22;
                             try {
-                                Draw.tile(icon.sheet, new Vector(ix, iy), new Vector(iconSize, iconSize), icon.tile, 0, null, 1, false, iconFilter);
+                                Draw.image(iconCanvas, new Vector(ix, iy), new Vector(iconSize, iconSize), null, 0, 1, false, null);
                             } catch (e) {}
                         };
 
@@ -617,6 +692,20 @@ export default class MainUI {
     }
 
     closeScrollPopup() {
+        try {
+            if (this.scrollMenu && this.scrollMenu._recipeIconCache instanceof Map) {
+                for (const v of this.scrollMenu._recipeIconCache.values()) {
+                    try {
+                        if (v && v instanceof HTMLCanvasElement) {
+                            v.getContext('2d')?.clearRect(0, 0, v.width, v.height);
+                            v.width = 0;
+                            v.height = 0;
+                        }
+                    } catch (e) {}
+                }
+                try { this.scrollMenu._recipeIconCache.clear(); } catch (e) {}
+            }
+        } catch (e) {}
         this.scrollMenu = null;
         this._scrollPopupKey = null;
     }
