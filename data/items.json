@@ -1,49 +1,69 @@
 {
-	"items":{
-		"briocheoid-item":{
-			"texture":{
-				"item":"briocheoid-item",
-				"coord":[0,0]
-			},
-			"data":{
-				"stackAmount":64
-			}
-		},
-		"coal-item":{
-			"texture":{
-				"item":"coal-item",
-				"coord":[0,0]
-			},
-			"data":{
-				"stackAmount":64
-			}
-		},
-		"pretzelstick-item":{
-			"texture":{
-				"item":"pretzelstick-item",
-				"coord":[0,0]
-			},
-			"data":{
-				"stackAmount":64
-			}
-		},
-		"rotirock-item":{
-			"texture":{
-				"item":"rotirock-item",
-				"coord":[0,0]
-			},
-			"data":{
-				"stackAmount":64
-			}
-		},
-		"salt-item":{
-			"texture":{
-				"item":"salt-item",
-				"coord":[0,0]
-			},
-			"data":{
-				"stackAmount":64
-			}
-		}
-	}
+    "items": {
+        "briocheoid-item": {
+            "texture": {
+                "item": "briocheoid-item",
+                "coord": [
+                    0,
+                    0
+                ]
+            },
+            "data": {
+                "stackAmount": 64
+            },
+            "display_name": "Briocheoid"
+        },
+        "coal-item": {
+            "texture": {
+                "item": "coal-item",
+                "coord": [
+                    0,
+                    0
+                ]
+            },
+            "data": {
+                "stackAmount": 64
+            },
+            "display_name": "Coal"
+        },
+        "pretzelstick-item": {
+            "texture": {
+                "item": "pretzelstick-item",
+                "coord": [
+                    0,
+                    0
+                ]
+            },
+            "data": {
+                "stackAmount": 64
+            },
+            "display_name": "Pretzelstick"
+        },
+        "rotirock-item": {
+            "texture": {
+                "item": "rotirock-item",
+                "coord": [
+                    0,
+                    0
+                ]
+            },
+            "data": {
+                "stackAmount": 64
+            },
+            "display_name": "Rotirock"
+        },
+        "salt-item": {
+            "texture": {
+                "item": "salt-item",
+                "coord": [
+                    0,
+                    0
+                ]
+            },
+            "data": {
+                "stackAmount": 64
+            },
+            "display_name": "Salt"
+        }
+    }
 }

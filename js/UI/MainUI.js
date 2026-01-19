@@ -35,6 +35,9 @@ export default class MainUI {
         this.opts = opts || {};
         this.visible = true;
 
+        // Small-screen legibility helper.
+        this._uiTextScale = this._computeUITextScale();
+
         this.colors = {
             'bg': new Color(20,20,20,1,'rgb'),
             'h1': new Color(255,255,255,1,'rgb')
@@ -63,11 +66,25 @@ export default class MainUI {
         
     }
 
+    _computeUITextScale() {
+        try {
+            const w = (typeof window !== 'undefined' && window.innerWidth) ? window.innerWidth : 1980;
+            const h = (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : 1080;
+            const minDim = Math.min(w, h);
+            if (minDim <= 700) return 1.35;
+            if (minDim <= 900) return 1.2;
+            if (minDim <= 1100) return 1.1;
+        } catch (e) {}
+        return 1.0;
+    }
+
     createText(){
-        const heightText = new UIText('Height:',new Vector(20,50),1,this.colors.h1,25)
-        const heightText2 = new UIText(0,new Vector(110,50),1,this.colors.h1,25)
-        const heightText3 = new UIText("Goal: 5000",new Vector(20,90),1,this.colors.h1,25)
-        const itemText = new UIText("Selected:",new Vector(20,120),1,this.colors.h1,25)
+        const fs = Math.round(25 * (this._uiTextScale || 1));
+        const opts = { bold: true };
+        const heightText = new UIText('Height:',new Vector(20,50),1,this.colors.h1,fs,opts)
+        const heightText2 = new UIText(0,new Vector(110,50),1,this.colors.h1,fs,opts)
+        const heightText3 = new UIText("Goal: 5000",new Vector(20,90),1,this.colors.h1,fs,opts)
+        const itemText = new UIText("Selected:",new Vector(20,120),1,this.colors.h1,fs,opts)
         this.menu.addElement('heightText',heightText)
         this.menu.addElement('heightText2',heightText2)
         this.menu.addElement('heightText3',heightText3)
@@ -293,6 +310,7 @@ export default class MainUI {
         const BG_LIGHT = '#F0B77CFF';
         const OUTLINE_SOFT = '#7A5536FF';
         const FONT = 'lore, serif';
+        const TEXT_SCALE = (this._uiTextScale || 1);
 
         const w = 720;
         const h = 590;
@@ -313,7 +331,7 @@ export default class MainUI {
         menu.addElement('borderInner', new UIRect(new Vector(8, 8), new Vector(w - 16, h - 16), 12, OUTLINE_SOFT, false, true, 2, OUTLINE_SOFT));
 
         // Title
-        const title = new UIText(data.title || 'Scroll', new Vector(24, 34), 13, OUTLINE, 52, { baseline: 'middle', font: FONT });
+        const title = new UIText(data.title || 'Scroll', new Vector(24, 34), 13, OUTLINE, Math.round(52 * TEXT_SCALE), { baseline: 'middle', font: FONT, bold: true });
         menu.addElement('title', title);
 
         // Close button
@@ -324,7 +342,7 @@ export default class MainUI {
             try { this.mouse.pause(0.15); } catch (e) {}
         });
         menu.addElement('closeBtn', closeBtn);
-        menu.addElement('closeTxt', new UIText('X', new Vector(w - 39, 40), 14, OUTLINE, 30, { baseline: 'middle', align: 'center', font: FONT }));
+        menu.addElement('closeTxt', new UIText('X', new Vector(w - 39, 40), 14, OUTLINE, Math.round(30 * TEXT_SCALE), { baseline: 'middle', align: 'center', font: FONT, bold: true }));
 
         const hasRecipe = !!data.recipe;
         const loreTextRaw = (data.lore || '');
@@ -352,7 +370,7 @@ export default class MainUI {
         } catch (e) {}
 
         // Lore/Description (optional)
-        const loreFontSize = 24;
+        const loreFontSize = Math.round(24 * TEXT_SCALE);
         const loreLineHeight = 1.2;
 
         // In recipe layout, lore is always in the left column.
@@ -370,7 +388,7 @@ export default class MainUI {
         const loreHeaderText = hasRecipe ? 'Description' : 'Lore';
 
         if (loreNonEmpty) {
-            menu.addElement('loreHeader', new UIText(loreHeaderText, new Vector(lx, loreHeaderY), 13, OUTLINE, 32, { baseline: 'middle', font: FONT }));
+            menu.addElement('loreHeader', new UIText(loreHeaderText, new Vector(lx, loreHeaderY), 13, OUTLINE, Math.round(32 * TEXT_SCALE), { baseline: 'middle', font: FONT, bold: true }));
             menu.addElement(
                 'loreBody',
                 new UIText(
@@ -382,6 +400,7 @@ export default class MainUI {
                     {
                         baseline: 'top',
                         font: FONT,
+                        bold: true,
                         wrap: 'word',
                         wrapWidth: loreWidth,
                         wrapHeight: loreHeight,
@@ -414,7 +433,7 @@ export default class MainUI {
 
             // Header sits at top of the recipe column
             const headerY = 84;
-            menu.addElement('recipeHeader', new UIText('Recipe', new Vector(gridLeft, headerY), 13, OUTLINE, 32, { baseline: 'middle', font: FONT }));
+            menu.addElement('recipeHeader', new UIText('Recipe', new Vector(gridLeft, headerY), 13, OUTLINE, Math.round(32 * TEXT_SCALE), { baseline: 'middle', font: FONT, bold: true }));
 
             // Lightweight draw-only element for the recipe grid
             const self = this;
@@ -433,9 +452,31 @@ export default class MainUI {
             const labelCache = new Map(); // id -> string
 
             const normalizeLabel = (id) => {
-                let name = String(id);
-                if (name.length > 16) name = name.slice(0, 15) + '…';
-                return name;
+                try {
+                    if (!id) return '';
+                    // Prefer explicit display_name from item definitions when available
+                    try {
+                        const inv = self.scene && self.scene.player && self.scene.player.inventory;
+                        if (inv && typeof inv.getItem === 'function') {
+                            const resolved = inv.getItem(String(id));
+                            if (resolved && resolved.data && resolved.data.display_name) {
+                                // strip any parenthetical suffix just in case
+                                let dn = String(resolved.data.display_name).replace(/\s*\(.*\)\s*/g, '').trim();
+                                if (dn.length > 24) dn = dn.slice(0, 21) + '…';
+                                return dn;
+                            }
+                        }
+                    } catch (e) {}
+
+                    // remove parentheses content, replace underscores with spaces
+                    let s = String(id).replace(/\s*\(.*\)\s*/g, '').replace(/_/g, ' ').trim();
+                    s = s.toLowerCase();
+                    if (s.length === 0) return '';
+                    // Capitalize first character only ("cheese pizza" -> "Cheese pizza")
+                    s = s.charAt(0).toUpperCase() + s.slice(1);
+                    if (s.length > 24) s = s.slice(0, 21) + '…';
+                    return s;
+                } catch (e) { return String(id); }
             };
 
             const resolveIconNow = (id) => {
@@ -588,10 +629,7 @@ export default class MainUI {
                                 labelCache.set(idKey, name);
                             }
 
-                            // name
-                            Draw.text(name, new Vector(cx + cellSize / 2, cy + 4), OUTLINE_SOFT, 2, 14, { align: 'center', baseline: 'top', font: FONT, wrap: 'none' });
-
-                            // icon
+                            // icon (draw first so label can be drawn above when hovered)
                             const iconCanvas = _getFilteredIcon(idKey);
                             if (!iconCanvas) return;
                             const iconSize = Math.floor(cellSize * 0.62);
@@ -600,6 +638,23 @@ export default class MainUI {
                             try {
                                 Draw.image(iconCanvas, new Vector(ix, iy), new Vector(iconSize, iconSize), null, 0, 1, false, null);
                             } catch (e) {}
+
+                            // hover detection (mouse in cell)
+                            let hovered = false;
+                            try {
+                                const mp = self.mouse && self.mouse.pos ? self.mouse.pos : null;
+                                if (mp) {
+                                    if (mp.x >= cx && mp.x <= cx + cellSize && mp.y >= cy && mp.y <= cy + cellSize) hovered = true;
+                                }
+                            } catch (e) {}
+
+                            // name — draw on top; when hovered show white above icon, otherwise brown below
+                            const nameFont = Math.round(14 * TEXT_SCALE);
+                            if (hovered) {
+                                Draw.text(name, new Vector(ix + iconSize / 2, iy - 6), 'rgb(255, 217, 0)', 2, nameFont, { align: 'center', baseline: 'bottom', font: FONT, bold: true, wrap: 'word', wrapWidth: Math.max(24, Math.floor(iconSize)), lineHeight: 1.05 });
+                            } else {
+                                Draw.text(name, new Vector(ix + iconSize / 2, iy - 20), OUTLINE_SOFT, 2, nameFont, { align: 'center', baseline: 'top', font: FONT, bold: true, wrap: 'word', wrapWidth: Math.max(24, Math.floor(iconSize)), lineHeight: 1.05 });
+                            }
                         };
 
                         if (recipeSpec.kind === 'crafting') {
@@ -646,7 +701,7 @@ export default class MainUI {
                             const gridX = ox + 18 + Math.max(0, Math.floor((innerW - (3 * cellSize + 2 * gap)) / 2));
                             const gridY = oy + 18;
 
-                            Draw.text('Input', new Vector(gridX, gridY - 10), OUTLINE, 2, 22, { align: 'left', baseline: 'bottom', font: FONT });
+                            Draw.text('Input', new Vector(gridX, gridY - 10), OUTLINE, 2, Math.round(24 * TEXT_SCALE), { align: 'left', baseline: 'bottom', font: FONT, bold: true });
                             const ids = Array.isArray(recipeSpec.input) ? recipeSpec.input : [];
                             for (let i = 0; i < 9; i++) {
                                 const r = Math.floor(i / 3);
@@ -657,7 +712,7 @@ export default class MainUI {
                             }
 
                             const fuelY = gridY + 3 * (cellSize + gap) + 34;
-                            Draw.text('Fuel', new Vector(gridX, fuelY - 10), OUTLINE, 2, 22, { align: 'left', baseline: 'bottom', font: FONT });
+                            Draw.text('Fuel', new Vector(gridX, fuelY - 10), OUTLINE, 2, Math.round(24 * TEXT_SCALE), { align: 'left', baseline: 'bottom', font: FONT, bold: true });
                             const fuels = Array.isArray(recipeSpec.fuel) ? recipeSpec.fuel : [];
                             for (let i = 0; i < Math.min(3, fuels.length); i++) {
                                 const cx = gridX + i * (cellSize + gap);
@@ -668,7 +723,7 @@ export default class MainUI {
                             const outY = fuelY + cellSize + 56;
                             const outX = gridX + Math.floor((3 * cellSize + 2 * gap - cellSize) / 2);
                             Draw.text('↓', new Vector(gridX + (3 * cellSize + 2 * gap) / 2, fuelY + cellSize + 24), OUTLINE, 2, 44, { align: 'center', baseline: 'middle', font: FONT });
-                            Draw.text('Output', new Vector(outX + cellSize / 2, outY - 24), OUTLINE, 2, 26, { align: 'center', baseline: 'middle', font: FONT });
+                            Draw.text('Output', new Vector(outX + cellSize / 2, outY - 24), OUTLINE, 2, Math.round(28 * TEXT_SCALE), { align: 'center', baseline: 'middle', font: FONT, bold: true });
                             drawCell(outX, outY, cellSize, recipeSpec.output);
                             if (recipeSpec.amount && recipeSpec.amount !== 1) {
                                 Draw.text(`x${recipeSpec.amount}`, new Vector(outX + cellSize / 2, outY + cellSize + 18), MID, 2, 20, { align: 'center', baseline: 'middle', font: FONT });

@@ -661,9 +661,11 @@ export default class Draw {
             fill = true,
             strokeWidth = width, // pass down our width param
             italics = false,
+            // bold: boolean or weight string/number (e.g. true | '600' | 700)
+            bold = false,
             // box: optional Vector or [w,h] or {x,y} specifying bounding box for wrapping/clipping
             box = null,
-            // wrapWidth/wrapHeight: shorthand for wrapping without building a box vector
+            // wrapWidth/wrapHeight: shorthand for wrapping by a width (world units). Equivalent to setting `options.box={x:wrapWidth,y:0}`.
             wrapWidth = null,
             wrapHeight = null,
             // wrap: 'word' (default) or 'char' - controls how long lines are broken
@@ -677,7 +679,14 @@ export default class Draw {
     // Respect italics option by placing 'italic' before the size/family.
     const baseFont = font;
     const hasSize = (typeof baseFont === 'string') && (/\b\d+px\b/.test(baseFont));
-    let fontStr = (italics ? 'italic ' : '') + (hasSize ? baseFont : `${fontSize}px ${baseFont}`);
+    // build weight string: support boolean (true -> 'bold') or explicit weight (number/string)
+    let weightStr = '';
+    if (bold === true) weightStr = 'bold ';
+    else if (bold || bold === 0) {
+        // allow numeric weights or string weights like '600' or '700'
+        weightStr = String(bold) + ' ';
+    }
+    let fontStr = (italics ? 'italic ' : '') + weightStr + (hasSize ? baseFont : `${fontSize}px ${baseFont}`);
     ctx.font = fontStr;
         ctx.textAlign = align;
         // Determine if we're drawing into a bounded box (wrap + clip)
