@@ -649,9 +649,10 @@ export default class MainUI {
                             } catch (e) {}
 
                             // name — draw on top; when hovered show white above icon, otherwise brown below
-                            const nameFont = Math.round(14 * TEXT_SCALE);
+                            let nameFont = Math.round(14 * TEXT_SCALE);
                             if (hovered) {
-                                Draw.text(name, new Vector(ix + iconSize / 2, iy - 6), 'rgb(255, 217, 0)', 2, nameFont, { align: 'center', baseline: 'bottom', font: FONT, bold: true, wrap: 'word', wrapWidth: Math.max(24, Math.floor(iconSize)), lineHeight: 1.05 });
+                                nameFont = Math.round(18 * TEXT_SCALE);
+                                Draw.text(name, new Vector(ix + iconSize / 2, iy), 'rgb(255, 196, 0)', 2, nameFont, { align: 'center', baseline: 'bottom', font: FONT, bold: true, lineHeight: 1.05 });
                             } else {
                                 Draw.text(name, new Vector(ix + iconSize / 2, iy - 20), OUTLINE_SOFT, 2, nameFont, { align: 'center', baseline: 'top', font: FONT, bold: true, wrap: 'word', wrapWidth: Math.max(24, Math.floor(iconSize)), lineHeight: 1.05 });
                             }
