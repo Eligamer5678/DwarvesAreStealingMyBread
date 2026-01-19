@@ -418,6 +418,63 @@ export default class MainUI {
 
             // Lightweight draw-only element for the recipe grid
             const self = this;
+
+            // Cache resolved icons/labels so we don't do inventory lookups every frame.
+            // This is the main perf win for weaker devices.
+            const iconFilter = { sepia: 1, saturate: 1.15, brightness: 0.92, contrast: 1.17 };
+            const iconCache = new Map(); // id -> { sheet, tile } | null
+            const iconAttempts = new Map(); // id -> number
+            const labelCache = new Map(); // id -> string
+
+            const normalizeLabel = (id) => {
+                let name = String(id);
+                if (name.length > 16) name = name.slice(0, 15) + '…';
+                return name;
+            };
+
+            const resolveIconNow = (id) => {
+                try {
+                    const inv = self.scene && self.scene.player && self.scene.player.inventory;
+                    if (!inv || typeof inv.getItem !== 'function') return null;
+                    const resolved = inv.getItem(id);
+                    if (!resolved || !resolved.sheet) return null;
+                    const d = resolved.data || {};
+                    const tile = (d.tile !== undefined) ? d.tile : ((d.coord !== undefined) ? d.coord : (d.id !== undefined ? d.id : id));
+                    return { sheet: resolved.sheet, tile };
+                } catch (e) {
+                    return null;
+                }
+            };
+
+            const primeCachesForRecipe = () => {
+                try {
+                    const ids = [];
+                    if (recipeSpec.kind === 'crafting') {
+                        const input = Array.isArray(recipeSpec.input) ? recipeSpec.input : [];
+                        for (const row of input) {
+                            if (!Array.isArray(row)) continue;
+                            for (const id of row) if (id) ids.push(id);
+                        }
+                        if (recipeSpec.output) ids.push(recipeSpec.output);
+                    } else if (recipeSpec.kind === 'smelting') {
+                        const input = Array.isArray(recipeSpec.input) ? recipeSpec.input : [];
+                        for (const id of input) if (id) ids.push(id);
+                        const fuel = Array.isArray(recipeSpec.fuel) ? recipeSpec.fuel : [];
+                        for (const id of fuel) if (id) ids.push(id);
+                        if (recipeSpec.output) ids.push(recipeSpec.output);
+                    }
+
+                    const uniq = new Set(ids.map(String));
+                    for (const id of uniq) {
+                        if (!labelCache.has(id)) labelCache.set(id, normalizeLabel(id));
+                        if (!iconCache.has(id)) iconCache.set(id, resolveIconNow(id));
+                        if (!iconAttempts.has(id)) iconAttempts.set(id, 1);
+                    }
+                } catch (e) {}
+            };
+
+            primeCachesForRecipe();
+
             const recipeEl = {
                 pos: new Vector(gridLeft, gridTop),
                 size: new Vector(gridWidth, gridHeight),
@@ -434,35 +491,33 @@ export default class MainUI {
                         Draw.rect(new Vector(ox, oy), this.size, BG_LIGHT);
                         Draw.rect(new Vector(ox + 6, oy + 6), new Vector(this.size.x - 12, this.size.y - 12), BG);
 
-                        // Recipe icon styling: sepia-tone to match parchment UI (closer to MID text color)
-                        const iconFilter = { sepia: 1, saturate: 1.15, brightness: 0.92, contrast: 1.17 };
-
-                        const resolveIcon = (id) => {
-                            try {
-                                const inv = self.scene && self.scene.player && self.scene.player.inventory;
-                                if (!inv || typeof inv.getItem !== 'function') return null;
-                                const resolved = inv.getItem(id);
-                                if (!resolved || !resolved.sheet) return null;
-                                const d = resolved.data || {};
-                                const tile = (d.tile !== undefined) ? d.tile : ((d.coord !== undefined) ? d.coord : (d.id !== undefined ? d.id : id));
-                                return { sheet: resolved.sheet, tile };
-                            } catch (e) { return null; }
-                        };
-
                         const drawCell = (cx, cy, cellSize, id) => {
                             // cell bg
                             Draw.rect(new Vector(cx, cy), new Vector(cellSize, cellSize), BG_DARK);
                             Draw.rect(new Vector(cx + 3, cy + 3), new Vector(cellSize - 6, cellSize - 6), BG);
 
                             if (!id) return;
-                            let name = String(id);
-                            if (name.length > 16) name = name.slice(0, 15) + '…';
+                            const idKey = String(id);
+                            let name = labelCache.get(idKey);
+                            if (!name) {
+                                name = normalizeLabel(idKey);
+                                labelCache.set(idKey, name);
+                            }
 
                             // name
                             Draw.text(name, new Vector(cx + cellSize / 2, cy + 4), OUTLINE_SOFT, 2, 14, { align: 'center', baseline: 'top', font: FONT, wrap: 'none' });
 
                             // icon
-                            const icon = resolveIcon(id);
+                            let icon = iconCache.get(idKey);
+                            // If assets weren't ready when opened, retry a couple of times.
+                            if (!icon) {
+                                const attempts = iconAttempts.get(idKey) || 0;
+                                if (attempts < 3) {
+                                    iconAttempts.set(idKey, attempts + 1);
+                                    icon = resolveIconNow(idKey);
+                                    if (icon) iconCache.set(idKey, icon);
+                                }
+                            }
                             if (!icon) return;
                             const iconSize = Math.floor(cellSize * 0.62);
                             const ix = cx + Math.floor((cellSize - iconSize) / 2);
