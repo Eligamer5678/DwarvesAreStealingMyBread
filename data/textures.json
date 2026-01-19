@@ -102,6 +102,7 @@
             "path":"Assets/Sprites/scroll.png",
             "slicePx":16,
             "animations":{
+                "idle":{"row":2,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""},
                 "recipe":{"row":0,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""},
                 "target":{"row":1,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""},
                 "lore":{"row":2,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""},

@@ -65,8 +65,58 @@ export default class EntityManager {
             }
         }
 
+        // Apply per-instance entity data (team/health) and component metadata.
+        // This is used by chunk placement JSON to specialize entities.
+        try {
+            const meta = options || {};
+            if (meta.team !== undefined) newEntity.team = meta.team;
+            if (meta.health !== undefined) newEntity.health = meta.health;
+
+            const comps = meta.components;
+            if (comps && typeof comps === 'object') {
+                for (const [compName, compMeta] of Object.entries(comps)) {
+                    const inst = newEntity.getComponent(compName);
+                    if (!inst) continue;
+                    if (typeof inst.applyMeta === 'function') {
+                        try { inst.applyMeta(compMeta); } catch (e) {}
+                    } else if (compMeta && typeof compMeta === 'object') {
+                        try { Object.assign(inst, compMeta); } catch (e) {}
+                    }
+                }
+            }
+        } catch (e) {
+            // ignore
+        }
+
         this.entities.push(newEntity);
         return newEntity;
+    }
+
+    /**
+     * Get entities whose center point falls on the given sample/tile coordinate.
+     * @param {number} sx
+     * @param {number} sy
+     * @param {Function|null} predicate
+     * @returns {Array}
+     */
+    getEntitiesAtSample(sx, sy, predicate = null) {
+        const out = [];
+        const ts = this.noiseTileSize || 16;
+        const tx = Number(sx);
+        const ty = Number(sy);
+        for (const e of this.entities) {
+            if (!e || !e.pos) continue;
+            const ex = (e.pos.x || 0) + ((e.size && e.size.x) ? e.size.x * 0.5 : 0);
+            const ey = (e.pos.y || 0) + ((e.size && e.size.y) ? e.size.y * 0.5 : 0);
+            const esx = Math.floor(ex / ts);
+            const esy = Math.floor(ey / ts);
+            if (esx !== tx || esy !== ty) continue;
+            if (predicate && typeof predicate === 'function') {
+                try { if (!predicate(e)) continue; } catch (err) { continue; }
+            }
+            out.push(e);
+        }
+        return out;
     }
 
 

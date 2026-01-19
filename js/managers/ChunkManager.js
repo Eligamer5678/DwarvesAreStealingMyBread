@@ -795,6 +795,14 @@ export default class ChunkManager {
                 for (let entity of entityList){
                     if(!entity) continue;
                     try {
+                        // Optional chance gate (used in chunks.json)
+                        try {
+                            const ch = entity.data && typeof entity.data.chance === 'number' ? entity.data.chance : null;
+                            if (ch !== null && Number.isFinite(ch) && ch >= 0 && ch < 1) {
+                                if (Math.random() > ch) continue;
+                            }
+                        } catch (e) {}
+
                         let wx, wy;
                         if (entity.pos === 'random'){
                             wx = (cx * this.chunkSize + 5) * this.noiseTileSize;
@@ -805,7 +813,8 @@ export default class ChunkManager {
                         }
                         const sz = (entity.data && Array.isArray(entity.data.size)) ? new Vector(entity.data.size[0], entity.data.size[1]) : new Vector(this.noiseTileSize, this.noiseTileSize);
                         if (this.entityManager && typeof this.entityManager.addEntity === 'function') {
-                            this.entityManager.addEntity(entity.type, new Vector(wx, wy), sz);
+                            const meta = (entity && entity.data && typeof entity.data === 'object') ? entity.data : {};
+                            this.entityManager.addEntity(entity.type, new Vector(wx, wy), sz, meta);
                         }
                     } catch(e) { /* ignore per-entity spawn errors */ }
                 }

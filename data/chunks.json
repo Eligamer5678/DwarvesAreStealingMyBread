@@ -385,8 +385,37 @@
                         {"region":[[5,15],[6,15]]},
                         {"region":[[9,15]]},
                         {"region":[[7,15],[8,15]],"block_type":"ladder"}
+                    ],
+                    "entities":[
+                        {"pos":[11,13],"type":"scroll","data":{
+                            "team":"none",
+                            "size":[16,16],
+                            "components":{
+                                "scroll":{
+                                    "title":"Test Scroll (Lore)",
+                                    "icon":"lore",
+                                    "lore":"Test scroll",
+                                    "recipe":null,
+                                    "svg":""
+                                }
+                            }
+                        }},
+                        {"pos":[4,13],"type":"scroll","data":{
+                            "team":"none",
+                            "size":[16,16],
+                            "components":{
+                                "scroll":{
+                                    "title":"Anvil",
+                                    "icon":"recipe",
+                                    "lore":"A hard stone, great for combining items",
+                                    "recipe":{ "kind": "crafting", "size": "3x3", "output": "pizza-dough", "amount":1},
+                                    "svg":""
+                                }
+                            }
+                        }}
                     ]
                 }
+                
             },
             "bagelvillage6":{
                 "dependencies":["desert"],

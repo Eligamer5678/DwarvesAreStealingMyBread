@@ -62,5 +62,27 @@
         "extra":{
             "health":5
         }
+    },
+    "scroll":{
+        "components":{
+            "SheetComponent":{
+                "sheet":"scroll",
+                "name":"sheet",
+                "opts":{}
+            },
+            "ScrollComponent":{
+                "name":"scroll",
+                "opts":{
+                    "title":"Scroll",
+                    "lore":"",
+                    "recipe":null,
+                    "svg":"",
+                    "icon":"lore"
+                }
+            }
+        },
+        "extra":{
+            "health":999999999
+        }
     }
 }

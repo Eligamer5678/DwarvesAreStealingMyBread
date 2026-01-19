@@ -640,6 +640,8 @@ export default class Draw {
      * @param {number} [options.strokeWidth=width] - Override stroke width for stroked text.
      * @param {boolean} [options.italics=false] - Render the font in italic style.
      * @param {Vector|Array<number>|{x:number,y:number}} [options.box=null] - Bounding box `[w,h]` or `Vector` for wrapping and clipping text. When provided, text will be wrapped to this width and optionally clipped to this height.
+    * @param {number} [options.wrapWidth=null] - Shorthand for wrapping by a width (world units). Equivalent to setting `options.box={x:wrapWidth,y:0}`.
+    * @param {number} [options.wrapHeight=null] - Optional height (world units) used with `wrapWidth` for clipping. Equivalent to setting `options.box={x:wrapWidth,y:wrapHeight}`.
      * @param {'word'|'char'} [options.wrap='word'] - Wrapping strategy: `'word'` breaks on word boundaries; `'char'` breaks by character.
      * @param {number} [options.lineHeight=1.2] - Multiplier for line height based on computed `fontSize`.
      *
@@ -661,6 +663,9 @@ export default class Draw {
             italics = false,
             // box: optional Vector or [w,h] or {x,y} specifying bounding box for wrapping/clipping
             box = null,
+            // wrapWidth/wrapHeight: shorthand for wrapping without building a box vector
+            wrapWidth = null,
+            wrapHeight = null,
             // wrap: 'word' (default) or 'char' - controls how long lines are broken
             wrap = 'word',
         } = options;
@@ -676,16 +681,24 @@ export default class Draw {
     ctx.font = fontStr;
         ctx.textAlign = align;
         // Determine if we're drawing into a bounded box (wrap + clip)
+        // - options.box: explicit box
+        // - options.wrapWidth/wrapHeight: shorthand
         let boxWidth = null;
         let boxHeight = null;
         if (box) {
             const b = _asVec(box);
             boxWidth = this.px(b.x);
             boxHeight = this.py(b.y);
+        } else if (wrapWidth != null) {
+            const w = Number(wrapWidth);
+            const h = (wrapHeight != null) ? Number(wrapHeight) : 0;
+            if (Number.isFinite(w) && w > 0) boxWidth = this.px(w);
+            if (Number.isFinite(h) && h > 0) boxHeight = this.py(h);
         }
 
-        // If a box is provided and baseline wasn't explicitly set, use 'top' to make layout predictable
-        const usedBaseline = (options && options.baseline) ? baseline : (box ? 'top' : baseline);
+        // If wrapping/clipping is used and baseline wasn't explicitly set, use 'top' to make layout predictable
+        const hasWrap = (boxWidth != null && !isNaN(boxWidth) && boxWidth > 0);
+        const usedBaseline = (options && options.baseline) ? baseline : (hasWrap ? 'top' : baseline);
         ctx.textBaseline = usedBaseline;
 
         if (boxWidth != null && !isNaN(boxWidth) && boxWidth > 0) {
@@ -803,7 +816,9 @@ export default class Draw {
         ctx.restore();
     }
 
-    image(img, pos, size = null, invert = null, rad = 0, opacity = 1, smoothing = true) {
+    image(img, pos, size = null, invert = null, rad = 0, opacity = 1, smoothing = true, options = null) {
+        // Back-compat: allow passing options object in place of smoothing
+        if (smoothing && typeof smoothing === 'object' && options == null) { options = smoothing; smoothing = true; }
         pos = this.pv(pos.clone())
         size = this.pv(size.clone())
         const ctx = this._assertCtx('image');
@@ -812,6 +827,11 @@ export default class Draw {
         const h = size?.y ?? img.height;
 
         ctx.save();
+        // Optional filter pipeline (grayscale/hue/saturation/brightness/contrast)
+        try {
+            const f = this._buildFilter(options);
+            if (f) ctx.filter = f;
+        } catch (e) { /* ignore filter errors */ }
         // control image smoothing (anti-aliasing) per-draw
         try {
             if (smoothing === false) {
@@ -859,6 +879,33 @@ export default class Draw {
         return this._brightness !== undefined ? this._brightness : 1.0;
     }
 
+    _buildFilter(options = null) {
+        if (!options || typeof options !== 'object') return null;
+        if (typeof options.filter === 'string' && options.filter.trim().length > 0) return options.filter.trim();
+
+        const parts = [];
+
+        const s = options.sepia;
+        if (typeof s === 'number' && isFinite(s) && s > 0) parts.push(`sepia(${Math.max(0, Math.min(1, s))})`);
+
+        const g = options.grayscale;
+        if (typeof g === 'number' && isFinite(g) && g > 0) parts.push(`grayscale(${Math.max(0, Math.min(1, g))})`);
+
+        const hue = options.hue;
+        if (typeof hue === 'number' && isFinite(hue) && hue !== 0) parts.push(`hue-rotate(${hue}deg)`);
+
+        const sat = options.saturate;
+        if (typeof sat === 'number' && isFinite(sat) && sat !== 1) parts.push(`saturate(${sat})`);
+
+        const br = options.brightness;
+        if (typeof br === 'number' && isFinite(br) && br !== 1) parts.push(`brightness(${br})`);
+
+        const ct = options.contrast;
+        if (typeof ct === 'number' && isFinite(ct) && ct !== 1) parts.push(`contrast(${ct})`);
+
+        return parts.length ? parts.join(' ') : null;
+    }
+
     /**
      * Draw a frame from a SpriteSheet-like object.
      * sheet: object with properties `sheet` (Image), `slicePx` (frame size in pixels),
@@ -869,7 +916,9 @@ export default class Draw {
      * invert: optional flip vector like {x:-1,y:1}
      * opacity: optional opacity multiplier
      */
-    sheet(sheet, pos, size = null, animation = null, frame = 0, invert = null, opacity = 1, smoothing = false) {
+    sheet(sheet, pos, size = null, animation = null, frame = 0, invert = null, opacity = 1, smoothing = false, options = null) {
+        // Back-compat: allow passing options object in place of smoothing
+        if (smoothing && typeof smoothing === 'object' && options == null) { options = smoothing; smoothing = false; }
         const ctx = this._assertCtx('sheet');
         if (!sheet || !sheet.sheet || !sheet.slicePx) {
             console.warn('Draw.sheet: invalid sheet provided');
@@ -914,6 +963,11 @@ export default class Draw {
 
         ctx.save();
         ctx.translate(px, py);
+        // Optional filter pipeline (grayscale/hue/saturation/brightness/contrast)
+        try {
+            const f = this._buildFilter(options);
+            if (f) ctx.filter = f;
+        } catch (e) { /* ignore filter errors */ }
         // control image smoothing (anti-aliasing) per-draw
         try {
             if (smoothing === false) {
@@ -968,7 +1022,9 @@ export default class Draw {
     }
 
     // Draw a single tile from a tilesheet/spritesheet. Supports rotation (integer 0..3) in 90deg steps.
-    tile(sheet, pos, size = null, tile = null, rotation = 0, invert = null, opacity = 1, smoothing = false) {
+    tile(sheet, pos, size = null, tile = null, rotation = 0, invert = null, opacity = 1, smoothing = false, options = null) {
+        // Back-compat: allow passing options object in place of smoothing
+        if (smoothing && typeof smoothing === 'object' && options == null) { options = smoothing; smoothing = false; }
         const ctx = this._assertCtx('tile');
         if (!sheet || !sheet.sheet || !sheet.slicePx) {
             console.warn('Draw.tile: invalid sheet provided');
@@ -1024,6 +1080,11 @@ export default class Draw {
 
         ctx.save();
         ctx.translate(px, py);
+        // Optional filter pipeline (grayscale/hue/saturation/brightness/contrast)
+        try {
+            const f = this._buildFilter(options);
+            if (f) ctx.filter = f;
+        } catch (e) { /* ignore filter errors */ }
         // control image smoothing (anti-aliasing) per-draw
         try {
             if (smoothing === false) {

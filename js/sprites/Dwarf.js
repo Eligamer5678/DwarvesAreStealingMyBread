@@ -74,6 +74,7 @@ export default class Dwarf extends Sprite {
 
         this.onEdit = new Signal()
         this.onCraft = new Signal()
+        this.onScroll = new Signal()
 
         // Creative mode: when true, items are unlimited and placement/mining
         // will not modify inventory. Also enables quick cycling with 'o'/'p'.
@@ -645,6 +646,37 @@ export default class Dwarf extends Sprite {
             // If the captured target is air, abort starting mining
             try {
                 if (!this.miningTarget) { this.miningProgress = 0; this._lastMiningKey = null; return; }
+
+                // If player is holding Shift and interacting with a scroll entity,
+                // open the scroll popup instead of mining.
+                try {
+                    const em = this.scene && this.scene.entityManager;
+                    if (em && typeof em.getEntitiesAtSample === 'function' && this.keys.held('Shift')) {
+                        const ents = em.getEntitiesAtSample(this.miningTarget.sx, this.miningTarget.sy);
+                        for (const ent of ents) {
+                            if (!ent || typeof ent.getComponent !== 'function') continue;
+                            const scroll = ent.getComponent('scroll');
+                            if (!scroll) continue;
+                            const payload = {
+                                key: `${this.miningTarget.sx},${this.miningTarget.sy}`,
+                                data: (typeof scroll.getData === 'function') ? scroll.getData() : {
+                                    title: scroll.title,
+                                    lore: scroll.lore,
+                                    recipe: scroll.recipe,
+                                    svg: scroll.svg,
+                                    icon: scroll.icon,
+                                }
+                            };
+                            try { this.onScroll.emit(payload, ent); } catch (e) {}
+                            try { if (this.keys && typeof this.keys.pause === 'function') this.keys.pause(0.18); } catch (e) {}
+                            this.miningProgress = 0;
+                            this._lastMiningKey = null;
+                            this._activeMiningLayer = null;
+                            return;
+                        }
+                    }
+                } catch (e) {}
+
                 // capture the active layer at the start of the mining action so
                 // subsequent modifier changes don't move the mining to another layer
                 const layer = this._getActivePlaceLayer();

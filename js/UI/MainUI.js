@@ -48,6 +48,18 @@ export default class MainUI {
         this.createInventory()
         this.createOther()  
 
+        // Scroll popup (lore/recipe/svg)
+        this.scrollMenu = null;
+        this._scrollPopupKey = null;
+        try {
+            const player = this.scene && this.scene.player;
+            if (player && player.onScroll) {
+                player.onScroll.connect((payload) => {
+                    try { this.openScrollPopup(payload); } catch (e) {}
+                });
+            }
+        } catch (e) {}
+
         
     }
 
@@ -182,6 +194,378 @@ export default class MainUI {
     createOther(){
     }
 
+    _describeRecipe(recipe) {
+        if (!recipe) return '';
+        // allow simple string refs
+        if (typeof recipe === 'string') return recipe;
+        if (typeof recipe !== 'object') return '';
+
+        const kind = recipe.kind || recipe.type || '';
+        const out = [];
+        if (kind) out.push(`Recipe: ${kind}`);
+
+        // Inline recipe
+        if (recipe.output) out.push(`Output: ${recipe.output}${recipe.amount ? ' x' + recipe.amount : ''}`);
+
+        // Resolve recipe from recipes.json when possible
+        try {
+            const recipes = this.recipes || {};
+            if ((kind === 'crafting' || kind === 'craft') && recipe.size && recipe.output && recipes.crafting && recipes.crafting[recipe.size]) {
+                const list = recipes.crafting[recipe.size];
+                const found = Array.isArray(list) ? list.find(r => r && r.output === recipe.output) : null;
+                if (found && found.input) {
+                    out.push(`Grid: ${recipe.size}`);
+                    for (const row of found.input) out.push(String(row));
+                }
+            }
+            if ((kind === 'smelting' || kind === 'furnace') && recipe.output && Array.isArray(recipes.smelting)) {
+                const found = recipes.smelting.find(r => r && r.output === recipe.output);
+                if (found) {
+                    if (found.input) out.push(`Input: ${Array.isArray(found.input) ? found.input.join(', ') : String(found.input)}`);
+                    if (found.fuel) out.push(`Fuel: ${Array.isArray(found.fuel) ? found.fuel.join(', ') : String(found.fuel)}`);
+                }
+            }
+        } catch (e) {
+            // ignore recipe resolution failures
+        }
+
+        return out.join('\n');
+    }
+
+    _resolveRecipeSpec(recipe) {
+        if (!recipe) return null;
+        if (typeof recipe === 'string') return { kind: 'text', text: recipe };
+        if (typeof recipe !== 'object') return null;
+
+        const kind = recipe.kind || recipe.type || '';
+        const outId = recipe.output;
+        const outAmount = recipe.amount;
+
+        // Resolve crafting input grid
+        try {
+            const recipes = this.recipes || {};
+            if ((kind === 'crafting' || kind === 'craft') && recipe.size && outId && recipes.crafting && recipes.crafting[recipe.size]) {
+                const list = recipes.crafting[recipe.size];
+                const found = Array.isArray(list) ? list.find(r => r && r.output === outId) : null;
+                if (found && found.input) {
+                    return {
+                        kind: 'crafting',
+                        size: recipe.size,
+                        output: outId,
+                        amount: (typeof outAmount === 'number' ? outAmount : (found.amount || 1)),
+                        input: found.input,
+                    };
+                }
+            }
+
+            // Resolve furnace/smelting recipe
+            if ((kind === 'smelting' || kind === 'furnace') && outId && Array.isArray(recipes.smelting)) {
+                const found = recipes.smelting.find(r => r && r.output === outId);
+                if (found) {
+                    return {
+                        kind: 'smelting',
+                        output: outId,
+                        amount: (typeof found.amount === 'number' ? found.amount : 1),
+                        input: found.input || [],
+                        fuel: found.fuel || [],
+                    };
+                }
+            }
+        } catch (e) {}
+
+        // Fallback: keep textual description
+        return { kind: 'unknown', text: this._describeRecipe(recipe) };
+    }
+
+    openScrollPopup(payload) {
+        const key = payload && payload.key ? String(payload.key) : null;
+        const data = payload && payload.data ? payload.data : (payload || {});
+
+        if (this.scrollMenu && key && this._scrollPopupKey === key) return;
+        this._scrollPopupKey = key;
+
+        // Scroll popup palette (parchment/brown theme)
+        const OUTLINE = '#865E3CFF';
+        const BG = '#E19D66FF';
+        const MID = '#A17049FF';
+        // subtle variations
+        const BG_DARK = '#D38F5BFF';
+        const BG_LIGHT = '#F0B77CFF';
+        const OUTLINE_SOFT = '#7A5536FF';
+        const FONT = 'lore, serif';
+
+        const w = 720;
+        const h = 590;
+        const x = 1980 / 2 - w / 2;
+        const y = 1080 / 2 - h / 2;
+        const menu = new Menu(this.mouse, this.keys, new Vector(x, y), new Vector(w, h), 10, BG, true);
+        menu.passcode = 'ScrollPopup';
+
+        // background panel + accents
+        menu.addElement('bg', new UIRect(new Vector(0, 0), new Vector(w, h), 10, BG));
+        // top band (slightly lighter)
+        menu.addElement('bandTop', new UIRect(new Vector(0, 0), new Vector(w, 70), 11, BG_LIGHT));
+        // bottom band (slightly darker)
+        menu.addElement('bandBottom', new UIRect(new Vector(0, h - 70), new Vector(w, 70), 11, BG_DARK));
+        // outline
+        menu.addElement('border', new UIRect(new Vector(0, 0), new Vector(w, h), 12, OUTLINE, false, true, 6, OUTLINE));
+        // inner outline for a bit more detail
+        menu.addElement('borderInner', new UIRect(new Vector(8, 8), new Vector(w - 16, h - 16), 12, OUTLINE_SOFT, false, true, 2, OUTLINE_SOFT));
+
+        // Title
+        const title = new UIText(data.title || 'Scroll', new Vector(24, 34), 13, OUTLINE, 52, { baseline: 'middle', font: FONT });
+        menu.addElement('title', title);
+
+        // Close button
+        const closeBtn = new UIButton(this.mouse, this.keys, new Vector(w - 64, 14), new Vector(50, 50), 13, 'e', BG_DARK, BG_LIGHT, OUTLINE_SOFT);
+        closeBtn.passcode = 'ScrollPopup';
+        closeBtn.onPressed.left.connect(() => {
+            try { this.closeScrollPopup(); } catch (e) {}
+            try { this.mouse.pause(0.15); } catch (e) {}
+        });
+        menu.addElement('closeBtn', closeBtn);
+        menu.addElement('closeTxt', new UIText('X', new Vector(w - 39, 40), 14, OUTLINE, 30, { baseline: 'middle', align: 'center', font: FONT }));
+
+        const hasRecipe = !!data.recipe;
+        const loreTextRaw = (data.lore || '');
+        const loreText = String(loreTextRaw);
+        const loreNonEmpty = loreText.trim().length > 0;
+
+        // Layout: if recipe exists, use a true 2-column layout (lore left, recipe right)
+        const PAD = 24;
+        const COL_GAP = 20;
+        const contentW = w - PAD * 2;
+        const colW = hasRecipe ? Math.floor((contentW - COL_GAP) / 2) : contentW;
+        const leftX = PAD;
+        const rightX = PAD + colW + COL_GAP;
+        const rightW = contentW - colW - COL_GAP;
+        const topY = 80;
+
+        // SVG image (optional) - position depends on layout
+        const svgSize = hasRecipe ? Math.min(220, colW) : 220;
+        try {
+            if (data.svg) {
+                const img = new Image();
+                img.src = String(data.svg);
+                menu.addElement('svg', new UIImage(img, new Vector(leftX, topY), new Vector(svgSize, svgSize), 12, false));
+            }
+        } catch (e) {}
+
+        // Lore/Description (optional)
+        const loreFontSize = 24;
+        const loreLineHeight = 1.2;
+
+        // In recipe layout, lore is always in the left column.
+        // If an SVG is present, put description below it; otherwise start near the top.
+        const svgPresent = !!data.svg;
+        const lx = hasRecipe ? leftX : (svgPresent ? (leftX + 240) : leftX);
+        const loreHeaderY = hasRecipe ? (svgPresent ? (topY + svgSize + 22) : 84) : 84;
+        const loreTop = loreHeaderY + 24;
+        const loreWidth = hasRecipe ? colW : ((w - PAD) - lx);
+        // For recipe scrolls, keep this short (~3 lines) and rename header to "Description"
+        // Two-column layout means the recipe is not below this text anymore, so let it fill the
+        // available left-column space (minus the bottom decoration band and padding).
+        const bottomLimitY = h - 70 - 24;
+        const loreHeight = Math.max(64, bottomLimitY - loreTop);
+        const loreHeaderText = hasRecipe ? 'Description' : 'Lore';
+
+        if (loreNonEmpty) {
+            menu.addElement('loreHeader', new UIText(loreHeaderText, new Vector(lx, loreHeaderY), 13, OUTLINE, 32, { baseline: 'middle', font: FONT }));
+            menu.addElement(
+                'loreBody',
+                new UIText(
+                    loreText,
+                    new Vector(lx, loreTop),
+                    13,
+                    MID,
+                    loreFontSize,
+                    {
+                        baseline: 'top',
+                        font: FONT,
+                        wrap: 'word',
+                        wrapWidth: loreWidth,
+                        wrapHeight: loreHeight,
+                        lineHeight: loreLineHeight,
+                    }
+                )
+            );
+        }
+
+        // Recipe panel (optional)
+        const recipeSpec = this._resolveRecipeSpec(data.recipe);
+        if (recipeSpec) {
+            const gridTop = 108;
+            const gridLeft = hasRecipe ? rightX : leftX;
+            const gridWidth = hasRecipe ? rightW : (w - PAD * 2);
+            const gridHeight = h - gridTop - 26;
+
+            // Decide whether we should show anything for this recipe
+            const recipeText = (recipeSpec && (recipeSpec.text !== undefined)) ? String(recipeSpec.text || '') : '';
+            const recipeHasContent = (
+                recipeSpec.kind === 'crafting' ||
+                recipeSpec.kind === 'smelting' ||
+                (recipeSpec.kind === 'text' && recipeText.trim().length > 0) ||
+                (recipeSpec.kind === 'unknown' && recipeText.trim().length > 0)
+            );
+            if (!recipeHasContent) {
+                this.scrollMenu = menu;
+                return;
+            }
+
+            // Header sits at top of the recipe column
+            const headerY = 84;
+            menu.addElement('recipeHeader', new UIText('Recipe', new Vector(gridLeft, headerY), 13, OUTLINE, 32, { baseline: 'middle', font: FONT }));
+
+            // Lightweight draw-only element for the recipe grid
+            const self = this;
+            const recipeEl = {
+                pos: new Vector(gridLeft, gridTop),
+                size: new Vector(gridWidth, gridHeight),
+                offset: new Vector(0, 0),
+                visible: true,
+                addOffset(off) { this.offset = off; },
+                update() {},
+                draw(Draw) {
+                    try {
+                        const ox = this.pos.x + this.offset.x;
+                        const oy = this.pos.y + this.offset.y;
+
+                        // panel background
+                        Draw.rect(new Vector(ox, oy), this.size, BG_LIGHT);
+                        Draw.rect(new Vector(ox + 6, oy + 6), new Vector(this.size.x - 12, this.size.y - 12), BG);
+
+                        // Recipe icon styling: sepia-tone to match parchment UI (closer to MID text color)
+                        const iconFilter = { sepia: 1, saturate: 1.15, brightness: 0.92, contrast: 1.17 };
+
+                        const resolveIcon = (id) => {
+                            try {
+                                const inv = self.scene && self.scene.player && self.scene.player.inventory;
+                                if (!inv || typeof inv.getItem !== 'function') return null;
+                                const resolved = inv.getItem(id);
+                                if (!resolved || !resolved.sheet) return null;
+                                const d = resolved.data || {};
+                                const tile = (d.tile !== undefined) ? d.tile : ((d.coord !== undefined) ? d.coord : (d.id !== undefined ? d.id : id));
+                                return { sheet: resolved.sheet, tile };
+                            } catch (e) { return null; }
+                        };
+
+                        const drawCell = (cx, cy, cellSize, id) => {
+                            // cell bg
+                            Draw.rect(new Vector(cx, cy), new Vector(cellSize, cellSize), BG_DARK);
+                            Draw.rect(new Vector(cx + 3, cy + 3), new Vector(cellSize - 6, cellSize - 6), BG);
+
+                            if (!id) return;
+                            let name = String(id);
+                            if (name.length > 16) name = name.slice(0, 15) + '…';
+
+                            // name
+                            Draw.text(name, new Vector(cx + cellSize / 2, cy + 4), OUTLINE_SOFT, 2, 14, { align: 'center', baseline: 'top', font: FONT, wrap: 'none' });
+
+                            // icon
+                            const icon = resolveIcon(id);
+                            if (!icon) return;
+                            const iconSize = Math.floor(cellSize * 0.62);
+                            const ix = cx + Math.floor((cellSize - iconSize) / 2);
+                            const iy = cy + 22;
+                            try {
+                                Draw.tile(icon.sheet, new Vector(ix, iy), new Vector(iconSize, iconSize), icon.tile, 0, null, 1, false, iconFilter);
+                            } catch (e) {}
+                        };
+
+                        if (recipeSpec.kind === 'crafting') {
+                            const sizeKey = recipeSpec.size || '3x3';
+                            const n = (sizeKey === '1x1') ? 1 : (sizeKey === '2x2' ? 2 : 3);
+                            const gap = 10;
+                            const innerW = this.size.x - 36;
+                            let cellSize = Math.floor((innerW - (n - 1) * gap) / n);
+                            cellSize = Math.max(64, Math.min(cellSize, 112));
+                            const gridW = n * cellSize + (n - 1) * gap;
+                            const gridH = n * cellSize + (n - 1) * gap;
+                            const gridX = ox + 18 + Math.max(0, Math.floor((innerW - gridW) / 2));
+                            const gridY = oy + 18;
+
+                            // Draw grid cells
+                            const input = Array.isArray(recipeSpec.input) ? recipeSpec.input : [];
+                            for (let r = 0; r < n; r++) {
+                                const row = Array.isArray(input[r]) ? input[r] : [];
+                                for (let c = 0; c < n; c++) {
+                                    const id = row[c] || '';
+                                    const cx = gridX + c * (cellSize + gap);
+                                    const cy = gridY + r * (cellSize + gap);
+                                    drawCell(cx, cy, cellSize, id);
+                                }
+                            }
+
+                            // Output panel below
+                            const outY = gridY + gridH + 44;
+                            const outX = gridX + Math.floor((gridW - cellSize) / 2);
+                            Draw.text('↓', new Vector(gridX + gridW / 2, gridY + gridH + 20), OUTLINE, 2, 44, { align: 'center', baseline: 'middle', font: FONT });
+                            drawCell(outX, outY, cellSize, recipeSpec.output);
+                            if (recipeSpec.amount && recipeSpec.amount !== 1) {
+                                Draw.text(`x${recipeSpec.amount}`, new Vector(outX + cellSize / 2, outY + cellSize + 18), MID, 2, 20, { align: 'center', baseline: 'middle', font: FONT });
+                            }
+                            return;
+                        }
+
+                        if (recipeSpec.kind === 'smelting') {
+                            // Furnace recipes: show inputs packed into a 3x3 grid, then fuel row, then output below
+                            const gap = 10;
+                            const innerW = this.size.x - 36;
+                            let cellSize = Math.floor((innerW - 2 * gap) / 3);
+                            cellSize = Math.max(60, Math.min(cellSize, 104));
+                            const gridX = ox + 18 + Math.max(0, Math.floor((innerW - (3 * cellSize + 2 * gap)) / 2));
+                            const gridY = oy + 18;
+
+                            Draw.text('Input', new Vector(gridX, gridY - 10), OUTLINE, 2, 22, { align: 'left', baseline: 'bottom', font: FONT });
+                            const ids = Array.isArray(recipeSpec.input) ? recipeSpec.input : [];
+                            for (let i = 0; i < 9; i++) {
+                                const r = Math.floor(i / 3);
+                                const c = i % 3;
+                                const cx = gridX + c * (cellSize + gap);
+                                const cy = gridY + r * (cellSize + gap);
+                                drawCell(cx, cy, cellSize, ids[i] || '');
+                            }
+
+                            const fuelY = gridY + 3 * (cellSize + gap) + 34;
+                            Draw.text('Fuel', new Vector(gridX, fuelY - 10), OUTLINE, 2, 22, { align: 'left', baseline: 'bottom', font: FONT });
+                            const fuels = Array.isArray(recipeSpec.fuel) ? recipeSpec.fuel : [];
+                            for (let i = 0; i < Math.min(3, fuels.length); i++) {
+                                const cx = gridX + i * (cellSize + gap);
+                                drawCell(cx, fuelY, cellSize, fuels[i] || '');
+                            }
+
+                            // Output below fuel
+                            const outY = fuelY + cellSize + 56;
+                            const outX = gridX + Math.floor((3 * cellSize + 2 * gap - cellSize) / 2);
+                            Draw.text('↓', new Vector(gridX + (3 * cellSize + 2 * gap) / 2, fuelY + cellSize + 24), OUTLINE, 2, 44, { align: 'center', baseline: 'middle', font: FONT });
+                            Draw.text('Output', new Vector(outX + cellSize / 2, outY - 24), OUTLINE, 2, 26, { align: 'center', baseline: 'middle', font: FONT });
+                            drawCell(outX, outY, cellSize, recipeSpec.output);
+                            if (recipeSpec.amount && recipeSpec.amount !== 1) {
+                                Draw.text(`x${recipeSpec.amount}`, new Vector(outX + cellSize / 2, outY + cellSize + 18), MID, 2, 20, { align: 'center', baseline: 'middle', font: FONT });
+                            }
+                            return;
+                        }
+
+                        // Text / unknown recipe fallback
+                        const text = (recipeSpec.text !== undefined) ? String(recipeSpec.text) : '';
+                        if (text) {
+                            Draw.text(text, new Vector(ox + 18, oy + 18), MID, 2, 22, { baseline: 'top', font: FONT, wrap: 'word', wrapWidth: this.size.x - 36, wrapHeight: this.size.y - 36, lineHeight: 1.15 });
+                        }
+                    } catch (e) {}
+                }
+            };
+
+            menu.addElement('recipeGrid', recipeEl);
+        }
+
+        this.scrollMenu = menu;
+    }
+
+    closeScrollPopup() {
+        this.scrollMenu = null;
+        this._scrollPopupKey = null;
+    }
+
     
 
     /**
@@ -236,6 +620,11 @@ export default class MainUI {
         this.InventoryManager.update(delta);
         // keep UI slot visuals in sync with player state
         this.menu.update(delta)
+        try {
+            if (this.scrollMenu) this.scrollMenu.update(delta);
+            // Close popup with Escape even if mouse isn't on the X.
+            if (this.scrollMenu && this.keys && this.keys.released && this.keys.released('Escape')) this.closeScrollPopup();
+        } catch (e) {}
         // update inventory state first so slot counts are current
         this._updateSlots();
     }
@@ -243,5 +632,6 @@ export default class MainUI {
         if (!this.visible) return;
         this.menu.draw(this.Draw)
         this.InventoryManager.draw(this.Draw)
+        try { if (this.scrollMenu) this.scrollMenu.draw(this.Draw); } catch (e) {}
     }
 }

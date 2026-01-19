@@ -7,6 +7,8 @@ export default class Keys { // Key input
         this._doubleTapped = new Set();
         this.doubleTapThreshold = 350; // ms
         this.passcode = "";
+        this.pauseTime = 0;
+        this.lastDelta = 0;
 
         window.addEventListener("keydown", e => {
             // prevent browser interfering with shortcuts
@@ -55,14 +57,23 @@ export default class Keys { // Key input
 
     update(delta) {
         this.lastDelta = delta;
+        if (this.pauseTime > 0) {
+            this.pauseTime -= delta;
+            if (this.pauseTime < 0) this.pauseTime = 0;
+        }
         for (const k in this.keys) {
             const key = this.keys[k];
             key.time = key.state ? key.time + delta : 0;
         }
     }
 
+    pause(duration = 0.1) {
+        this.pauseTime = duration;
+    }
+
     pressed(key,passcode="") {
         if(passcode!==this.passcode && this.passcode !== "") return false;
+        if (this.pauseTime > 0) return false;
         const delta = this.lastDelta || 0;
         if (key === 'any') {
             for (const k in this.keys) {
@@ -78,6 +89,7 @@ export default class Keys { // Key input
 
     released(key,passcode="") {
         if(passcode!==this.passcode && this.passcode !== "") return false;
+        if (this.pauseTime > 0) return false;
         if (key === 'any') {
             for (const k in this.releasedFrame) {
                 if (this.releasedFrame[k]) {
@@ -100,6 +112,7 @@ export default class Keys { // Key input
      */
     doubleTapped(key,passcode="") {
         if(passcode!==this.passcode && this.passcode !== "") return false;
+        if (this.pauseTime > 0) return false;
         if (this._doubleTapped.has(key)) {
             this._doubleTapped.delete(key);
             return true;
@@ -109,6 +122,7 @@ export default class Keys { // Key input
 
     held(key, returnTime = false,passcode="") {
         if(passcode!==this.passcode && this.passcode !== "") return 0;
+        if (this.pauseTime > 0) return returnTime ? 0 : false;
         if (key === 'any') {
             for (const k in this.keys) {
                 if (this.keys[k] && this.keys[k].state) {
@@ -123,6 +137,7 @@ export default class Keys { // Key input
 
     comboPressed(keysArray,passcode="") {
         if(passcode!==this.passcode && this.passcode !== "") return false;
+        if (this.pauseTime > 0) return false;
         const all = keysArray.every(k => this.firstFrame[k]);
         if (all) keysArray.forEach(k => (this.firstFrame[k] = false));
         return all;
@@ -130,6 +145,7 @@ export default class Keys { // Key input
 
     comboHeld(keysArray, returnTime = false,passcode="") {
         if(passcode!==this.passcode && this.passcode !== "") return 0;
+        if (this.pauseTime > 0) return returnTime ? 0 : false;
         if (!keysArray.every(k => this.keys[k]?.state)) return returnTime ? 0 : false;
         return returnTime ? Math.min(...keysArray.map(k => this.keys[k].time)) : true;
     }
