@@ -77,6 +77,17 @@
                 }
             }
         },
+        "[The Well]":{
+            "well_top":{
+                "dependencies":["stone","stone"],
+                "data":{
+                    "bg":"air",
+                    "regions":[
+                        {"region":[[0,11],[0,12]],"block_type":"polished_cobblestone_pillar","replace":["all"]}
+                    ]
+                }
+            }
+        },
         "[Desert]":{
             "desert1":{
                 "dependencies":["desert"],

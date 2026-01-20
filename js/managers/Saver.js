@@ -2,6 +2,7 @@ export default class Saver {
     constructor(storageKey = "gameData") {
         this.storageKey = storageKey;
         this.savedata = {};
+        this._beforeSave = [];
         this.load();
     }
 
@@ -23,10 +24,30 @@ export default class Saver {
     // Save current savedata to localStorage
     save() {
         try {
+            // run before-save hooks
+            try {
+                if (Array.isArray(this._beforeSave)) {
+                    for (const cb of this._beforeSave) {
+                        try { cb(); } catch (e) { /* ignore hook errors */ }
+                    }
+                }
+            } catch (e) { /* ignore */ }
+
             localStorage.setItem(this.storageKey, JSON.stringify(this.savedata));
         } catch (e) {
             console.error("Failed to save data:", e);
         }
+    }
+
+    /**
+     * Register a callback to be invoked before save() writes to storage.
+     * Callback should be synchronous; errors are swallowed.
+     * @param {Function} cb
+     */
+    onBeforeSave(cb) {
+        if (typeof cb !== 'function') return;
+        if (!Array.isArray(this._beforeSave)) this._beforeSave = [];
+        this._beforeSave.push(cb);
     }
 
     _getPathObj(path, createMissing = false) {

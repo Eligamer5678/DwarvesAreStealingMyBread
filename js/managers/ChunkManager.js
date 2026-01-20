@@ -568,17 +568,19 @@ export default class ChunkManager {
                             break;
                         }
                     }
-                    if (selected) break;
+                    // do not break here; allow later structure rules to override earlier ones
+                    // (keep iterating to allow last-match to win)
                 }
             }
         }
 
         // If no structure matched, fall back to condition-based selection
         if (!selected && this.generationSpec && typeof this.generationSpec === 'object') {
+            // Evaluate all generation rules and let the last matching rule win
             for (const key of Object.keys(this.generationSpec)) {
                 const rule = this.generationSpec[key];
                 const conds = rule.conditions || [];
-                if (this._matchesGenerationConditions(conds, cx, cy)) { selected = rule; break; }
+                if (this._matchesGenerationConditions(conds, cx, cy)) { selected = rule; }
             }
         }
 
@@ -746,6 +748,30 @@ export default class ChunkManager {
                 for (let x = bx; x <= ex; x++) {
                     const idx = y * chunkSize + x;
                     const tlayer = layerVal || layerForChunk || 'base';
+
+                    // Honor `replace` lists on a per-region basis.
+                    // If `reg.replace` is present and is an array, only replace
+                    // the existing tile when the current tile id matches one of
+                    // the entries. The special token "all" will cause an
+                    // unconditional replace (matching legacy behavior).
+                    let allowReplace = true;
+                    if (reg.replace && Array.isArray(reg.replace)) {
+                        const repl = reg.replace;
+                        if (repl.indexOf('all') >= 0) {
+                            allowReplace = true;
+                        } else {
+                            const cur = layers[tlayer][idx];
+                            let curId = null;
+                            if (cur === null || cur === undefined) curId = 'air';
+                            else if (typeof cur === 'object' && cur.id) curId = cur.id;
+                            else if (typeof cur === 'string') curId = cur;
+                            else curId = String(cur);
+                            allowReplace = repl.indexOf(curId) >= 0;
+                        }
+                    }
+
+                    if (!allowReplace) continue;
+
                     if (hasTransform) {
                         const obj = { id: blockType, rot: rot, invert: invert };
                         layers[tlayer][idx] = obj;

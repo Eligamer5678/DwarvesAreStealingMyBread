@@ -17,6 +17,7 @@ export class MainScene extends Scene {
         this.elements = new Map();
         this.isPreloaded = false;
         this.isReady = false;
+        this.debugShowChunks = false;
     }
 
     /**
@@ -59,6 +60,27 @@ export class MainScene extends Scene {
             this.entityManager = new EntityManager(this.chunkManager, this.Draw, this.SpriteImages, { noiseTileSize: this.chunkManager.noiseTileSize });
             this.camera = new Camera(this.Draw, this.mouse);
             this.createPlayer()
+
+            // Restore saved player position if present
+            try {
+                if (this.saver && typeof this.saver.get === 'function') {
+                    const pp = this.saver.get('player/pos', null);
+                    if (pp && typeof pp.x === 'number' && typeof pp.y === 'number' && this.player) {
+                        this.player.pos.x = pp.x;
+                        this.player.pos.y = pp.y;
+                    }
+                    // Register before-save hook so autosaves include player position
+                    if (this.saver && typeof this.saver.onBeforeSave === 'function') {
+                        this.saver.onBeforeSave(() => {
+                            try {
+                                if (this.player && this.saver) {
+                                    this.saver.set('player/pos', { x: this.player.pos.x, y: this.player.pos.y }, false);
+                                }
+                            } catch (e) {}
+                        });
+                    }
+                }
+            } catch (e) {}
 
             // Load and register prefabs now so entity types are available
             // before chunk generation runs later in `onReady`.
@@ -112,6 +134,22 @@ export class MainScene extends Scene {
         })
         window.Debug.createSignal('clearSave',()=>{
             this.saver.clear()
+        })
+        window.Debug.createSignal('save', async ()=>{
+            try {
+                console.log('Debug: saving game...');
+                if (this.chunkManager && typeof this.chunkManager.save === 'function') {
+                    try { this.chunkManager.save(); } catch (e) { console.warn('chunkManager.save failed', e); }
+                }
+                if (this.saver && typeof this.saver.save === 'function') {
+                    try { this.saver.save(); } catch (e) { console.warn('saver.save failed', e); }
+                }
+                console.log('Debug: save complete');
+            } catch (e) { console.warn('Debug.save failed', e); }
+        })
+        window.Debug.createSignal('showChunks',()=>{
+            this.debugShowChunks = !this.debugShowChunks;
+            console.log('Debug: showChunks ->', this.debugShowChunks);
         })
         window.Debug.createSignal('gamemode',(gamemode)=>{
             if(gamemode === 'c' || gamemode === 'creative') this.player.creative = true;
@@ -221,6 +259,11 @@ export class MainScene extends Scene {
         // Toggle debug path drawing with 'b' (bats) and 'm' (moths)
         if (this.keys.released('b')) this.debugBatPaths = !this.debugBatPaths;
         if (this.keys.released('m')) this.debugMothPaths = !this.debugMothPaths;
+        // Toggle chunk borders with F3
+        if (this.keys.released('F4')) {
+            this.debugShowChunks = !this.debugShowChunks;
+            console.log('Toggled chunk borders:', this.debugShowChunks);
+        }
 
         // Update lighting
         this.lighting.update();
@@ -263,6 +306,44 @@ export class MainScene extends Scene {
         this.Draw.rect(new Vector(this.player.pos.x-1920,16),new Vector(1920*3,16*16),'#000000FF')
         
         this.chunkManager.draw(this.Draw, this.camera, this.SpriteImages, { lighting: this.lighting });
+        // Debug: draw chunk borders when enabled
+        if (this.debugShowChunks && this.chunkManager && this.camera) {
+            try {
+                const cm = this.chunkManager;
+                const chunkPx = (cm.chunkSize || 16) * (cm.noiseTileSize || 16);
+                const scaleX = this.Draw.Scale ? this.Draw.Scale.x : 1;
+                const canvasW = this.Draw.ctx.canvas.width / scaleX;
+                const canvasH = this.Draw.ctx.canvas.height / scaleX;
+                const tl = this.camera.screenToWorld(new Vector(0,0));
+                const br = this.camera.screenToWorld(new Vector(canvasW, canvasH));
+                const cx0 = Math.floor(tl.x / chunkPx) - 1;
+                const cy0 = Math.floor(tl.y / chunkPx) - 1;
+                const cx1 = Math.floor(br.x / chunkPx) + 1;
+                const cy1 = Math.floor(br.y / chunkPx) + 1;
+                const lineColor = '#FF00FF88';
+                for (let cy = cy0; cy <= cy1; cy++) {
+                    for (let cx = cx0; cx <= cx1; cx++) {
+                        const x = cx * chunkPx;
+                        const y = cy * chunkPx;
+                        this.Draw.line(new Vector(x, y), new Vector(x + chunkPx, y), lineColor, 2);
+                        this.Draw.line(new Vector(x + chunkPx, y), new Vector(x + chunkPx, y + chunkPx), lineColor, 2);
+                        this.Draw.line(new Vector(x + chunkPx, y + chunkPx), new Vector(x, y + chunkPx), lineColor, 2);
+                        this.Draw.line(new Vector(x, y + chunkPx), new Vector(x, y), lineColor, 2);
+                    }
+                }
+                // highlight player's chunk
+                const pcx = Math.floor((this.player.pos.x + this.player.size.x * 0.5) / chunkPx);
+                const pcy = Math.floor((this.player.pos.y + this.player.size.y * 0.5) / chunkPx);
+                const px0 = pcx * chunkPx;
+                const py0 = pcy * chunkPx;
+                this.Draw.line(new Vector(px0, py0), new Vector(px0 + chunkPx, py0), '#00FF00FF', 3);
+                this.Draw.line(new Vector(px0 + chunkPx, py0), new Vector(px0 + chunkPx, py0 + chunkPx), '#00FF00FF', 3);
+                this.Draw.line(new Vector(px0 + chunkPx, py0 + chunkPx), new Vector(px0, py0 + chunkPx), '#00FF00FF', 3);
+                this.Draw.line(new Vector(px0, py0 + chunkPx), new Vector(px0, py0), '#00FF00FF', 3);
+            } catch (e) {
+                // ignore debug draw failures
+            }
+        }
         // Draw player in world space (after world draw but still under UI)
         const px = this.player.pos.x + this.player.size.x * 0.5;
         const brightness = this.lighting.getBrightnessForWorld(px, py, tileSize);
@@ -282,6 +363,20 @@ export class MainScene extends Scene {
         // UI layer
         this.UIDraw.clear();
         this.mainUI.draw();
+        // Draw chunk coordinate in top-right UI when debug enabled
+        if (this.debugShowChunks && this.chunkManager && this.player) {
+            try {
+                this.UIDraw.useCtx('UI');
+                const scaleX = this.UIDraw.Scale ? this.UIDraw.Scale.x : 1;
+                const screenW = this.UIDraw.ctx.canvas.width / scaleX;
+                const pad = 10;
+                const chunkPx = (this.chunkManager.chunkSize || 16) * (this.chunkManager.noiseTileSize || 16);
+                const cx = Math.floor((this.player.pos.x + this.player.size.x * 0.5) / chunkPx);
+                const cy = Math.floor((this.player.pos.y + this.player.size.y * 0.5) / chunkPx);
+                const txt = `Chunk: ${cx},${cy}`;
+                this.UIDraw.text(txt, new Vector(screenW - pad, pad), '#FFFFFFFF', 1, 18, { align: 'right', baseline: 'top' });
+            } catch (e) { }
+        }
     }
 }
 

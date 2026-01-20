@@ -98,6 +98,17 @@
             }}
         ]
     },
+    "well":{
+        "type":"terrain",
+        "chunk_types":[
+            {"name":"well_top","chance":1}
+        ],
+        "conditions":[
+            {"type":"x","data":{"meta":["equal",240]}},
+            {"type":"y","data":{"meta":["equal",-16]}}
+        ],
+        "special":[ ]
+    },
     "bagelvillage":{
         "type":"structure",
         "root":[0,0],

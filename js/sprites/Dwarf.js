@@ -78,7 +78,7 @@ export default class Dwarf extends Sprite {
 
         // Creative mode: when true, items are unlimited and placement/mining
         // will not modify inventory. Also enables quick cycling with 'o'/'p'.
-        this.creative = false;
+        this.creative = true;
         // Palette of buildable blocks (used by buildKeys and pickBlock)
         this.buildPalette = [
             'stone',
@@ -217,44 +217,103 @@ export default class Dwarf extends Sprite {
         // Rotation and flip controls (r = rotate 90°, f = flip horizontally)
         if(this.keys.pressed('r')) {
             this.selected.rot = (this.selected.rot + 90) % 360;
+            try {
+                // Persist rotation into canonical hotbar entry so it survives _applySelectedSlot
+                if (this.inventory && Array.isArray(this.inventory.slots.hotbar)) {
+                    const hotbarKey = this.inventory.slots.hotbar[this.selectedSlot];
+                    if (hotbarKey && this.inventory.Inventory && this.inventory.Inventory.has(hotbarKey)) {
+                        const entry = this.inventory.Inventory.get(hotbarKey);
+                        entry.data = entry.data || {};
+                        entry.data.rot = this.selected.rot;
+                        entry.data.invert = !!this.selected.invert;
+                    } else {
+                        // create a canonical entry for the selected type if missing
+                        const type = this.selected.type || (Array.isArray(this.buildPalette) ? this.buildPalette[0] : null) || 'stone';
+                        const amt = this.creative ? 9999 : 1;
+                        const placed = this.inventory.addItem(type, `hotbar/${this.selectedSlot}`, true, 'inventory', amt);
+                        if (placed) {
+                            const newKey = this.inventory.slots.hotbar[this.selectedSlot];
+                            if (newKey && this.inventory.Inventory.has(newKey)) {
+                                const entry = this.inventory.Inventory.get(newKey);
+                                entry.data = entry.data || {};
+                                entry.data.rot = this.selected.rot;
+                                entry.data.invert = !!this.selected.invert;
+                            }
+                        }
+                    }
+                }
+            } catch (e) {}
+            try { this._applySelectedSlot(); } catch (e) {}
         }
         if(this.keys.pressed('f')) {
             this.selected.invert = !this.selected.invert;
+            try {
+                if (this.inventory && Array.isArray(this.inventory.slots.hotbar)) {
+                    const hotbarKey = this.inventory.slots.hotbar[this.selectedSlot];
+                    if (hotbarKey && this.inventory.Inventory && this.inventory.Inventory.has(hotbarKey)) {
+                        const entry = this.inventory.Inventory.get(hotbarKey);
+                        entry.data = entry.data || {};
+                        entry.data.invert = !!this.selected.invert;
+                        entry.data.rot = this.selected.rot;
+                    } else {
+                        const type = this.selected.type || (Array.isArray(this.buildPalette) ? this.buildPalette[0] : null) || 'stone';
+                        const amt = this.creative ? 9999 : 1;
+                        const placed = this.inventory.addItem(type, `hotbar/${this.selectedSlot}`, true, 'inventory', amt);
+                        if (placed) {
+                            const newKey = this.inventory.slots.hotbar[this.selectedSlot];
+                            if (newKey && this.inventory.Inventory.has(newKey)) {
+                                const entry = this.inventory.Inventory.get(newKey);
+                                entry.data = entry.data || {};
+                                entry.data.invert = !!this.selected.invert;
+                                entry.data.rot = this.selected.rot;
+                            }
+                        }
+                    }
+                }
+            } catch (e) {}
+            try { this._applySelectedSlot(); } catch (e) {}
         }
         // Pickblock: copy target block into current selection
         if(this.keys.pressed('c')){
             this.pickBlock();
         }
-        // Creative quick-swap: previous/next palette item
-        if (this.keys.pressed('o')) {
+        // Creative quick-swap: previous/next palette item (use blocks.json keys when creative)
+        if (this.keys.pressed('o')  && this.creative|| this.keys.pressed('p') && this.creative) {
             try {
-                let idx = this.buildPalette.indexOf(this.selected.type);
+                // Prefer canonical block registry when in creative mode
+                let list = null;
+                if (this.creative && this.chunkManager && this.chunkManager.blockDefs) {
+                    const bd = this.chunkManager.blockDefs;
+                    if (bd instanceof Map) list = Array.from(bd.keys());
+                    else if (Array.isArray(bd)) list = bd.slice();
+                    else if (bd && typeof bd === 'object') list = Object.keys(bd);
+                }
+                // Fallback to buildPalette if no registry available
+                if (!list || list.length === 0) list = this.buildPalette;
+
+                let idx = list.indexOf(this.selected.type);
                 if (idx === -1) idx = 0;
-                idx = (idx - 1 + this.buildPalette.length) % this.buildPalette.length;
-                const newType = this.buildPalette[idx];
+                if (this.keys.pressed('o')) idx = (idx - 1 + list.length) % list.length;
+                else idx = (idx + 1) % list.length;
+
+                const newType = list[idx];
                 this.selected.type = newType;
-                // update the current quickslot object so UI reflects the change
-                const slotObj = Object.assign({}, this.slots[this.selectedSlot] || {});
-                slotObj.type = newType;
-                slotObj.amount = 9999; // treat as abundant
-                slotObj.rot = slotObj.rot || this.selected.rot || 0;
-                slotObj.invert = (typeof slotObj.invert !== 'undefined') ? slotObj.invert : this.selected.invert || false;
-                this.slots[this.selectedSlot] = slotObj;
-            } catch (e) {}
-        }
-        if (this.keys.pressed('p')) {
-            try {
-                let idx = this.buildPalette.indexOf(this.selected.type);
-                if (idx === -1) idx = 0;
-                idx = (idx + 1) % this.buildPalette.length;
-                const newType = this.buildPalette[idx];
-                this.selected.type = newType;
-                const slotObj = Object.assign({}, this.slots[this.selectedSlot] || {});
-                slotObj.type = newType;
-                slotObj.amount = 9999;
-                slotObj.rot = slotObj.rot || this.selected.rot || 0;
-                slotObj.invert = (typeof slotObj.invert !== 'undefined') ? slotObj.invert : this.selected.invert || false;
-                this.slots[this.selectedSlot] = slotObj;
+                // Update canonical hotbar slot via Inventory API when available
+                try {
+                    const amt = this.creative ? 9999 : 1;
+                    if (this.inventory && typeof this.inventory.addItem === 'function') {
+                        this.inventory.addItem(newType, `hotbar/${this.selectedSlot}`, true, 'inventory', amt);
+                        // Refresh selected from the hotbar canonical entry
+                        try { this._applySelectedSlot(); } catch (e) { }
+                    } else {
+                        const slotObj = Object.assign({}, this.slots[this.selectedSlot] || {});
+                        slotObj.type = newType;
+                        slotObj.amount = this.creative ? 9999 : (slotObj.amount || 0);
+                        slotObj.rot = slotObj.rot || this.selected.rot || 0;
+                        slotObj.invert = (typeof slotObj.invert !== 'undefined') ? slotObj.invert : this.selected.invert || false;
+                        this.slots[this.selectedSlot] = slotObj;
+                    }
+                } catch (e) {}
             } catch (e) {}
         }
     }
@@ -307,22 +366,30 @@ export default class Dwarf extends Sprite {
             // Copy rotation/invert if present, otherwise default
             this.selected.rot = (tile.rot !== undefined) ? tile.rot : 0;
             this.selected.invert = (tile.invert !== undefined) ? tile.invert : false;
-            // Update the quickslot entry so UI and canonical slot data reflect the pick
-            // Update existing inventory entry in the hotbar quickslot if present, otherwise create a new entry
+            // Canonicalize the hotbar slot via Inventory API (ensures UI updates)
             try {
-                const hotbarKey = (this.inventory && this.inventory.slots && Array.isArray(this.inventory.slots.hotbar)) ? this.inventory.slots.hotbar[this.selectedSlot] : (this.slots ? this.slots[this.selectedSlot] : null);
-                if (hotbarKey && this.inventory && this.inventory.Inventory && this.inventory.Inventory.has(hotbarKey)){
-                    const existing = this.inventory.Inventory.get(hotbarKey);
-                    existing.data = existing.data || {};
-                    existing.data.tile = this.selected.type;
-                    existing.data.id = this.selected.type;
-                    existing.data.rot = this.selected.rot || 0;
-                    existing.data.invert = !!this.selected.invert;
-                    existing.data.amount = this.creative ? 9999 : (existing.data.amount || 0);
+                const amt = this.creative ? 9999 : 1;
+                if (this.inventory && typeof this.inventory.addItem === 'function') {
+                    this.inventory.addItem(this.selected.type, `hotbar/${this.selectedSlot}`, true, 'inventory', amt);
+                    // After placing, persist rot/invert/amount into the canonical entry
+                    const newKey = (this.inventory.slots && Array.isArray(this.inventory.slots.hotbar)) ? this.inventory.slots.hotbar[this.selectedSlot] : null;
+                    if (newKey && this.inventory.Inventory && this.inventory.Inventory.has(newKey)) {
+                        const entry = this.inventory.Inventory.get(newKey);
+                        entry.data = entry.data || {};
+                        entry.data.tile = this.selected.type;
+                        entry.data.id = this.selected.type;
+                        entry.data.rot = this.selected.rot || 0;
+                        entry.data.invert = !!this.selected.invert;
+                        entry.data.amount = this.creative ? 9999 : (entry.data.amount || 0);
+                    }
                 } else {
-                    // create new inventory entry and place it into the hotbar slot
-                    const amt = this.creative ? 9999 : 0;
-                    try { this.inventory.addItem(this.selected.type, `hotbar/${this.selectedSlot}`, true, 'inventory', amt); } catch(e){}
+                    // fallback: mutate legacy slots object
+                    const slotObj = Object.assign({}, this.slots[this.selectedSlot] || {});
+                    slotObj.type = this.selected.type;
+                    slotObj.amount = this.creative ? 9999 : (slotObj.amount || 0);
+                    slotObj.rot = slotObj.rot || this.selected.rot || 0;
+                    slotObj.invert = (typeof slotObj.invert !== 'undefined') ? slotObj.invert : this.selected.invert || false;
+                    this.slots[this.selectedSlot] = slotObj;
                 }
             } catch (e) {}
             // Ensure selected reflects the stored slot canonical data
