@@ -18,6 +18,8 @@ export class MainScene extends Scene {
         this.isPreloaded = false;
         this.isReady = false;
         this.debugShowChunks = false;
+        this._creativePlaceCooldown = 0;
+        this._creativeDeleteCooldown = 0;
     }
 
     /**
@@ -213,6 +215,14 @@ export class MainScene extends Scene {
         this.player.update(tickDelta);
         this.mainUI.menu.elements.get("heightText2").setText(Math.round((this.player.pos.y/this.chunkManager.noiseTileSize)*-1*10-1)/10)
         this.mainUI.menu.elements.get("itemText").setText("Item: "+ this.player.selectedItem)
+        // Ctrl-press: copy block under mouse into selected slot
+        try {
+            if (this.keys.pressed && this.keys.pressed('Control') && this.mouse && this.camera && typeof this.camera.screenToWorld === 'function') {
+                const screenPos = this.mouse.pos;
+                const world = this.camera.screenToWorld({ x: screenPos.x, y: screenPos.y });
+                try { if (this.player && typeof this.player.pickBlockAtWorld === 'function') this.player.pickBlockAtWorld(world.x, world.y); } catch (e) {}
+            }
+        } catch (e) {}
         // Debug: press 't' to spawn an extra torch at the player's tile (multiple allowed)
 
         if (this.keys.released('t')) {
@@ -241,6 +251,32 @@ export class MainScene extends Scene {
 
 
         this.collision.updateSprite(this.player);
+        // Creative-mode mouse placement: place/delete while holding mouse buttons
+        try {
+            // decrement cooldowns
+            this._creativePlaceCooldown = Math.max(0, this._creativePlaceCooldown - tickDelta);
+            this._creativeDeleteCooldown = Math.max(0, this._creativeDeleteCooldown - tickDelta);
+
+            if (this.mouse && this.player && this.player.creative) {
+                // skip if UI has capture (respect Mouse mask/power)
+                if (!(this.mouse._allowed && !this.mouse._allowed())) {
+                    const screenPos = this.mouse.pos;
+                    if (this.camera && typeof this.camera.screenToWorld === 'function') {
+                        const world = this.camera.screenToWorld({ x: screenPos.x, y: screenPos.y });
+                        // Left-hold: place repeatedly with a small cooldown
+                        if (this.mouse.held && this.mouse.held('left') && this._creativePlaceCooldown <= 0) {
+                            try { this.player.buildAtWorld(world.x, world.y, this.player.selected.type || null, { allowOverlap: false }); } catch (e) {}
+                            this._creativePlaceCooldown = 0.08;
+                        }
+                        // Right-hold: delete (mine) repeatedly with a small cooldown
+                        if (this.mouse.held && this.mouse.held('right') && this._creativeDeleteCooldown <= 0) {
+                            try { this.player.mineAtWorld(world.x, world.y); } catch (e) {}
+                            this._creativeDeleteCooldown = 0.08;
+                        }
+                    }
+                }
+            }
+        } catch (e) {}
         
         // Spawn monsters: 8 = Slime, 9 = Bat, 0 = Moth
         // Slime

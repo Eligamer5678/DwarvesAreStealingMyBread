@@ -592,6 +592,55 @@ export default class Dwarf extends Sprite {
         return true;
     }
 
+    /**
+     * Copy block at a given world coordinate into the currently-selected slot.
+     * This is similar to `pickBlock()` but targets an explicit world position
+     * (useful for mouse-driven picks).
+     * @param {number} worldX
+     * @param {number} worldY
+     * @returns {boolean}
+     */
+    pickBlockAtWorld(worldX, worldY){
+        try{
+            if(!this.chunkManager) return false;
+            const { sx, sy } = this._worldToSample(worldX, worldY);
+            const tile = this.chunkManager.getTileValue(sx, sy, 'any');
+            if(!tile || !tile.id) return false;
+            // Copy id into the currently-selected slot and update selected
+            this.selected.type = tile.id;
+            this.selected.rot = (tile.rot !== undefined) ? tile.rot : 0;
+            this.selected.invert = (tile.invert !== undefined) ? tile.invert : false;
+            // update canonical hotbar via Inventory API to ensure UI updates
+            try {
+                const hotbarKey = (this.inventory && this.inventory.slots && Array.isArray(this.inventory.slots.hotbar)) ? this.inventory.slots.hotbar[this.selectedSlot] : null;
+                const amt = this.creative ? 9999 : 1;
+                if (this.inventory && typeof this.inventory.addItem === 'function') {
+                    this.inventory.addItem(this.selected.type, `hotbar/${this.selectedSlot}`, true, 'inventory', amt);
+                    const newKey = (this.inventory.slots && Array.isArray(this.inventory.slots.hotbar)) ? this.inventory.slots.hotbar[this.selectedSlot] : null;
+                    if (newKey && this.inventory.Inventory && this.inventory.Inventory.has(newKey)) {
+                        const entry = this.inventory.Inventory.get(newKey);
+                        entry.data = entry.data || {};
+                        entry.data.tile = this.selected.type;
+                        entry.data.id = this.selected.type;
+                        entry.data.rot = this.selected.rot || 0;
+                        entry.data.invert = !!this.selected.invert;
+                        entry.data.amount = this.creative ? 9999 : (entry.data.amount || 0);
+                    }
+                } else if (hotbarKey) {
+                    const slotObj = Object.assign({}, this.slots[this.selectedSlot] || {});
+                    slotObj.type = this.selected.type;
+                    slotObj.amount = this.creative ? 9999 : (slotObj.amount || 0);
+                    slotObj.rot = slotObj.rot || this.selected.rot || 0;
+                    slotObj.invert = (typeof slotObj.invert !== 'undefined') ? slotObj.invert : this.selected.invert || false;
+                    this.slots[this.selectedSlot] = slotObj;
+                }
+            } catch (e) {}
+            try { this._applySelectedSlot(); } catch (e) {}
+            if (tile.layer) this.placeLayer = tile.layer;
+            return true;
+        }catch(e){ return false; }
+    }
+
     buildAtWorld(worldX, worldY, blockId, opts = {}) {
         const { sx, sy } = this._worldToSample(worldX, worldY);
         // Prevent placing a block in any tile overlapped by the dwarf's bounding box
