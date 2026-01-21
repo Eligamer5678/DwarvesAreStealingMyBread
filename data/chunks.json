@@ -79,11 +79,247 @@
         },
         "[The Well]":{
             "well_top":{
-                "dependencies":["stone","stone"],
+                "dependencies":["stone"],
                 "data":{
                     "bg":"air",
                     "regions":[
-                        {"region":[[0,11],[0,12]],"block_type":"polished_cobblestone_pillar","replace":["all"]}
+                        {"region":[[0,0],[15,15]],"block_type":"air"},
+                        {"region":[[7,2],[8,15]],"block_type":"glass","layer":"back"},
+                        {"region":[[5,5],[5,6]]},
+                        {"region":[[10,5],[10,6]]},
+                        {"region":[[1,12],[2,12]]},
+                        {"region":[[13,12],[14,12]]},
+                        {"region":[[4,15],[6,15]]},
+                        {"region":[[9,15],[11,15]]},
+                        {"region":[[6,5],[6,6]],"block_type":"polished_stone_pillar"},
+                        {"region":[[9,5],[9,6]]},
+                        {"region":[[6,8],[6,13]]},
+                        {"region":[[9,8],[9,13]]},
+                        {"region":[[3,11],[3,14]]},
+                        {"region":[[12,11],[12,14]]},
+                        {"region":[[0,13],[0,14]]},
+                        {"region":[[15,13],[15,14]]},
+                        {"region":[[4,8],[5,8]],"block_type":"limestone"},
+                        {"region":[[11,8],[11,9]]},
+                        {"region":[[10,9]]},
+                        {"region":[[10,8]],"block_type":"stone"},
+                        {"region":[[4,9],[4,12]]},
+                        {"region":[[5,9],[5,11]]},
+                        {"region":[[10,10],[11,11]]},
+                        {"region":[[1,11],[2,11]]},
+                        {"region":[[13,11],[14,11]]},
+                        {"region":[[1,13]]},
+                        {"region":[[4,14],[6,14]]},
+                        {"region":[[9,14],[11,14]]},
+                        {"region":[[12,10]],"block_type":"polished_stone"},
+                        {"region":[[5,12],[5,13]],"block_type":"cobblestone"},
+                        {"region":[[10,12],[11,13]]},
+                        {"region":[[2,13],[2,14]]},
+                        {"region":[[4,13]]},
+                        {"region":[[13,13],[14,14]]},
+                        {"region":[[1,14]]},
+                        {"region":[[12,15]]},
+                        {"region":[[6,1]],"block_type":"polished_cobblestone","layer":"base"},
+                        {"region":[[9,1]]},
+                        {"region":[[4,3]]},
+                        {"region":[[11,3]]},
+                        {"region":[[6,4]]},
+                        {"region":[[9,4]]},
+                        {"region":[[3,7]]},
+                        {"region":[[6,7]]},
+                        {"region":[[9,7]]},
+                        {"region":[[12,7]]},
+                        {"region":[[0,10]]},
+                        {"region":[[3,10]]},
+                        {"region":[[12,10]]},
+                        {"region":[[15,10]]},
+                        {"region":[[0,12]]},
+                        {"region":[[15,12]]},
+                        {"region":[[4,14]]},
+                        {"region":[[6,14]]},
+                        {"region":[[9,14]]},
+                        {"region":[[0,15]]},
+                        {"region":[[3,15]]},
+                        {"region":[[12,15]]},
+                        {"region":[[15,15]]},
+                        {"region":[[7,1]],"block_type":"polished_cobblestone_pillar","special":{"rot":270,"invert":false}},
+                        {"region":[[8,1]],"special":{"rot":90,"invert":false}},
+                        {"region":[[5,4]]},
+                        {"region":[[10,4]]},
+                        {"region":[[4,7],[5,7]]},
+                        {"region":[[10,7],[11,7]]},
+                        {"region":[[1,10],[2,10]]},
+                        {"region":[[13,10],[14,10]]},
+                        {"region":[[5,14]]},
+                        {"region":[[10,14]]},
+                        {"region":[[1,15],[2,15]]},
+                        {"region":[[13,15],[14,15]]},
+                        {"region":[[6,2],[6,3]],"special":{"rot":0,"invert":false}},
+                        {"region":[[9,2],[9,3]]},
+                        {"region":[[4,4],[4,6]]},
+                        {"region":[[11,4],[11,6]]},
+                        {"region":[[3,8],[3,9]]},
+                        {"region":[[12,8],[12,9]]},
+                        {"region":[[0,11]]},
+                        {"region":[[15,11]]},
+                        {"region":[[7,3],[8,15]],"block_type":"ladder"},
+                        {"region":[[3,14]],"block_type":"polished_cobblestone_stair","special":{"rot":270,"invert":false}},
+                        {"region":[[11,14]],"special":{"rot":0,"invert":false}},
+                        {"region":[[4,15]],"special":{"rot":90,"invert":false}},
+                        {"region":[[11,15]],"special":{"rot":180,"invert":false}}
+                    ]
+                }
+            },
+            "well_1":{
+                "dependencies":["stone"],
+                "data":{
+                    "bg":"air",
+                    "entities": [
+                        {
+                        "type": "torch",
+                        "pos": [
+                            4,
+                            1
+                        ],
+                        "data": {
+                            "size": [
+                            16,
+                            16
+                            ],
+                            "level": 15
+                        }
+                        },
+                        {
+                        "type": "torch",
+                        "pos": [
+                            11,
+                            1
+                        ],
+                        "data": {
+                            "size": [
+                            16,
+                            16
+                            ],
+                            "level": 15
+                        }
+                        },
+                        {
+                        "type": "torch",
+                        "pos": [
+                            4,
+                            5
+                        ],
+                        "data": {
+                            "size": [
+                            16,
+                            16
+                            ],
+                            "level": 15
+                        }
+                        },
+                        {
+                        "type": "torch",
+                        "pos": [
+                            11,
+                            5
+                        ],
+                        "data": {
+                            "size": [
+                            16,
+                            16
+                            ],
+                            "level": 15
+                        }
+                        },
+                        {
+                        "type": "torch",
+                        "pos": [
+                            11,
+                            9
+                        ],
+                        "data": {
+                            "size": [
+                            16,
+                            16
+                            ],
+                            "level": 15
+                        }
+                        },
+                        {
+                        "type": "torch",
+                        "pos": [
+                            4,
+                            9
+                        ],
+                        "data": {
+                            "size": [
+                            16,
+                            16
+                            ],
+                            "level": 15
+                        }
+                        },
+                        {
+                        "type": "torch",
+                        "pos": [
+                            11,
+                            13
+                        ],
+                        "data": {
+                            "size": [
+                            16,
+                            16
+                            ],
+                            "level": 15
+                        }
+                        },
+                        {
+                        "type": "torch",
+                        "pos": [
+                            4,
+                            13
+                        ],
+                        "data": {
+                            "size": [
+                            16,
+                            16
+                            ],
+                            "level": 15
+                        }
+                        }
+                    ],
+                    "regions": [
+                        {"region":[[0,0],[15,15]],"block_type":"air"},
+                        {"region":[[4,0],[7,15]],"block_type":"glass","layer":"back"},
+                        {"region":[[8,0],[11,6]]},
+                        {"region":[[9,7],[11,15]]},
+                        {"region":[[8,8],[8,15]]},
+                        {"region":[[0,0],[0,15]],"block_type":"sand","layer":"base"},
+                        {"region":[[1,0],[1,8]]},
+                        {"region":[[2,0],[2,7]]},
+                        {"region":[[13,0],[13,13]]},
+                        {"region":[[14,0],[15,8]]},
+                        {"region":[[2,9],[2,11]]},
+                        {"region":[[15,9],[15,15]]},
+                        {"region":[[1,10],[1,15]]},
+                        {"region":[[14,10],[14,15]]},
+                        {"region":[[2,13],[2,15]]},
+                        {"region":[[3,0],[3,15]],"block_type":"polished_cobblestone_pillar"},
+                        {"region":[[12,0],[12,15]]},
+                        {"region":[[7,0],[8,15]],"block_type":"ladder"},
+                        {"region":[[4,2]],"block_type":"polished_cobblestone_stair","special":{"rot":180,"invert":true}},
+                        {"region":[[4,6]]},
+                        {"region":[[4,10]]},
+                        {"region":[[4,14]]},
+                        {"region":[[11,2]],"special":{"rot":180,"invert":false}},
+                        {"region":[[11,6]]},
+                        {"region":[[11,10]]},
+                        {"region":[[11,14]]},
+                        {"region":[[2,8]],"block_type":"stone","special":{"rot":0,"invert":false}},
+                        {"region":[[1,9]]},
+                        {"region":[[14,9]]},
+                        {"region":[[2,12]]},
+                        {"region":[[13,14],[13,15]]}
                     ]
                 }
             }
