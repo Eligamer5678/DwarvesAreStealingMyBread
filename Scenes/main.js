@@ -410,7 +410,7 @@ export class MainScene extends Scene {
                 const cx = Math.floor((this.player.pos.x + this.player.size.x * 0.5) / chunkPx);
                 const cy = Math.floor((this.player.pos.y + this.player.size.y * 0.5) / chunkPx);
                 const txt = `Chunk: ${cx},${cy}`;
-                this.UIDraw.text(txt, new Vector(screenW - pad, pad), '#FFFFFFFF', 1, 18, { align: 'right', baseline: 'top' });
+                this.UIDraw.text(txt, new Vector(screenW - pad, pad), '#FFFFFFFF', 1, 30, { align: 'right', baseline: 'top' });
             } catch (e) { }
         }
     }
