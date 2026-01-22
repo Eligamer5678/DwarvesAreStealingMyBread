@@ -99,7 +99,235 @@ export default class ChunkManager {
             }
         } catch (e) { console.warn('ChunkManager.loadDefinitions: failed to load blocks.json', e); }
 
+        // After the base JSON is loaded, expand any structure rules in
+        // generation.json that reference external chunk files. This allows
+        // entries like:
+        //   {
+        //     "type": "structure",
+        //     "root": [0,0],
+        //     "chunkFiles": ["exports/chunk_0_0.json", "exports/chunk_0_1.json"]
+        //   }
+        // or individual chunk entries with a `file` property. The files are
+        // loaded here (once) and their specs cached on the chunk entries so
+        // _generateChunkJSON can use them synchronously.
+        try {
+            await this._expandGenerationStructureFiles(basePath);
+        } catch (e) {
+            console.warn('ChunkManager.loadDefinitions: failed to expand structure files', e);
+        }
+
         return { chunks: this.chunkSpecs, generation: this.generationSpec, blocks: this.blockDefs };
+    }
+
+    /**
+     * Expand structure rules in generationSpec that reference external
+     * chunk JSON files. Supports several patterns on a structure rule:
+     *   - `chunkFiles: ["path/chunk_0_0.json", ...]` where positions are
+     *     inferred from the JSON (pos) or from the filename ("*_x_y.json").
+    *   - `chunkFiles: "exports/myVillage"` (string). In this case, the
+    *     folder is treated as the base path, and files named
+    *     `chunk_<x>_<y>.json` in a coordinate range are probed and
+    *     auto-loaded. The range is provided via an optional
+    *     `chunkFileRange` object on the rule:
+    *       { "minX": -8, "maxX": 8, "minY": -4, "maxY": 4 }
+    *     If `chunkFileRange` is omitted, no folder probing is performed
+    *     (use an explicit `chunkFiles` array instead).
+     *   - `chunks: [{ pos:[x,y], file:"path/file.json" }, ...]` where
+     *     positions are provided explicitly.
+     *
+     * Each referenced file is expected to either already look like a
+     * single chunk spec from chunks.json ({ dependencies, data: { bg,
+     * regions, entities? } }) or contain `{ regions, entities? }`, in
+     * which case it is wrapped into that shape.
+     */
+    async _expandGenerationStructureFiles(basePath) {
+        const gen = this.generationSpec;
+        if (!gen || typeof gen !== 'object') return;
+
+        const makeUrl = (rel) => {
+            if (typeof rel !== 'string' || !rel) return null;
+            // Absolute or fully qualified URLs are used as-is
+            if (/^https?:\/\//i.test(rel) || rel.startsWith('/')) return rel;
+            // Otherwise, treat as relative to the data/ folder
+            return `${basePath}/${rel.replace(/^\.\//, '')}`;
+        };
+
+        const loadChunkSpecFromFile = async (fp) => {
+            const url = makeUrl(fp);
+            if (!url) return null;
+            try {
+                const resp = await fetch(url, { cache: 'no-cache' });
+                if (!resp.ok) {
+                    console.warn('expandStructureFiles: failed to fetch', url, resp.status);
+                    return null;
+                }
+                const js = await resp.json();
+
+                // If it already looks like a chunk spec from chunks.json
+                if (js && js.data && Array.isArray(js.data.regions)) {
+                    return {
+                        dependencies: Array.isArray(js.dependencies) ? js.dependencies.slice() : [],
+                        data: js.data
+                    };
+                }
+
+                // If it's a bare `{ regions, entities? }` like the internal
+                // save format, wrap it into a chunk spec.
+                if (js && Array.isArray(js.regions)) {
+                    return {
+                        dependencies: [],
+                        data: {
+                            bg: 'air',
+                            regions: js.regions,
+                            entities: Array.isArray(js.entities) ? js.entities : undefined
+                        }
+                    };
+                }
+
+                // If it looks like a miniature chunks.json, try to pull out
+                // the first concrete chunk spec ({ data: { regions } }).
+                if (js && js.chunks && typeof js.chunks === 'object') {
+                    for (const k of Object.keys(js.chunks)) {
+                        const container = js.chunks[k];
+                        if (!container || typeof container !== 'object') continue;
+                        for (const ck of Object.keys(container)) {
+                            const spec = container[ck];
+                            if (spec && spec.data && Array.isArray(spec.data.regions)) {
+                                return {
+                                    dependencies: Array.isArray(spec.dependencies) ? spec.dependencies.slice() : [],
+                                    data: spec.data
+                                };
+                            }
+                        }
+                    }
+                }
+
+                console.warn('expandStructureFiles: unrecognized chunk JSON shape for', url);
+                return null;
+            } catch (e) {
+                console.warn('expandStructureFiles: error loading', url, e);
+                return null;
+            }
+        };
+
+        const inferPosFromName = (fp) => {
+            if (typeof fp !== 'string') return null;
+            const bn = fp.split('/').pop() || fp;
+            const name = bn.replace(/\.json$/i, '');
+            // Accept patterns ending in "_x_y" (e.g., "chunk_0_1").
+            const m = name.match(/(-?\d+)_(-?\d+)$/);
+            if (!m) return null;
+            const x = Number(m[1]);
+            const y = Number(m[2]);
+            if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+            return [x, y];
+        };
+
+        for (const key of Object.keys(gen)) {
+            const rule = gen[key];
+            if (!rule || rule.type !== 'structure') continue;
+
+            // 1) Handle `chunkFiles` on the rule.
+            //    a) If it's an array, treat each entry as a file path.
+            //    b) If it's a string, treat as a folder containing
+            //       `chunk_<x>_<y>.json` files in a coordinate range.
+            const fileList = Array.isArray(rule.chunkFiles) ? rule.chunkFiles : [];
+            const folder = (!Array.isArray(rule.chunkFiles) && typeof rule.chunkFiles === 'string') ? rule.chunkFiles : null;
+
+            // 1a) Explicit list of files
+            if (fileList.length > 0) {
+                if (!Array.isArray(rule.chunks)) rule.chunks = [];
+                for (const fp of fileList) {
+                    const spec = await loadChunkSpecFromFile(fp);
+                    if (!spec) continue;
+
+                    let pos = null;
+                    if (Array.isArray(spec.pos) && spec.pos.length === 2) {
+                        pos = [Number(spec.pos[0]) || 0, Number(spec.pos[1]) || 0];
+                    } else {
+                        pos = inferPosFromName(fp);
+                    }
+                    if (!pos) {
+                        console.warn('expandStructureFiles: could not infer pos for', fp);
+                        continue;
+                    }
+
+                    const entry = { pos: pos, type: ['__inline__'], file: fp };
+                    // Cache the resolved chunk spec directly on the entry
+                    entry._inlineSpec = spec;
+                    rule.chunks.push(entry);
+                }
+            }
+
+            // 1b) Folder-based auto discovery: probe for files named
+            //     `chunk_<x>_<y>.json` within a configured coordinate range.
+            if (folder && typeof folder === 'string') {
+                if (!Array.isArray(rule.chunks)) rule.chunks = [];
+
+                const range = rule.chunkFileRange && typeof rule.chunkFileRange === 'object' ? rule.chunkFileRange : null;
+                if (!range) {
+                    console.warn('expandStructureFiles: chunkFiles string used without chunkFileRange; skipping folder scan for rule', key);
+                    // Without an explicit coordinate range we cannot know
+                    // which files to probe for, so do nothing here. Use an
+                    // explicit chunkFiles array instead if you want
+                    // auto-loading without configuring ranges.
+                    continue;
+                }
+
+                const minX = Number.isFinite(range.minX) ? range.minX : 0;
+                const maxX = Number.isFinite(range.maxX) ? range.maxX : 0;
+                const minY = Number.isFinite(range.minY) ? range.minY : 0;
+                const maxY = Number.isFinite(range.maxY) ? range.maxY : 0;
+
+                // Track which positions we've already added to avoid
+                // duplicates if chunkFiles also contained explicit entries.
+                const existing = new Set();
+                for (const c of (rule.chunks || [])) {
+                    if (!c || !Array.isArray(c.pos)) continue;
+                    const ex = Number(c.pos[0]);
+                    const ey = Number(c.pos[1]);
+                    if (Number.isFinite(ex) && Number.isFinite(ey)) {
+                        existing.add(`${ex},${ey}`);
+                    }
+                }
+
+                for (let y = minY; y <= maxY; y++) {
+                    for (let x = minX; x <= maxX; x++) {
+                        const keyPos = `${x},${y}`;
+                        if (existing.has(keyPos)) continue;
+                        const fp = `${folder.replace(/\/$/, '')}/chunk_${x}_${y}.json`;
+                        const spec = await loadChunkSpecFromFile(fp);
+                        if (!spec) continue; // silently skip missing ones
+
+                        const entry = { pos: [x, y], type: ['__inline__'], file: fp };
+                        entry._inlineSpec = spec;
+                        rule.chunks.push(entry);
+                        existing.add(keyPos);
+                    }
+                }
+            }
+
+            // 2) Handle explicit `chunks: [{ pos, file }, ...]` entries.
+            if (!Array.isArray(rule.chunks)) continue;
+            for (const c of rule.chunks) {
+                if (!c || typeof c.file !== 'string') continue;
+                if (c._inlineSpec) continue; // already processed above
+
+                const spec = await loadChunkSpecFromFile(c.file);
+                if (!spec) continue;
+                c._inlineSpec = spec;
+
+                // If pos is missing on the chunk entry, try from spec or name.
+                if (!Array.isArray(c.pos)) {
+                    if (Array.isArray(spec.pos) && spec.pos.length === 2) {
+                        c.pos = [Number(spec.pos[0]) || 0, Number(spec.pos[1]) || 0];
+                    } else {
+                        const p = inferPosFromName(c.file);
+                        if (p) c.pos = p;
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -616,7 +844,15 @@ export default class ChunkManager {
         // Prepare per-layer tile arrays. Each layer holds its own tiles so
         // multiple tiles can exist at the same coordinates.
         const layers = { back: new Array(chunkSize * chunkSize).fill('air'), base: new Array(chunkSize * chunkSize).fill('air'), front: new Array(chunkSize * chunkSize).fill('air') };
-        const spec = this._resolveChunkSpec(chunkType, cx, cy);
+
+        // Resolve chunk spec either from the global chunks.json definitions
+        // or from an inline spec attached to a structure chunk entry
+        // (populated by _expandGenerationStructureFiles when generation.json
+        // references external chunk files).
+        let spec = this._resolveChunkSpec(chunkType, cx, cy);
+        if ((!spec || !spec.data) && selected && selected._structChunk && selected._structChunk._inlineSpec) {
+            spec = selected._structChunk._inlineSpec;
+        }
         if (!spec) {
             // No spec available: return default empty per-layer chunk (all 'air').
             const outChunk = { x: cx, y: cy, width: chunkSize, height: chunkSize, layer: 'base', data: layers };
@@ -1349,6 +1585,9 @@ export default class ChunkManager {
             }
         }
 
+        // Internal representation used for saver/local overrides. This is what
+        // `this.saver` stores under `chunks/<x>,<y>` and is consumed by
+        // `_generateChunkJSON` as a saved override.
         const out = { x: chunk.x, y: chunk.y, width: chunk.width, height: chunk.height, regions: regions };
         // Include placed entities (e.g., torches) that fall inside this chunk
         try {
@@ -1382,9 +1621,28 @@ export default class ChunkManager {
         if (opts && opts.download === false) {
             return out;
         }
-        // Default behaviour: prompt/save to file using Saver.saveJSON
+        // Default behaviour: prompt/save to file using Saver.saveJSON.
+        // For downloads, emit a JSON shape that matches a single chunk
+        // definition from data/chunks.json:
+        //   {
+        //     "dependencies": [...],
+        //     "data": { bg, regions, entities }
+        //   }
+        // This makes the exported file directly usable as a chunk spec
+        // when referenced from generation.json or merged into chunks.json.
         try {
-            Saver.saveJSON(out, `chunk_${x}_${y}.json`, { compactRegions: true });
+            const exported = {
+                dependencies: [],
+                data: {
+                    bg: 'air',
+                    regions: out.regions
+                }
+            };
+            if (Array.isArray(out.entities) && out.entities.length > 0) {
+                exported.data.entities = out.entities;
+            }
+
+            Saver.saveJSON(exported, `chunk_${x}_${y}.json`, {});
             return true;
         } catch (e) {
             console.error('saveChunk: Saver.saveJSON failed', e);

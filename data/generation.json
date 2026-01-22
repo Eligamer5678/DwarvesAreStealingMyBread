@@ -151,6 +151,17 @@
 			{"pos":[-7,-1],"type":["bagelvillageHouses5"]},
 			{"pos":[-8,-1],"type":["bagelvillageHouses6"]}
         ]
+    },
+    "exportTest":{
+        "type":"structure",
+        "root":[0,5],
+        "chunkFiles": "exports/test",
+        "chunkFileRange": {
+            "minX": 0,
+            "maxX": 0,
+            "minY": 0,
+            "maxY": 1
+        }
     }
     
     
