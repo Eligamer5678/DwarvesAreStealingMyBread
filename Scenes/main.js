@@ -29,6 +29,18 @@ export class MainScene extends Scene {
      */
     async onPreload(resources = null) {
         try {
+            const overlay = (resources && resources.overlay)
+                ? resources.overlay
+                : (typeof window !== 'undefined' ? window.__loadingOverlay : null);
+
+            if (overlay) {
+                try {
+                    if (typeof overlay.setTitle === 'function') overlay.setTitle('Loading world');
+                    if (typeof overlay.setMessage === 'function') overlay.setMessage('Loading textures...');
+                    if (typeof overlay.setProgress === 'function') overlay.setProgress(0.05);
+                } catch (e) {}
+            }
+
             if (!this.SpriteImages) this.SpriteImages = new Map();
             if (resources?.spriteImages instanceof Map) {
                 for (const [k, v] of resources.spriteImages) this.SpriteImages.set(k, v);
@@ -54,9 +66,23 @@ export class MainScene extends Scene {
                 }
             }
 
+            if (overlay) {
+                try {
+                    if (typeof overlay.setMessage === 'function') overlay.setMessage('Loading world generation data...');
+                    if (typeof overlay.setProgress === 'function') overlay.setProgress(0.35);
+                } catch (e) {}
+            }
+
             // Initialize chunk manager and load generation/chunk/block definitions
             this.chunkManager = new ChunkManager(this.saver);
             await this.chunkManager.loadDefinitions('./data');
+
+            if (overlay) {
+                try {
+                    if (typeof overlay.setMessage === 'function') overlay.setMessage('Setting up entities...');
+                    if (typeof overlay.setProgress === 'function') overlay.setProgress(0.6);
+                } catch (e) {}
+            }
             // entity manager
             // Create a camera for world rendering
             this.entityManager = new EntityManager(this.chunkManager, this.Draw, this.SpriteImages, { noiseTileSize: this.chunkManager.noiseTileSize });
@@ -97,7 +123,20 @@ export class MainScene extends Scene {
                 this.recipes = json;
             })
 
+            if (overlay) {
+                try {
+                    if (typeof overlay.setMessage === 'function') overlay.setMessage('Finalizing...');
+                    if (typeof overlay.setProgress === 'function') overlay.setProgress(0.95);
+                } catch (e) {}
+            }
+
             this.isPreloaded = true;
+
+            if (overlay) {
+                try {
+                    if (typeof overlay.setProgress === 'function') overlay.setProgress(1);
+                } catch (e) {}
+            }
             return true;
         } catch (err) {
             console.error('MainScene preload failed:', err);
@@ -167,6 +206,11 @@ export class MainScene extends Scene {
         this.chunkManager.generateChunksAround(this.player.pos.x, this.player.pos.y, 3);
         this.isReady = true;
         this.chunkManager.ready = true;
+
+        try {
+            const overlay = (typeof window !== 'undefined') ? window.__loadingOverlay : null;
+            if (overlay && typeof overlay.hide === 'function') overlay.hide();
+        } catch (e) {}
 
     }
     createPlayer(){

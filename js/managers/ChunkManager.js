@@ -125,13 +125,19 @@ export default class ChunkManager {
      *   - `chunkFiles: ["path/chunk_0_0.json", ...]` where positions are
      *     inferred from the JSON (pos) or from the filename ("*_x_y.json").
     *   - `chunkFiles: "exports/myVillage"` (string). In this case, the
-    *     folder is treated as the base path, and files named
-    *     `chunk_<x>_<y>.json` in a coordinate range are probed and
-    *     auto-loaded. The range is provided via an optional
-    *     `chunkFileRange` object on the rule:
-    *       { "minX": -8, "maxX": 8, "minY": -4, "maxY": 4 }
-    *     If `chunkFileRange` is omitted, no folder probing is performed
-    *     (use an explicit `chunkFiles` array instead).
+    *     folder is treated as the base path. There are two ways to
+    *     discover chunk files inside the folder:
+    *       a) If `startPos: [sx, sy]` is present on the rule, a
+    *          flood-fill is performed starting from
+    *          `chunk_<sx>_<sy>.json`, walking 4-neighbour coordinates
+    *          and only expanding through files that actually exist.
+    *          This is efficient for arbitrary, non-rectangular shapes.
+    *       b) Otherwise, files named `chunk_<x>_<y>.json` in a
+    *          coordinate range are probed. The range can be customized
+    *          via an optional `chunkFileRange` object on the rule:
+    *            { "minX": -64, "maxX": 64, "minY": -16, "maxY": 16 }
+    *          If `chunkFileRange` is omitted, a default range of
+    *          [-64, 64] on X and [-16, 16] on Y is used.
      *   - `chunks: [{ pos:[x,y], file:"path/file.json" }, ...]` where
      *     positions are provided explicitly.
      *
@@ -259,50 +265,98 @@ export default class ChunkManager {
                 }
             }
 
-            // 1b) Folder-based auto discovery: probe for files named
-            //     `chunk_<x>_<y>.json` within a configured coordinate range.
+            // 1b) Folder-based auto discovery using either flood-fill
+            //     (when `startPos` is provided) or a rectangular probe
+            //     range (when it is not).
             if (folder && typeof folder === 'string') {
                 if (!Array.isArray(rule.chunks)) rule.chunks = [];
 
-                const range = rule.chunkFileRange && typeof rule.chunkFileRange === 'object' ? rule.chunkFileRange : null;
-                if (!range) {
-                    console.warn('expandStructureFiles: chunkFiles string used without chunkFileRange; skipping folder scan for rule', key);
-                    // Without an explicit coordinate range we cannot know
-                    // which files to probe for, so do nothing here. Use an
-                    // explicit chunkFiles array instead if you want
-                    // auto-loading without configuring ranges.
-                    continue;
-                }
+                const startPos = (Array.isArray(rule.startPos) && rule.startPos.length === 2
+                    && Number.isFinite(Number(rule.startPos[0]))
+                    && Number.isFinite(Number(rule.startPos[1])))
+                    ? [Number(rule.startPos[0]), Number(rule.startPos[1])] : null;
 
-                const minX = Number.isFinite(range.minX) ? range.minX : 0;
-                const maxX = Number.isFinite(range.maxX) ? range.maxX : 0;
-                const minY = Number.isFinite(range.minY) ? range.minY : 0;
-                const maxY = Number.isFinite(range.maxY) ? range.maxY : 0;
+                if (startPos) {
+                    // Flood-fill: explore only coordinates reachable from
+                    // startPos via 4-neighbour steps where a corresponding
+                    // `chunk_<x>_<y>.json` file exists.
+                    const visited = new Set();
+                    const q = [];
+                    const normFolder = folder.replace(/\/$/, '');
 
-                // Track which positions we've already added to avoid
-                // duplicates if chunkFiles also contained explicit entries.
-                const existing = new Set();
-                for (const c of (rule.chunks || [])) {
-                    if (!c || !Array.isArray(c.pos)) continue;
-                    const ex = Number(c.pos[0]);
-                    const ey = Number(c.pos[1]);
-                    if (Number.isFinite(ex) && Number.isFinite(ey)) {
-                        existing.add(`${ex},${ey}`);
-                    }
-                }
+                    const enqueue = (x, y) => {
+                        const k = `${x},${y}`;
+                        if (visited.has(k)) return;
+                        visited.add(k);
+                        q.push([x, y]);
+                    };
 
-                for (let y = minY; y <= maxY; y++) {
-                    for (let x = minX; x <= maxX; x++) {
-                        const keyPos = `${x},${y}`;
-                        if (existing.has(keyPos)) continue;
-                        const fp = `${folder.replace(/\/$/, '')}/chunk_${x}_${y}.json`;
+                    enqueue(startPos[0], startPos[1]);
+
+                    while (q.length > 0) {
+                        const [cx, cy] = q.shift();
+                        const fp = `${normFolder}/chunk_${cx}_${cy}.json`;
                         const spec = await loadChunkSpecFromFile(fp);
-                        if (!spec) continue; // silently skip missing ones
+                        if (!spec) continue; // do not expand from missing files
 
-                        const entry = { pos: [x, y], type: ['__inline__'], file: fp };
-                        entry._inlineSpec = spec;
-                        rule.chunks.push(entry);
-                        existing.add(keyPos);
+                        // Avoid duplicating existing entries for this pos
+                        let already = false;
+                        for (const c of (rule.chunks || [])) {
+                            if (!c || !Array.isArray(c.pos)) continue;
+                            const ex = Number(c.pos[0]);
+                            const ey = Number(c.pos[1]);
+                            if (ex === cx && ey === cy) { already = true; break; }
+                        }
+                        if (!already) {
+                            const entry = { pos: [cx, cy], type: ['__inline__'], file: fp };
+                            entry._inlineSpec = spec;
+                            rule.chunks.push(entry);
+                        }
+
+                        // 4-neighbour expansion
+                        enqueue(cx + 1, cy);
+                        enqueue(cx - 1, cy);
+                        enqueue(cx, cy + 1);
+                        enqueue(cx, cy - 1);
+                    }
+                } else {
+                    // Rectangular probe as a fallback when no startPos is
+                    // provided. This maintains backwards compatibility.
+                    const range = (rule.chunkFileRange && typeof rule.chunkFileRange === 'object')
+                        ? rule.chunkFileRange
+                        : { minX: -64, maxX: 64, minY: -16, maxY: 16 };
+
+                    const minX = Number.isFinite(range.minX) ? range.minX : -64;
+                    const maxX = Number.isFinite(range.maxX) ? range.maxX : 64;
+                    const minY = Number.isFinite(range.minY) ? range.minY : -16;
+                    const maxY = Number.isFinite(range.maxY) ? range.maxY : 16;
+
+                    // Track which positions we've already added to avoid
+                    // duplicates if chunkFiles also contained explicit entries.
+                    const existing = new Set();
+                    for (const c of (rule.chunks || [])) {
+                        if (!c || !Array.isArray(c.pos)) continue;
+                        const ex = Number(c.pos[0]);
+                        const ey = Number(c.pos[1]);
+                        if (Number.isFinite(ex) && Number.isFinite(ey)) {
+                            existing.add(`${ex},${ey}`);
+                        }
+                    }
+
+                    const normFolder = folder.replace(/\/$/, '');
+                    for (let y = minY; y <= maxY; y++) {
+                        for (let x = minX; x <= maxX; x++) {
+                            const keyPos = `${x},${y}`;
+                            if (existing.has(keyPos)) continue;
+                            const fp = `${normFolder}/chunk_${x}_${y}.json`;
+                            const spec = await loadChunkSpecFromFile(fp);
+                            if (!spec) continue; // silently skip missing ones
+
+                            const entry = { pos: [x, y], type: ['__inline__'], file: fp };
+                            entry._inlineSpec = spec;
+                            rule.chunks.push(entry);
+                            existing.add(keyPos);
+                        }
                     }
                 }
             }
@@ -1328,7 +1382,7 @@ export default class ChunkManager {
                         try {
                             draw.setBrightness(it.brightness);
                             draw.tile(tsKey, it.pos, tileSize, it.bid, it.rotSteps, it.invertVec, 1, false);
-                            if(layerName === "back") draw.rect(it.pos,new Vector(tileSize,tileSize),"#00000022")
+                            if(layerName === "back") draw.rect(it.pos,new Vector(tileSize,tileSize),"#00000088")
                         } catch (e) {
                             draw.rect(it.pos, new Vector(tileSize, tileSize), '#ff00ff88', false);
                         }

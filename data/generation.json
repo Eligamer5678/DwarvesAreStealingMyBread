@@ -154,14 +154,9 @@
     },
     "exportTest":{
         "type":"structure",
-        "root":[0,5],
+        "root":[0,0],
         "chunkFiles": "exports/test",
-        "chunkFileRange": {
-            "minX": 0,
-            "maxX": 0,
-            "minY": 0,
-            "maxY": 1
-        }
+        "startPos":[15,5]
     }
     
     
