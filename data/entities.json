@@ -84,5 +84,28 @@
         "extra":{
             "health":999999999
         }
+    },
+    "sign":{
+        "components":{
+            "SheetComponent":{
+                "sheet":"sign",
+                "name":"sheet",
+                "opts":{}
+            },
+            "ScrollComponent":{
+                "name":"scroll",
+                "opts":{
+                    "title":"",
+                    "lore":"Example text",
+                    "isSign":true,
+                    "recipe":null,
+                    "svg":"",
+                    "icon":"short"
+                }
+            }
+        },
+        "extra":{
+            "health":999999999
+        }
     }
 }

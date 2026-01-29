@@ -111,6 +111,20 @@
                 "blank":{"row":5,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""}
             }
         },
+        "sign":{
+            "path":"Assets/Sprites/sign.png",
+            "slicePx":16,
+            "animations":{
+                "idle":{"row":1,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""},
+                "arrows/left/short":{"row":1,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""},
+                "arrows/left/tall":{"row":1,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""},
+                "arrows/right/short":{"row":1,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""},
+                "arrows/right/tall":{"row":1,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""},
+                "short":{"row":1,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""},
+                "tall":{"row":1,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""},
+                "big":{"row":1,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""}
+            }
+        },
         "dwarf":{
             "path":"Assets/Sprites/dwarf.png",
             "slicePx":16,

@@ -67,6 +67,7 @@ import { mergeObjects, pickDefaults } from '../utils/Support.js';
  * @property {ScrollRecipe} [recipe] Optional recipe reference or display-only string.
  * @property {string} [svg] Optional SVG image path/URL (e.g. 'Assets/ui/scrolls/foo.svg').
  * @property {ScrollIcon} [icon] Optional sprite icon/animation name.
+ * @property {boolean} [isSign] When true, treat this as a sign (sign UI/texture).
  */
 export default class ScrollComponent extends Component {
     constructor(entity, data, opts = {}) {
@@ -80,6 +81,9 @@ export default class ScrollComponent extends Component {
             recipe: null,
             svg: '',
             icon: 'lore', // maps to spritesheet animation name for scroll.png
+            // When true, this instance represents a sign; UI will render
+            // a simplified sign-style popup instead of the full scroll UI.
+            isSign: false,
         };
 
         super(entity, Dependencies, data);
@@ -112,6 +116,7 @@ export default class ScrollComponent extends Component {
         if (meta.recipe !== undefined) this.recipe = meta.recipe;
         if (meta.svg !== undefined) this.svg = String(meta.svg);
         if (meta.icon !== undefined) this.icon = String(meta.icon);
+        if (meta.isSign !== undefined) this.isSign = !!meta.isSign;
         this._applyIcon();
     }
 
@@ -122,6 +127,7 @@ export default class ScrollComponent extends Component {
             recipe: this.recipe,
             svg: this.svg,
             icon: this.icon,
+            isSign: !!this.isSign,
         };
     }
 
@@ -132,6 +138,7 @@ export default class ScrollComponent extends Component {
             recipe: null,
             svg: '',
             icon: 'lore',
+            isSign: false,
         };
         const data = pickDefaults(this.Dependencies, this);
         const opts = pickDefaults(defaults, this);

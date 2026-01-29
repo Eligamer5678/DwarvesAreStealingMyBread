@@ -301,6 +301,80 @@ export default class MainUI {
         if (this.scrollMenu && key && this._scrollPopupKey === key) return;
         this._scrollPopupKey = key;
 
+        const isSign = !!(data && data.isSign);
+
+        // Signs use a simpler, wooden sign-style UI: a brown box with
+        // darker brown text in the lore font.
+        if (isSign) {
+            const w = 520;
+            const h = 260;
+            const x = 1980 / 2 - w / 2;
+            const y = 1080 / 2 - h / 2;
+
+            const BG = '#4B2E16FF';
+            const BG_INNER = '#6A3F1CFF';
+            const BORDER = '#2A180BFF';
+            const TEXT = '#E4D4B0FF';
+            const FONT = 'lore, serif';
+            const TEXT_SCALE = (2);
+
+            const menu = new Menu(this.mouse, this.keys, new Vector(x, y), new Vector(w, h), 10, BG, true);
+            menu.passcode = 'ScrollPopup';
+
+            // Base panel and border
+            menu.addElement('bg', new UIRect(new Vector(0, 0), new Vector(w, h), 10, BG));
+            menu.addElement('inner', new UIRect(new Vector(8, 8), new Vector(w - 16, h - 16), 11, BG_INNER));
+            menu.addElement('border', new UIRect(new Vector(0, 0), new Vector(w, h), 12, BORDER, false, true, 5, BORDER));
+
+            // Close hotspot in top-right corner
+            const closeBtn = new UIButton(this.mouse, this.keys, new Vector(w - 56, 10), new Vector(46, 46), 13, 'e', BG_INNER, BG, BORDER);
+            closeBtn.passcode = 'ScrollPopup';
+            closeBtn.onPressed.left.connect(() => {
+                try { this.closeScrollPopup(); } catch (e) {}
+                try { this.mouse.pause(0.15); } catch (e) {}
+            });
+            menu.addElement('closeBtn', closeBtn);
+            menu.addElement('closeTxt', new UIText('X', new Vector(w - 33, 33), 14, TEXT, Math.round(26 * TEXT_SCALE), { baseline: 'middle', align: 'center', font: FONT, bold: true }));
+
+            const title = (data && typeof data.title === 'string' && data.title.trim().length > 0)
+                ? data.title
+                : '';
+            const bodyRaw = (data && typeof data.lore === 'string') ? data.lore : '';
+            const body = String(bodyRaw);
+
+            const contentLeft = 22;
+            let contentTop = 26;
+            const contentWidth = w - contentLeft * 2;
+            const contentHeight = h - contentTop - 26;
+
+            if (title) {
+                menu.addElement('title', new UIText(title, new Vector(w / 2, contentTop + 12), 13, TEXT, Math.round(32 * TEXT_SCALE), { baseline: 'middle', align: 'center', font: FONT, bold: true }));
+                contentTop += 44;
+            }
+
+            if (body && body.trim().length > 0) {
+                const fs = Math.round(22 * TEXT_SCALE);
+                // Compute a text box height and, if there is no title,
+                // vertically center that box inside the sign panel.
+                const boxHeight = Math.max(32, h - contentTop - 20);
+                let bodyTop = contentTop;
+                if (!title) {
+                    bodyTop = (h - boxHeight) / 2;
+                }
+                menu.addElement('body', new UIText(body, new Vector(contentLeft, bodyTop), 13, TEXT, fs, {
+                    baseline: 'top',
+                    font: FONT,
+                    wrap: 'word',
+                    wrapWidth: contentWidth,
+                    wrapHeight: boxHeight,
+                    lineHeight: 1.2,
+                }));
+            }
+
+            this.scrollMenu = menu;
+            return;
+        }
+
         // Scroll popup palette (parchment/brown theme)
         const OUTLINE = '#865E3CFF';
         const BG = '#E19D66FF';

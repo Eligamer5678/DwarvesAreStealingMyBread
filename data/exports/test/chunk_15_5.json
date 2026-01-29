@@ -90,15 +90,9 @@
     },
     {
       "type": "torch",
-      "pos": [
-        4,
-        14
-      ],
+      "pos": [4,14],
       "data": {
-        "size": [
-          16,
-          16
-        ],
+        "size": [16,16],
         "level": 15
       }
     },
@@ -156,6 +150,34 @@
           16
         ],
         "level": 15
+      }
+    },
+    {
+      "type": "torch",
+      "pos": [
+        12,
+        14
+      ],
+      "data": {
+        "size": [
+          16,
+          16
+        ],
+        "level": 15
+      }
+    },
+    {"pos":[5,14],"type":"scroll","data":{
+        "team":"none",
+        "size":[16,16],
+        "components":{
+            "scroll":{
+                "title":"Pizza",
+                "icon":"recipe",
+                "lore":"I feel you are ready. \n \n- Your first task to make a delicacy known as Pizza.\n \n- You should start by farming wheat in the wheat feilds left of bagel village.",
+                "recipe":{ "kind": "crafting", "size": "3x3", "output": "pizza-dough", "amount":1},
+                "svg":""
+            }
+        }
       }
     }
   ],

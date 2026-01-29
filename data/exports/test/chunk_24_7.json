@@ -705,7 +705,19 @@
           ],
           "level": 15
         }
+      },
+      {"pos":[3,6],"type":"scroll","data":{
+        "team":"none",
+        "size":[16,16],
+        "components":{
+            "scroll":{
+                "title":"Air hop",
+                "icon":"lore",
+                "lore":"The holy bread will allow a crumb of flight. If you fall off a brownie, you can do a single mid-air hop to recover."
+            }
+        }
       }
+    }
     ]
   }
 }
