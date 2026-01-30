@@ -53,6 +53,12 @@
             "size":[3,1],
             "slicePx":16,
             "layer":"base"
+        },
+        "locked":{
+            "path":"Assets/Tilemaps/Locked.png",
+            "size":[3,1],
+            "slicePx":16,
+            "layer":"base"
         }
     },
     "spriteSheets":{
@@ -123,6 +129,16 @@
                 "short":{"row":1,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""},
                 "tall":{"row":1,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""},
                 "big":{"row":1,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""}
+            }
+        },
+        "lock&key":{
+            "path":"Assets/Sprites/lock_and_key.png",
+            "slicePx":16,
+            "animations":{
+                "idle":{"row":1,"frameCount":5,"fps":8,"buffer":0,"onStop":"loop","swapName":""},
+                "key":{"row":1,"frameCount":5,"fps":8,"buffer":0,"onStop":"loop","swapName":""},
+                "lock":{"row":1,"frameCount":22,"fps":8,"buffer":0,"onStop":"loop","swapName":""},
+                "unlock":{"row":1,"frameCount":14,"fps":16,"buffer":0,"onStop":"stop","swapName":""}
             }
         },
         "dwarf":{

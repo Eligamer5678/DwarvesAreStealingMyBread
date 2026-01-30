@@ -904,6 +904,26 @@
                 "mode":"item",
                 "hardness":0.2
             }
+        },
+        "key":{
+            "texture":{
+                "tilemap":"Locked",
+                "pos":[0,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "locked":{
+            "texture":{
+                "tilemap":"locked",
+                "pos":[2,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
         }
     }
 }
