@@ -218,4 +218,17 @@ export default class Saver {
             return false;
         }
     }
+
+    // --- Lock/key persistence helpers ---
+    // Store used locks as a map under `locks/used/<lockKey>`.
+    // This avoids array growth/duplication and makes lookups O(1).
+    markLockUsed(lockKey, autoSave = true) {
+        if (typeof lockKey !== 'string' || !lockKey) return;
+        try { this.set(`locks/used/${lockKey}`, true, autoSave); } catch (e) {}
+    }
+
+    isLockUsed(lockKey) {
+        if (typeof lockKey !== 'string' || !lockKey) return false;
+        try { return this.get(`locks/used/${lockKey}`, false) === true; } catch (e) { return false; }
+    }
 }

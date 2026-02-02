@@ -164,7 +164,7 @@ export default class ChunkManager {
             try {
                 const resp = await fetch(url, { cache: 'no-cache' });
                 if (!resp.ok) {
-                    console.warn('expandStructureFiles: failed to fetch', url, resp.status);
+                    //onsole.warn('expandStructureFiles: failed to fetch', url, resp.status);
                     return null;
                 }
                 const js = await resp.json();
@@ -1111,6 +1111,31 @@ export default class ChunkManager {
                 for (let entity of entityList){
                     if(!entity) continue;
                     try {
+                        // One-time locks: if this lock/key has already been used,
+                        // do not respawn it from chunk specs/saved overrides.
+                        try {
+                            if ((entity.type === 'lock' || entity.type === 'key') && this.saver && typeof this.saver.isLockUsed === 'function') {
+                                const meta = (entity && entity.data && typeof entity.data === 'object') ? entity.data : {};
+                                const compMeta = (meta.components && typeof meta.components === 'object') ? (meta.components.LockComponent || meta.components.lock || null) : null;
+
+                                // Prefer explicit per-entity metadata (for multiple locks).
+                                const explicitLockKey = compMeta && typeof compMeta === 'object'
+                                    ? (compMeta.lockId || compMeta.thisId || compMeta.keyId || null)
+                                    : null;
+
+                                // Otherwise, read the prefab defaults from entityTypes.
+                                let prefabLockKey = null;
+                                try {
+                                    const preset = this.entityManager && this.entityManager.entityTypes ? this.entityManager.entityTypes.get(entity.type) : null;
+                                    const lc = preset && typeof preset.getComponent === 'function' ? (preset.getComponent('LockComponent') || preset.getComponent('lock')) : null;
+                                    if (lc) prefabLockKey = lc.lockId || lc.thisId || lc.keyId || null;
+                                } catch (e) {}
+
+                                const lockKey = explicitLockKey || prefabLockKey;
+                                if (lockKey && this.saver.isLockUsed(lockKey)) continue;
+                            }
+                        } catch (e) { /* ignore lock-skip errors */ }
+
                         // Optional chance gate (used in chunks.json)
                         try {
                             const ch = entity.data && typeof entity.data.chance === 'number' ? entity.data.chance : null;

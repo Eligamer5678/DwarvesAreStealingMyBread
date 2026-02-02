@@ -107,5 +107,41 @@
         "extra":{
             "health":999999999
         }
+    },
+    "key":{
+        "components":{
+            "SheetComponent":{
+                "sheet":"lock_and_key",
+                "name":"sheet",
+                "opts":{}
+            },
+            "LockComponent":{
+                "thisId":"key_0",
+                "keyId":"key_0",
+                "lockId":"lock_0"
+            }
+        },
+        "extra":{
+            "health":999999999
+        }
+    },
+    "lock":{
+        "components":{
+            "SheetComponent":{
+                "sheet":"lock_and_key",
+                "name":"sheet",
+                "opts":{
+                    "defaultAnimation":"lock"
+                }
+            },
+            "LockComponent":{
+                "thisId":"lock_0",
+                "keyId":"key_0",
+                "lockId":"lock_0"
+            }
+        },
+        "extra":{
+            "health":999999999
+        }
     }
 }

@@ -42,8 +42,22 @@ export default class PrefabLoader {
                 let mod = null;
                 try { mod = await import(`../components/${moduleName}.js`); } catch (e) { console.warn('PrefabLoader: failed to import', moduleName, e); continue; }
                 const createdComponent = mod.default;
-                // sheet component needs spritesheet
-                const name = compData.name;
+                // Support two shapes:
+                // 1) { name: 'sheet', opts: {...}, ... }
+                // 2) plain opts object (no name/opts wrapper)
+                const compName = (compData && typeof compData === 'object' && typeof compData.name === 'string') ? compData.name : moduleName;
+                const rawOpts = (compData && typeof compData === 'object' && compData.opts && typeof compData.opts === 'object') ? compData.opts : null;
+                const opts = (() => {
+                    if (moduleName === 'SheetComponent') return (rawOpts || {});
+                    if (rawOpts) return rawOpts;
+                    if (!compData || typeof compData !== 'object') return {};
+                    // treat the object itself as opts, excluding loader-only keys
+                    const o = Object.assign({}, compData);
+                    try { delete o.name; } catch (e) {}
+                    try { delete o.opts; } catch (e) {}
+                    try { delete o.sheet; } catch (e) {}
+                    return o;
+                })();
                 if (moduleName === 'SheetComponent'){
                     const sheetKey = compData.sheet;
                     const baseSheet = spriteImages.get(sheetKey);
@@ -51,15 +65,15 @@ export default class PrefabLoader {
                     // per-component dependency object so each SheetComponent
                     // receives the correct `baseSheet` for its sprite key.
                     const deps = Object.assign({}, sceneData, { baseSheet: baseSheet });
-                    const instance = new createdComponent(ent, deps, compData.opts);
+                    const instance = new createdComponent(ent, deps, opts);
                     // Ensure prototype component knows its manager so clones
                     // can inherit the reference (via pickDefaults during clone).
                     instance.manager = entityManager;
-                    ent.setComponent(name, instance);
+                    ent.setComponent(compName, instance);
                 }else{
-                    const instance = new createdComponent(ent, sceneData, compData.opts);
+                    const instance = new createdComponent(ent, sceneData, opts);
                     instance.manager = entityManager;
-                    ent.setComponent(name, instance);
+                    ent.setComponent(compName, instance);
                 }
                 continue;
             }

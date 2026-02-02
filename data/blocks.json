@@ -921,8 +921,8 @@
                 "pos":[2,0]
             },
             "data":{
-                "mode":"item",
-                "hardness":0.2
+                "mode":"solid",
+                "hardness":9999
             }
         }
     }

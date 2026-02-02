@@ -131,14 +131,14 @@
                 "big":{"row":1,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""}
             }
         },
-        "lock&key":{
+        "lock_and_key":{
             "path":"Assets/Sprites/lock_and_key.png",
             "slicePx":16,
             "animations":{
-                "idle":{"row":1,"frameCount":5,"fps":8,"buffer":0,"onStop":"loop","swapName":""},
-                "key":{"row":1,"frameCount":5,"fps":8,"buffer":0,"onStop":"loop","swapName":""},
+                "idle":{"row":0,"frameCount":5,"fps":8,"buffer":0,"onStop":"loop","swapName":""},
+                "key":{"row":0,"frameCount":5,"fps":8,"buffer":0,"onStop":"loop","swapName":""},
                 "lock":{"row":1,"frameCount":22,"fps":8,"buffer":0,"onStop":"loop","swapName":""},
-                "unlock":{"row":1,"frameCount":14,"fps":16,"buffer":0,"onStop":"stop","swapName":""}
+                "unlock":{"row":2,"frameCount":14,"fps":16,"buffer":0,"onStop":"stop","swapName":""}
             }
         },
         "dwarf":{

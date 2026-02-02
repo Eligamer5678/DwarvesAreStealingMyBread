@@ -27,13 +27,14 @@ export default class SheetComponent extends Component{
             opacity:1,
             invert:new Vector(1,1),
             rotation:0,
+            defaultAnimation:'idle'
         }
         super(entity,Dependencies,data)
         const mergedOpts = mergeObjects(opts,defaults)
         Object.assign(this, mergedOpts)
         if(this.baseSheet){
             this.sheet = this.baseSheet.connect();
-            this.sheet.playAnimation('idle', false);
+            this.sheet.playAnimation(this.defaultAnimation, true);
             this.sheet.onStop.connect(()=>{
                 if(this.sheet.currentAnimation.name === 'defeat') this.entity.dead = true;
             })
@@ -68,6 +69,7 @@ export default class SheetComponent extends Component{
             opacity:1,
             invert:new Vector(1,1),
             rotation:0,
+            defaultAnimation:'idle',
         }
         const data = pickDefaults(this.Dependencies,this)
         const opts = pickDefaults(defaults,this)
