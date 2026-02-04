@@ -445,7 +445,8 @@
             15
           ]
         ]
-      }
+      },
+      {"region": [[0,11],[0,14]],"block_type": "locked","special":{"rot":0}}
     ],
     "entities": [
       {
@@ -489,7 +490,14 @@
           ],
           "level": 15
         }
-      }
+      },
+      {"type": "key","pos": [9,12],"data": {
+          "size": [16,16],
+          "items":[["cheese_pizza (chedder)",1]]
+      }},
+      {"type": "lock","pos": [1,14],"data": {
+          "size": [16,16]
+      }}
     ]
   }
 }

@@ -1,5 +1,6 @@
 {
     "items": {
+        "a":"This file is now here to stop errors; All items are now stored with blocks in blocks.json",
         "briocheoid-item": {
             "texture": {
                 "item": "briocheoid-item",

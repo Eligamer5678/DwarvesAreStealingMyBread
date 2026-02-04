@@ -116,6 +116,17 @@ export default class LockComponent extends Component {
         const player = this.manager.player;
         if (!player || !player.pos) return;
 
+        // If this key has a HopperComponent requirement attached, it cannot
+        // be collected until the hopper is satisfied.
+        try {
+            const hopper = (this.entity.getComponent && (this.entity.getComponent('hopper') || this.entity.getComponent('HopperComponent'))) || null;
+            if (hopper && typeof hopper.isSatisfied === 'function' && !hopper.isSatisfied()) {
+                // Allow the hopper to handle its own visuals; key itself
+                // stays put until the requirement is met.
+                return;
+            }
+        } catch (e) {}
+
         // Auto-pickup: start following when player gets close (same radius as locks).
         if (!this._activated) {
             const a = this._centerOf(this.entity);

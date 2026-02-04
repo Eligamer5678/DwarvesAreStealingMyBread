@@ -126,6 +126,10 @@ export default class Dwarf extends Sprite {
 
         this.inventory = new Inventory()
 
+        // Hopper/lock interactions can temporarily freeze player control
+        // while a transfer animation plays.
+        this.hopperFreeze = 0;
+
         // Wire jump input (Input.onJump emits when jump key pressed)
         this.input.onJump.connect((k) => {
             if (this.onGround&&!this.keys.held('Shift')) {
@@ -153,8 +157,27 @@ export default class Dwarf extends Sprite {
     
 
     update(delta){
+        // Update any external freeze timers (e.g. HopperComponent transfers)
+        if (typeof this.hopperFreeze === 'number' && this.hopperFreeze > 0) {
+            this.hopperFreeze = Math.max(0, this.hopperFreeze - (delta || 0));
+        }
+
         // base sprite update handles horizontal input and friction
         if(!this.enablePhysicsUpdate) this.enablePhysicsUpdate = true;
+
+        // If a hopper transfer is active, run only animation updates (no input/physics).
+        if (this.hopperFreeze > 0) {
+            const prevInput = this.input;
+            const prevEnable = this.enablePhysicsUpdate;
+            this.input = null;
+            this.enablePhysicsUpdate = false;
+            super.update(delta);
+            this.input = prevInput;
+            this.enablePhysicsUpdate = prevEnable;
+            // Skip further control logic while frozen
+            return;
+        }
+
         if(this.keys.held('Shift')){
             if(this.vlos.y<0 && this.onGround) {
                 this.vlos.y = 0;

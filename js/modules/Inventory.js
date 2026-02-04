@@ -37,7 +37,7 @@ export default class Inventory {
                 this.addItem('coal', 'inventory', true, 'inventory', 64);
                 this.addItem('furnace', 'hotbar', false, 'inventory', 64);
                 this.addItem('bucket', 'hotbar', false, 'inventory', 5);
-                this.addItem('water_bucket', 'hotbar', false, 'inventory', 5);
+                this.addItem('water_bucket', 'hotbar', false, 'inventory', 64);
 
                 this.addItem('egg', 'inventory', false, 'inventory', 64);
                 this.addItem('butter', 'inventory', false, 'inventory', 64);

@@ -119,6 +119,16 @@
                 "thisId":"key_0",
                 "keyId":"key_0",
                 "lockId":"lock_0"
+            },
+            "HopperComponent":{
+                "name":"hopper",
+                "opts":{
+                    "items":[["cheese_pizza (chedder)",3]],
+                    "orbitRadius":16,
+                    "orbitSpeed":1.5,
+                    "range":24,
+                    "transferSeconds":0.6
+                }
             }
         },
         "extra":{

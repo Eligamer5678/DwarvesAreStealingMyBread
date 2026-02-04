@@ -72,6 +72,11 @@ export default class EntityManager {
             if (meta.team !== undefined) newEntity.team = meta.team;
             if (meta.health !== undefined) newEntity.health = meta.health;
 
+            // Expose raw placement metadata on the instance so components
+            // (like HopperComponent) can read fields such as `items` from
+            // chunk/entity JSON.
+            try { newEntity.meta = meta; } catch (e) { /* ignore */ }
+
             const comps = meta.components;
             if (comps && typeof comps === 'object') {
                 for (const [compName, compMeta] of Object.entries(comps)) {
