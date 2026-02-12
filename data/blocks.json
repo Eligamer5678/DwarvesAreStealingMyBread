@@ -905,6 +905,26 @@
                 "hardness":0.2
             }
         },
+        "beer":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[10,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
+        "slimeball":{
+            "texture":{
+                "tilemap":"items",
+                "pos":[11,0]
+            },
+            "data":{
+                "mode":"item",
+                "hardness":0.2
+            }
+        },
         "key":{
             "texture":{
                 "tilemap":"Locked",

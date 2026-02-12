@@ -6,13 +6,34 @@
                 "name":"sheet",
                 "opts":{}
             },
+            "HealthBarComponent":{
+                "name":"health",
+                "opts":{
+                    "height":1,
+                    "offset":{"x":0,"y":2},
+                    "hideWhenFull":true
+                }
+            },
+            "SplitOnDeathComponent":{
+                "name":"split",
+                "opts":{
+                    "minSize":32,
+                    "childType":"slime",
+                    "childCount":2,
+                    "sizeScale":0.5,
+                    "inheritHealth":true,
+                    "healthScale":0.5,
+                    "spread":0.35
+                }
+            },
             "PathfindComponent":{
                 "name":"AI",
                 "opts":{}
             }
         },
         "extra":{
-            "health":5
+            "health":5,
+            "drops":[["slimeball",1]]
         }
     },
     "torch":{

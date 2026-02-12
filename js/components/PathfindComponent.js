@@ -21,13 +21,16 @@ export default class PathfindComponent extends Component{
         }
         const defaults = {
             type:'simple',
-            detection:50,
+            detection:250,
             gravity:5,
             jumpSpeed:2,
             attackWindup:0.6,
             attackRange:30,
             attackSpeed:new Vector(3,1),
             attackCooldownTime: 1.2,
+            parryWindow: 2,
+            parryStun: 0.45,
+            landingFriction: 0.35,
             speed: 20,
         }
         super(entity,Dependencies,data)
@@ -66,6 +69,13 @@ export default class PathfindComponent extends Component{
         this.attackCooldown = this.attackCooldownTime;
         this.entity.vlos.x = dir * this.attackSpeed.x;
         this.moveCooldown = 1;
+        this._justLunged = true;
+        // Open a short parry window after the attack begins
+        try {
+            this.entity.parryWindow = Math.max(0, Number(this.parryWindow) || 0.22);
+            this.entity.parried = false;
+            this.entity.parryAttempted = false;
+        } catch (e) {}
     }
 
     _move(delta, desired, dir){
@@ -95,6 +105,25 @@ export default class PathfindComponent extends Component{
 
     update(dt){
         this.entity.vlos.y += (this.gravity * dt);
+        // Tick parry timers
+        try {
+            if (this.entity.parryWindow > 0) this.entity.parryWindow = Math.max(0, this.entity.parryWindow - dt);
+            if (this.entity.parryStun > 0) this.entity.parryStun = Math.max(0, this.entity.parryStun - dt);
+        } catch (e) {}
+
+        // Apply landing friction after a lunge
+        if (this._justLunged && this.entity.onGround) {
+            const lf = Math.max(0, Math.min(1, Number(this.landingFriction) || 0.35));
+            this.entity.vlos.x *= lf;
+            this._justLunged = false;
+        }
+
+        // If stunned from a parry, skip AI logic but keep physics
+        if (this.entity.parryStun > 0) {
+            this.entity.pos.addS(this.entity.vlos)
+            this.entity.vlos.x*=0.98
+            return;
+        }
         if (!this.target) return;
         if(this.entity.health <=0) return;
         
@@ -143,6 +172,9 @@ export default class PathfindComponent extends Component{
             attackRange:30,
             attackSpeed:new Vector(3,1),
             attackCooldownTime: 1.2,
+            parryWindow: 0.22,
+            parryStun: 0.45,
+            landingFriction: 0.35,
             speed: 20,
         }
         const opts = pickDefaults(defaults,this)

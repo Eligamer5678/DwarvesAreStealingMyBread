@@ -169,7 +169,10 @@ export default class HopperComponent extends Component {
         } catch (e) {}
         if (!sheet) return null;
 
-        const tile = tex.pos || tex.coord || null; // [row,col]
+        let tile = tex.pos || tex.coord || null; // tex.pos is [col,row] from blocks.json
+        if (Array.isArray(tile) && tile.length >= 2) {
+            tile = [tile[1], tile[0]]; // convert to [row,col] for Draw.tile
+        }
         return { sheet, tile };
     }
 

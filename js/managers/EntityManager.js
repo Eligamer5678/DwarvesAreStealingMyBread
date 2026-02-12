@@ -70,7 +70,11 @@ export default class EntityManager {
         try {
             const meta = options || {};
             if (meta.team !== undefined) newEntity.team = meta.team;
-            if (meta.health !== undefined) newEntity.health = meta.health;
+            if (meta.health !== undefined) {
+                newEntity.health = meta.health;
+                // Persist per-instance max health for UI (e.g. HealthBarComponent)
+                try { newEntity.maxHealth = Number(meta.health) || newEntity.health; } catch (e) {}
+            }
 
             // Expose raw placement metadata on the instance so components
             // (like HopperComponent) can read fields such as `items` from
@@ -398,6 +402,8 @@ export default class EntityManager {
     }
     resolveCollisions(sprite) {
         if (!sprite || !sprite.pos || !this.noiseTileSize) return;
+        // Allow non-physical effect entities (like pickup animations) to opt out.
+        if (sprite.noClip) return;
 
         const prevPos = sprite.pos.clone();
         const size = sprite.size.clone();

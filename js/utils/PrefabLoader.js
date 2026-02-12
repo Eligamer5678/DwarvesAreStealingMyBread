@@ -83,6 +83,21 @@ export default class PrefabLoader {
             if (extra.health !== undefined) ent.health = extra.health;
             if (extra.team !== undefined) ent.team = extra.team;
 
+            // Drops support: if prefab defines `extra.drops`, attach DropsComponent
+            // automatically so authors only need to add the JSON field.
+            try {
+                if (Array.isArray(extra.drops) && extra.drops.length > 0) {
+                    const mod = await import(`../components/DropsComponent.js`);
+                    const DropsComponent = mod.default;
+                    const instance = new DropsComponent(ent, sceneData, { drops: extra.drops });
+                    instance.manager = entityManager;
+                    // Attach using the module name to match other components.
+                    ent.setComponent('DropsComponent', instance);
+                }
+            } catch (e) {
+                console.warn('PrefabLoader: failed to attach DropsComponent', e);
+            }
+
             entityManager.addEntityType(key, ent);
         }
         return true;

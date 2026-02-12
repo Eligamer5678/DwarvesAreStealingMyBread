@@ -4,6 +4,7 @@ import Timer from '../modules/Timer.js';
 import Color from '../modules/Color.js';
 import Signal from '../modules/Signal.js';
 import Inventory from '../modules/Inventory.js';
+import ParticleComponent from '../components/ParticleComponent.js';
 /**
  * @typedef {Object} DwarfInputSettings
  * @property {string} [type] - Input controller type (e.g. 'platformer').
@@ -557,7 +558,71 @@ export default class Dwarf extends Sprite {
         const entityMan = this.scene.entityManager
         entityMan.getEnemiesInRange(this.pos,2,(entity)=>{
             if(entity.team==="player") return;
-            if(this.keys.pressed(" ") && this.atkCooldown < 0){
+            if(this.keys.pressed(" ")){
+                // Parry: allow even during player attack cooldown
+                try {
+                    // tighter parry range than normal attack range
+                    const ts = entityMan.noiseTileSize || 16;
+                    const parryRangeTiles = 1.1;
+                    const px = this.pos.x + this.size.x * 0.5;
+                    const py = this.pos.y + this.size.y * 0.5;
+                    const ex = (entity.pos?.x || 0) + ((entity.size && entity.size.x) ? entity.size.x * 0.5 : 0);
+                    const ey = (entity.pos?.y || 0) + ((entity.size && entity.size.y) ? entity.size.y * 0.5 : 0);
+                    const pdist = Math.hypot(px - ex, py - ey);
+                    const inParryRange = pdist <= (parryRangeTiles * ts);
+
+                    if (entity.parryWindow > 0 && !entity.parried && !entity.parryAttempted) {
+                        entity.parryAttempted = true;
+                        if (!inParryRange) return;
+                        this.attacking = true;
+                        this.atkCooldown = this.maxAtkCooldown;
+                        entity.parried = true;
+                        entity.parryWindow = 0;
+                        entity.parryStun = Math.max(entity.parryStun || 0, 0.5);
+                        try { entity.vlos.x = this.invert.x * 2.2; } catch (e) {}
+                        try { entity.vlos.y = -Math.abs(entity.vlos.y || 0) - 1; } catch (e) {}
+                        try { entity.sheet.playAnimation('hit') } catch(e){}
+                        try { entity.health -= 3; } catch (e) {}
+                        // Parry particles: square pixels matching enemy sprite color
+                        try {
+                            let pc = null;
+                            if (entity.getComponent) pc = entity.getComponent('ParticleComponent');
+                            if (!pc && entity.getOrAddComponent) {
+                                pc = entity.getOrAddComponent('ParticleComponent', new ParticleComponent(entity, { Draw: this.Draw }));
+                                if (pc) pc.manager = entityMan;
+                            }
+                            if (pc && typeof pc.burst === 'function') {
+                                pc.burst({
+                                    count: 18,
+                                    sizeMin: 2,
+                                    sizeMax: 5,
+                                    lifeMin: 0.18,
+                                    lifeMax: 2.45,
+                                    speedMin: 40,
+                                    speedMax: 50,
+                                    spread: Math.PI * 2,
+                                    gravity: 200,
+                                    velocity: new Vector(0, -10),
+                                    velocityJitter: 80,
+                                    color:"#55FF55",
+                                    colorJitter: { min: 0.7, max: 1.3 },
+                                });
+                            }
+                        } catch (e) {}
+                        // Cancel any ongoing AI attack state if present
+                        try {
+                            const ai = entity.getComponent && (entity.getComponent('AI') || entity.getComponent('PathfindComponent'));
+                            if (ai) {
+                                ai.isAttacking = false;
+                                ai.attackTimer = 0;
+                                ai.attackCooldown = ai.attackCooldownTime || ai.attackCooldown || 0;
+                            }
+                        } catch (e) {}
+                        return;
+                    }
+                } catch (e) {}
+
+                if (this.atkCooldown >= 0) return;
                 this.attacking = true;
                 this.atkCooldown = this.maxAtkCooldown;
                 try {entity.vlos.x = this.invert.x * 2} catch(e){}

@@ -492,11 +492,25 @@
         }
       },
       {"type": "key","pos": [9,12],"data": {
-          "size": [16,16],
-          "items":[["cheese_pizza (chedder)",1]]
+        "size": [16,16],
+        "keyid":"key_2",
+        "lockid":"lock_2",
+        "thisId":"lock_2",
+        "components": {
+          "hopper": {
+              "items":[["slimeball",3]]
+            }
+          }
+      }},
+      {"type": "slime","pos": [8,11],"data": {
+          "size": [32,32],
+          "health":10
       }},
       {"type": "lock","pos": [1,14],"data": {
-          "size": [16,16]
+          "size": [16,16],
+          "keyid":"lock_2",
+          "lockid":"lock_2",
+          "thisId":"lock_2"
       }}
     ]
   }
