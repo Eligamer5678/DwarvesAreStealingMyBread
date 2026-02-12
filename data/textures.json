@@ -84,6 +84,14 @@
                 "hit":{"row":2,"frameCount":10,"fps":32,"buffer":0,"onStop":"swapTo","swapName":"fly"}
             }
         },
+        "box":{
+            "path":"Assets/Sprites/box.png",
+            "slicePx":16,
+            "animations":{
+                "idle":{"row":0,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""},
+                "hit":{"row":0,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""}
+            }
+        },
         "torch":{
             "path":"Assets/Sprites/torch.png",
             "slicePx":16,

@@ -21,7 +21,7 @@ export default class PathfindComponent extends Component{
         }
         const defaults = {
             type:'simple',
-            detection:250,
+            detection:160,
             gravity:5,
             jumpSpeed:2,
             attackWindup:0.6,

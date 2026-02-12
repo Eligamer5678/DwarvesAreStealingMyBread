@@ -1,0 +1,328 @@
+{
+  "dependencies": [],
+  "data": {
+    "bg": "air",
+    "regions": [
+      {
+        "region": [
+          [
+            0,
+            0
+          ],
+          [
+            15,
+            15
+          ]
+        ],
+        "block_type": "air"
+      },
+      {
+        "region": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            0
+          ]
+        ],
+        "block_type": "stone"
+      },
+      {
+        "region": [
+          [
+            0,
+            5
+          ],
+          [
+            5,
+            13
+          ]
+        ]
+      },
+      {
+        "region": [
+          [
+            6,
+            5
+          ],
+          [
+            10,
+            12
+          ]
+        ]
+      },
+      {
+        "region": [
+          [
+            11,
+            5
+          ],
+          [
+            11,
+            11
+          ]
+        ]
+      },
+      {
+        "region": [
+          [
+            12,
+            5
+          ],
+          [
+            13,
+            6
+          ]
+        ]
+      },
+      {
+        "region": [
+          [
+            14,
+            5
+          ],
+          [
+            15,
+            5
+          ]
+        ]
+      },
+      {
+        "region": [
+          [
+            15,
+            6
+          ]
+        ]
+      },
+      {
+        "region": [
+          [
+            12,
+            8
+          ],
+          [
+            12,
+            11
+          ]
+        ]
+      },
+      {
+        "region": [
+          [
+            13,
+            9
+          ],
+          [
+            13,
+            15
+          ]
+        ]
+      },
+      {
+        "region": [
+          [
+            14,
+            10
+          ],
+          [
+            15,
+            15
+          ]
+        ]
+      },
+      {
+        "region": [
+          [
+            7,
+            13
+          ],
+          [
+            12,
+            15
+          ]
+        ]
+      },
+      {
+        "region": [
+          [
+            1,
+            14
+          ],
+          [
+            5,
+            15
+          ]
+        ]
+      },
+      {
+        "region": [
+          [
+            0,
+            15
+          ]
+        ]
+      },
+      {
+        "region": [
+          [
+            6,
+            15
+          ]
+        ]
+      },
+      {
+        "region": [
+          [
+            2,
+            0
+          ],
+          [
+            15,
+            0
+          ]
+        ],
+        "block_type": "polished_cobblestone",
+        "special": {
+          "rot": 90,
+          "invert": false
+        }
+      },
+      {
+        "region": [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            1
+          ]
+        ]
+      },
+      {
+        "region": [
+          [
+            0,
+            4
+          ],
+          [
+            15,
+            4
+          ]
+        ]
+      },
+      {
+        "region": [
+          [
+            6,
+            1
+          ],
+          [
+            6,
+            3
+          ]
+        ],
+        "block_type": "locked",
+        "special": {
+          "rot": 0,
+          "invert": false
+        }
+      },
+      {
+        "region": [
+          [
+            11,
+            12
+          ]
+        ],
+        "block_type": "rotirock"
+      },
+      {
+        "region": [
+          [
+            6,
+            14
+          ]
+        ]
+      },
+      {
+        "region": [
+          [
+            12,
+            12
+          ]
+        ],
+        "block_type": "pumpernickel"
+      },
+      {
+        "region": [
+          [
+            6,
+            13
+          ]
+        ],
+        "block_type": "briocheoid"
+      }
+    ],
+    "entities": [
+      {
+        "type": "torch",
+        "pos": [
+          0,
+          3
+        ],
+        "data": {
+          "size": [
+            16,
+            16
+          ],
+          "level": 15
+        }
+      },
+      {
+        "type": "torch",
+        "pos": [
+          15,
+          3
+        ],
+        "data": {
+          "size": [
+            16,
+            16
+          ],
+          "level": 15
+        }
+      },
+      {
+        "type": "torch",
+        "pos": [
+          13,
+          3
+        ],
+        "data": {
+          "size": [
+            16,
+            16
+          ],
+          "level": 15
+        }
+      },
+      {"pos":[14,3],"type":"scroll","data":{
+          "team":"none",
+          "size":[16,16],
+          "components":{
+              "scroll":{
+                  "title":"Combat #1: Basic attack",
+                  "icon":"lore",
+                  "lore":"Hit space to attack. Try hitting this box to practice. ",
+                  "recipe":null,
+                  "svg":""
+              }
+          }
+      }}
+    ]
+  }
+}
