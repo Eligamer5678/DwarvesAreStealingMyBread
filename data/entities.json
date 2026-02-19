@@ -174,5 +174,34 @@
         "extra":{
             "health":999999999
         }
+    },
+    "box":{
+        "components":{
+            "SheetComponent":{
+                "sheet":"box",
+                "name":"sheet",
+                "opts":{}
+            },
+            "HealthBarComponent":{
+                "name":"health",
+                "opts":{
+                    "height":2,
+                    "offset":{"x":0,"y":2},
+                    "hideWhenFull":false
+                }
+            },
+            "RectColliderComponent":{
+                "name":"phys",
+                "opts":{
+                    "gravity":5,
+                    "friction":0.9,
+                    "maxFallSpeed":30
+                }
+            }
+        },
+        "extra":{
+            "health":10,
+            "drops":[["rotirock-item",1]]
+        }
     }
 }

@@ -322,6 +322,28 @@
                   "svg":""
               }
           }
+      }},
+      {"pos":[12,3],"type":"box","data":{
+          "size":[16,16],
+          "health":10,
+          "drops":[["stick"]]
+      }},
+      {"type": "lock","pos": [7,3],"data": {
+          "size": [16,16],
+          "keyid":"lock_3",
+          "lockid":"lock_3",
+          "thisId":"lock_3"
+      }},
+      {"type": "key","pos": [9,2],"data": {
+        "size": [16,16],
+        "keyid":"key_3",
+        "lockid":"lock_3",
+        "thisId":"lock_3",
+        "components": {
+          "hopper": {
+              "items":[["stick",1]]
+            }
+          }
       }}
     ]
   }

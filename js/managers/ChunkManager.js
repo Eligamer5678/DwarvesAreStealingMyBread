@@ -60,15 +60,9 @@ export default class ChunkManager {
         // Autosave timer handle
         this._autosaveInterval = null;
         // Start autosave every minute if a Saver instance was provided
-        try {
-            if (this.saver && typeof this.saver === 'object') {
-                this._autosaveInterval = setInterval(() => {
-                    try { this.save(); } catch (e) { console.warn('ChunkManager autosave failed', e); }
-                },30000);
-            }
-        } catch (e) {
-            // ignore
-        }
+        this._autosaveInterval = setInterval(() => {
+            this.save();
+        },30000);
     }
 
     /**
@@ -110,11 +104,7 @@ export default class ChunkManager {
         // or individual chunk entries with a `file` property. The files are
         // loaded here (once) and their specs cached on the chunk entries so
         // _generateChunkJSON can use them synchronously.
-        try {
-            await this._expandGenerationStructureFiles(basePath);
-        } catch (e) {
-            console.warn('ChunkManager.loadDefinitions: failed to expand structure files', e);
-        }
+        await this._expandGenerationStructureFiles(basePath);
 
         return { chunks: this.chunkSpecs, generation: this.generationSpec, blocks: this.blockDefs };
     }
@@ -665,6 +655,73 @@ export default class ChunkManager {
             const layerKeys = Object.keys(dataObj);
             const defaultLayer = (dataObj.base) ? 'base' : layerKeys[0];
             const retData = (layerKeys.length === 1) ? dataObj[defaultLayer] : dataObj;
+            // If this stored chunk has not yet had its entities spawned,
+            // generate entity declarations and spawn them now so gameplay
+            // entities are present even for pre-cached chunks.
+            try {
+                let needSpawn = false;
+                for (const ln of Object.keys(dataObj)) {
+                    const entry = this.chunks[ln] && this.chunks[ln][key] ? this.chunks[ln][key] : null;
+                    if (entry && entry.data && !entry.data.spawnedEntities) { needSpawn = true; break; }
+                }
+                if (needSpawn) {
+                    const gen = this._generateChunkJSON(cx, cy);
+                    const entitiesToSpawn = gen && Array.isArray(gen.entities) ? gen.entities : null;
+                    if (entitiesToSpawn && Array.isArray(entitiesToSpawn) && this.entityManager && typeof this.entityManager.addEntity === 'function') {
+                        for (let entity of entitiesToSpawn) {
+                            if (!entity) continue;
+                            try {
+                                // honor lock usage and chance gates similar to fresh generation
+                                try {
+                                    if ((entity.type === 'lock' || entity.type === 'key') && this.saver && typeof this.saver.isLockUsed === 'function') {
+                                        const meta = (entity && entity.data && typeof entity.data === 'object') ? entity.data : {};
+                                        const compMeta = (meta.components && typeof meta.components === 'object') ? (meta.components.LockComponent || meta.components.lock || null) : null;
+                                        const explicitLockKey = compMeta && typeof compMeta === 'object' ? (compMeta.lockId || compMeta.thisId || compMeta.keyId || null) : null;
+                                        let prefabLockKey = null;
+                                        try {
+                                            const preset = this.entityManager && this.entityManager.entityTypes ? this.entityManager.entityTypes.get(entity.type) : null;
+                                            const lc = preset && typeof preset.getComponent === 'function' ? (preset.getComponent('LockComponent') || preset.getComponent('lock')) : null;
+                                            if (lc) prefabLockKey = lc.lockId || lc.thisId || lc.keyId || null;
+                                        } catch (e) {}
+                                        const lockKey = explicitLockKey || prefabLockKey;
+                                        if (lockKey && this.saver.isLockUsed(lockKey)) continue;
+                                    }
+                                } catch (e) { /* ignore lock-skip errors */ }
+
+                                try {
+                                    const ch = entity.data && typeof entity.data.chance === 'number' ? entity.data.chance : null;
+                                    if (ch !== null && Number.isFinite(ch) && ch >= 0 && ch < 1) {
+                                        if (Math.random() > ch) continue;
+                                    }
+                                } catch (e) {}
+
+                                let wx, wy;
+                                if (entity.pos === 'random'){
+                                    wx = (cx * this.chunkSize + 5) * this.noiseTileSize;
+                                    wy = (cy * this.chunkSize + 5) * this.noiseTileSize;
+                                } else {
+                                    wx = (cx * this.chunkSize + Number(entity.pos[0] || 0)) * this.noiseTileSize;
+                                    wy = (cy * this.chunkSize + Number(entity.pos[1] || 0)) * this.noiseTileSize;
+                                }
+                                const sz = (entity.data && Array.isArray(entity.data.size)) ? new Vector(entity.data.size[0], entity.data.size[1]) : new Vector(this.noiseTileSize, this.noiseTileSize);
+                                const meta = (entity && entity.data && typeof entity.data === 'object') ? entity.data : {};
+                                const spawned = this.entityManager.addEntity(entity.type, new Vector(wx, wy), sz, meta);
+                                try {
+                                    if (spawned && spawned.type === 'slime') {
+                                        console.log('[Spawn] slime from cached chunk', cx, cy, 'at world', wx, wy, 'meta:', meta);
+                                    }
+                                } catch (e) { /* ignore logging errors */ }
+                            } catch(e) { /* ignore per-entity spawn errors */ }
+                        }
+                    }
+
+                    // Mark stored chunk entries as having spawned their entities
+                    for (const ln of Object.keys(dataObj)) {
+                        try { if (this.chunks[ln] && this.chunks[ln][key] && this.chunks[ln][key].data) this.chunks[ln][key].data.spawnedEntities = true; } catch (e) {}
+                    }
+                }
+            } catch (e) { /* ignore spawn-from-cache errors */ }
+
             return { x: cx, y: cy, width: foundWidth || this.chunkSize, height: foundHeight || this.chunkSize, data: retData, layer: defaultLayer };
         }
 
@@ -682,6 +739,74 @@ export default class ChunkManager {
             if (!this.chunks[layer]) this.chunks[layer] = {};
             this.chunks[layer][key] = { tiles: chunk.data, data: { modified: false, x: cx, y: cy, width: chunk.width, height: chunk.height, layer: layer } };
         }
+        // After tiles are stored, spawn any entities that were declared in the
+        // chunk spec. This ensures entity collision checks can see the tiles.
+        try {
+            const entitiesToSpawn = chunk.entities || null;
+            if (entitiesToSpawn && Array.isArray(entitiesToSpawn)) {
+                for (let entity of entitiesToSpawn) {
+                    if (!entity) continue;
+                    try {
+                        // One-time locks: if this lock/key has already been used,
+                        // do not respawn it from chunk specs/saved overrides.
+                        try {
+                            if ((entity.type === 'lock' || entity.type === 'key') && this.saver && typeof this.saver.isLockUsed === 'function') {
+                                const meta = (entity && entity.data && typeof entity.data === 'object') ? entity.data : {};
+                                const compMeta = (meta.components && typeof meta.components === 'object') ? (meta.components.LockComponent || meta.components.lock || null) : null;
+                                const explicitLockKey = compMeta && typeof compMeta === 'object' ? (compMeta.lockId || compMeta.thisId || compMeta.keyId || null) : null;
+                                let prefabLockKey = null;
+                                try {
+                                    const preset = this.entityManager && this.entityManager.entityTypes ? this.entityManager.entityTypes.get(entity.type) : null;
+                                    const lc = preset && typeof preset.getComponent === 'function' ? (preset.getComponent('LockComponent') || preset.getComponent('lock')) : null;
+                                    if (lc) prefabLockKey = lc.lockId || lc.thisId || lc.keyId || null;
+                                } catch (e) {}
+                                const lockKey = explicitLockKey || prefabLockKey;
+                                if (lockKey && this.saver.isLockUsed(lockKey)) continue;
+                            }
+                        } catch (e) { /* ignore lock-skip errors */ }
+
+                        // Optional chance gate (used in chunks.json)
+                        try {
+                            const ch = entity.data && typeof entity.data.chance === 'number' ? entity.data.chance : null;
+                            if (ch !== null && Number.isFinite(ch) && ch >= 0 && ch < 1) {
+                                if (Math.random() > ch) continue;
+                            }
+                        } catch (e) {}
+
+                        let wx, wy;
+                        if (entity.pos === 'random'){
+                            wx = (cx * this.chunkSize + 5) * this.noiseTileSize;
+                            wy = (cy * this.chunkSize + 5) * this.noiseTileSize;
+                        } else {
+                            wx = (cx * this.chunkSize + Number(entity.pos[0] || 0)) * this.noiseTileSize;
+                            wy = (cy * this.chunkSize + Number(entity.pos[1] || 0)) * this.noiseTileSize;
+                        }
+                        const sz = (entity.data && Array.isArray(entity.data.size)) ? new Vector(entity.data.size[0], entity.data.size[1]) : new Vector(this.noiseTileSize, this.noiseTileSize);
+                        if (this.entityManager && typeof this.entityManager.addEntity === 'function') {
+                            const meta = (entity && entity.data && typeof entity.data === 'object') ? entity.data : {};
+                            const spawned = this.entityManager.addEntity(entity.type, new Vector(wx, wy), sz, meta);
+                            try {
+                                if (spawned && spawned.type === 'slime') {
+                                    console.log('[Spawn] slime from chunk', cx, cy, 'at world', wx, wy, 'meta:', meta);
+                                }
+                            } catch (e) { /* ignore logging errors */ }
+                        }
+                    } catch(e) { /* ignore per-entity spawn errors */ }
+                }
+            }
+        } catch (e) { /* ignore spawn errors */ }
+
+        // Mark freshly-created chunk entries as having spawned their entities
+        try {
+            if (chunk && chunk.data && typeof chunk.data === 'object' && !Array.isArray(chunk.data)) {
+                for (const ln of Object.keys(chunk.data)) {
+                    if (this.chunks[ln] && this.chunks[ln][key] && this.chunks[ln][key].data) this.chunks[ln][key].data.spawnedEntities = true;
+                }
+            } else {
+                if (this.chunks[layer] && this.chunks[layer][key] && this.chunks[layer][key].data) this.chunks[layer][key].data.spawnedEntities = true;
+            }
+        } catch (e) { /* ignore flagging errors */ }
+
         this.onChunkGenerated.emit(cx, cy, chunk);
         return chunk;
     }
@@ -1081,9 +1206,11 @@ export default class ChunkManager {
             prevLayer = layerVal;
         }
         // Spawn entities defined by the generation spec or by a saved chunk override.
+        // NOTE: we collect the merged entity list here but do NOT spawn them yet.
+        // Spawning will occur after the chunk tiles are written into `this.chunks`
+        // to ensure collision queries find the correct tiles.
+        let entityList = null;
         try {
-            // Merge saved entities with spec entities. Saved entries replace
-            // same-type + same-pos spec entries; otherwise they are appended.
             const specEntities = (spec && spec.data && Array.isArray(spec.data.entities)) ? spec.data.entities.slice() : [];
             const savedEntities = (saved && Array.isArray(saved.entities)) ? saved.entities : [];
 
@@ -1095,7 +1222,6 @@ export default class ChunkManager {
                     const me = merged[i];
                     if (!me || !me.type || !se.type) continue;
                     if (me.type !== se.type) continue;
-                    // compare positions: either both 'random' or both arrays with equal coords
                     if (me.pos === 'random' && se.pos === 'random') { merged[i] = se; replaced = true; break; }
                     if (Array.isArray(me.pos) && Array.isArray(se.pos) && me.pos.length === 2 && se.pos.length === 2) {
                         const mx = Number(me.pos[0]); const my = Number(me.pos[1]);
@@ -1106,61 +1232,8 @@ export default class ChunkManager {
                 if (!replaced) merged.push(se);
             }
 
-            const entityList = (merged.length > 0) ? merged : null;
-            if (entityList && Array.isArray(entityList)){
-                for (let entity of entityList){
-                    if(!entity) continue;
-                    try {
-                        // One-time locks: if this lock/key has already been used,
-                        // do not respawn it from chunk specs/saved overrides.
-                        try {
-                            if ((entity.type === 'lock' || entity.type === 'key') && this.saver && typeof this.saver.isLockUsed === 'function') {
-                                const meta = (entity && entity.data && typeof entity.data === 'object') ? entity.data : {};
-                                const compMeta = (meta.components && typeof meta.components === 'object') ? (meta.components.LockComponent || meta.components.lock || null) : null;
-
-                                // Prefer explicit per-entity metadata (for multiple locks).
-                                const explicitLockKey = compMeta && typeof compMeta === 'object'
-                                    ? (compMeta.lockId || compMeta.thisId || compMeta.keyId || null)
-                                    : null;
-
-                                // Otherwise, read the prefab defaults from entityTypes.
-                                let prefabLockKey = null;
-                                try {
-                                    const preset = this.entityManager && this.entityManager.entityTypes ? this.entityManager.entityTypes.get(entity.type) : null;
-                                    const lc = preset && typeof preset.getComponent === 'function' ? (preset.getComponent('LockComponent') || preset.getComponent('lock')) : null;
-                                    if (lc) prefabLockKey = lc.lockId || lc.thisId || lc.keyId || null;
-                                } catch (e) {}
-
-                                const lockKey = explicitLockKey || prefabLockKey;
-                                if (lockKey && this.saver.isLockUsed(lockKey)) continue;
-                            }
-                        } catch (e) { /* ignore lock-skip errors */ }
-
-                        // Optional chance gate (used in chunks.json)
-                        try {
-                            const ch = entity.data && typeof entity.data.chance === 'number' ? entity.data.chance : null;
-                            if (ch !== null && Number.isFinite(ch) && ch >= 0 && ch < 1) {
-                                if (Math.random() > ch) continue;
-                            }
-                        } catch (e) {}
-
-                        let wx, wy;
-                        if (entity.pos === 'random'){
-                            wx = (cx * this.chunkSize + 5) * this.noiseTileSize;
-                            wy = (cy * this.chunkSize + 5) * this.noiseTileSize;
-                        } else {
-                            wx = (cx * this.chunkSize + Number(entity.pos[0] || 0)) * this.noiseTileSize;
-                            wy = (cy * this.chunkSize + Number(entity.pos[1] || 0)) * this.noiseTileSize;
-                        }
-                        const sz = (entity.data && Array.isArray(entity.data.size)) ? new Vector(entity.data.size[0], entity.data.size[1]) : new Vector(this.noiseTileSize, this.noiseTileSize);
-                        if (this.entityManager && typeof this.entityManager.addEntity === 'function') {
-                            const meta = (entity && entity.data && typeof entity.data === 'object') ? entity.data : {};
-                            this.entityManager.addEntity(entity.type, new Vector(wx, wy), sz, meta);
-                        }
-                    } catch(e) { /* ignore per-entity spawn errors */ }
-                }
-            }
-        } catch(e) { /* ignore entity spawn errors */ }
+            entityList = (merged.length > 0) ? merged : null;
+        } catch (e) { entityList = null; }
         // After filling regions, apply cave carving as a post-process for ground chunks
         try {
             for (const s of selected.special) {
@@ -1299,6 +1372,9 @@ export default class ChunkManager {
             }
         } catch (e) { /* ignore */ }
         const outChunk = { x: cx, y: cy, width: chunkSize, height: chunkSize, data: layers };
+        // Attach any collected entity declarations so callers can spawn them
+        // after tiles are written into this.chunks. `entityList` may be null.
+        outChunk.entities = entityList;
         outChunk.layer = layerForChunk;
         return outChunk;
     }
@@ -1407,7 +1483,7 @@ export default class ChunkManager {
                         try {
                             draw.setBrightness(it.brightness);
                             draw.tile(tsKey, it.pos, tileSize, it.bid, it.rotSteps, it.invertVec, 1, false);
-                            if(layerName === "back") draw.rect(it.pos,new Vector(tileSize,tileSize),"#00000088")
+                            if(layerName === "back" && it.bid!=="glass") draw.rect(it.pos,new Vector(tileSize,tileSize),"#00000033")
                         } catch (e) {
                             draw.rect(it.pos, new Vector(tileSize, tileSize), '#ff00ff88', false);
                         }

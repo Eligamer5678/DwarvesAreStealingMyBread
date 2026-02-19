@@ -85,7 +85,12 @@ export class MainScene extends Scene {
             }
             // entity manager
             // Create a camera for world rendering
-            this.entityManager = new EntityManager(this.chunkManager, this.Draw, this.SpriteImages, { noiseTileSize: this.chunkManager.noiseTileSize });
+            // Keep entities active within a radius of ~5 chunks around the player
+            const chunkTileSize = this.chunkManager.chunkSize || 16;
+            this.entityManager = new EntityManager(this.chunkManager, this.Draw, this.SpriteImages, {
+                noiseTileSize: this.chunkManager.noiseTileSize,
+                activeRadius: 6.25
+            });
             this.camera = new Camera(this.Draw, this.mouse);
             this.createPlayer()
 

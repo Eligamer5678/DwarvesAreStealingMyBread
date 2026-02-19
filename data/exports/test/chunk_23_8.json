@@ -546,8 +546,7 @@
           ]
         ],
         "block_type": "salt"
-      },
-      {"region": [[0,1],[0,3]],"block_type": "locked"}
+      }
     ],
     "entities": [
       {
@@ -573,13 +572,7 @@
           "size": [16,16],
           "level": 15
         }
-      },
-      {"type": "key","pos": [6,0],"data": {
-          "size": [16,16]
-      }},
-      {"type": "lock","pos": [1,2],"data": {
-          "size": [16,16]
-      }}
+      }
     ]
   }
 }

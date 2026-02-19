@@ -89,7 +89,8 @@
             "slicePx":16,
             "animations":{
                 "idle":{"row":0,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""},
-                "hit":{"row":0,"frameCount":1,"fps":0,"buffer":0,"onStop":"loop","swapName":""}
+                "hit":{"row":1,"frameCount":11,"fps":16,"buffer":0,"onStop":"loop","swapName":""},
+                "defeat":{"row":2,"frameCount":8,"fps":8,"buffer":0,"onStop":"loop","swapName":""}
             }
         },
         "torch":{

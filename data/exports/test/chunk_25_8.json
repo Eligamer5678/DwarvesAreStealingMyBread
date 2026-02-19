@@ -502,7 +502,7 @@
             }
           }
       }},
-      {"type": "slime","pos": [8,11],"data": {
+      {"type": "slime","pos": [8,10],"data": {
           "size": [32,32],
           "health":10
       }},

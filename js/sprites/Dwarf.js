@@ -557,6 +557,8 @@ export default class Dwarf extends Sprite {
         */
         const entityMan = this.scene.entityManager
         entityMan.getEnemiesInRange(this.pos,2,(entity)=>{
+            // Ignore decorative/utility entities so they don't consume hits
+            if (entity.type === 'torch' || entity.type === 'scroll') return;
             if(entity.team==="player") return;
             if(this.keys.pressed(" ")){
                 // Parry: allow even during player attack cooldown

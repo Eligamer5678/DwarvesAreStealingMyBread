@@ -17,7 +17,7 @@ export default class EntityManager {
         this.chunkManager = chunkManager;
         this.draw = draw;
         this.noiseTileSize = options.noiseTileSize || 8;
-        this.activeRadius = options.activeRadius || 100; // tiles
+        this.activeRadius = options.activeRadius || 6.25; // tiles
         
         this.entities = [];
         this.spriteImages = spriteImages
@@ -51,6 +51,8 @@ export default class EntityManager {
         if (!preset) return null;
         
         const newEntity = preset.clone();
+        // Tag runtime instances with their prefab type for gameplay logic
+        try { newEntity.type = name; } catch (e) {}
         newEntity.pos = pos.clone();
         newEntity.size = size.clone();
         

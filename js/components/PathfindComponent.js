@@ -21,7 +21,7 @@ export default class PathfindComponent extends Component{
         }
         const defaults = {
             type:'simple',
-            detection:160,
+            detection:100,
             gravity:5,
             jumpSpeed:2,
             attackWindup:0.6,
@@ -124,6 +124,7 @@ export default class PathfindComponent extends Component{
             this.entity.vlos.x*=0.98
             return;
         }
+        //console.log(this.pos.x)
         if (!this.target) return;
         if(this.entity.health <=0) return;
         
