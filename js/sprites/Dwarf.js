@@ -145,6 +145,11 @@ export default class Dwarf extends Sprite {
         this.sheet.onSwap.connect((name,name2)=>{
             this.attacking=false;
         })
+
+        // Swimming-facing state
+        this.swimAngle = 0; // radians
+        this.swimActive = false;
+        this.swimLerp = 10; // how quickly to rotate toward input
     }
 
     // --- Mining / Building helpers (high-level, Dwarf-centric logic) ---
@@ -191,6 +196,7 @@ export default class Dwarf extends Sprite {
         
         this.buildKeys()
         this.ladder(delta)
+        this.updateSwimOrientation(delta)
         
         this.updateAnimation()
         
@@ -199,9 +205,22 @@ export default class Dwarf extends Sprite {
     }
 
     draw(levelOffset){
-        // draw the dwarf itself
-        super.draw(levelOffset);
+        const offset = levelOffset || new Vector(0,0);
+        let appliedSwim = false;
+        
+        if (this.onLadder === 'water' && this.swimActive) {
+            const center = this.pos.add(offset).add(this.size.mult(0.5));
+            // Rotate around sprite center while swimming; +90deg so head points along travel
+            this.Draw.rotate({ angle: this.swimAngle + Math.PI * 0.5, origin: center });
+            appliedSwim = true;
+        }
 
+        // draw the dwarf itself
+        super.draw(offset);
+        if (this.onLadder === 'water' && this.swimActive && this.Draw) {
+            // Pop only the matching rotate to avoid clearing earlier transforms (e.g., camera)
+            try { this.Draw.popMatrix(true,true); } catch (e) { /* ignore pop errors */ }
+        }
         // draw the mining target highlight (if any)
         try {
             if (this.miningTarget && this.Draw) {
@@ -341,6 +360,25 @@ export default class Dwarf extends Sprite {
             } catch (e) {}
         }
     }
+    // Update facing rotation while swimming in water
+    updateSwimOrientation(delta = 0) {
+        const inWater = this.onLadder === 'water';
+        const dir = (this.envInputDir && typeof this.envInputDir.mag === 'function') ? this.envInputDir : new Vector(0,0);
+        const mag = dir.mag();
+
+        if (inWater && mag > 0.05) {
+            const target = Math.atan2(dir.y, dir.x || 0.0001);
+            // shortest-angle interpolation
+            let diff = target - this.swimAngle;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            const t = Math.min(1, Math.max(0, (this.swimLerp || 10) * delta));
+            this.swimAngle += diff * t;
+            this.swimActive = true;
+        } else {
+            this.swimActive = false;
+        }
+    }
 
     /**
      * Apply the current `selectedSlot` into `this.selected` by copying
@@ -351,6 +389,8 @@ export default class Dwarf extends Sprite {
             // Resolve the quickslot key from the canonical inventory slots if available,
             // otherwise fall back to any legacy `this.slots` layout.
             let key = null;
+
+    
             if (this.inventory && this.inventory.slots && Array.isArray(this.inventory.slots.hotbar)) {
                 key = this.inventory.slots.hotbar[this.selectedSlot];
             } else if (this.slots && Array.isArray(this.slots)) {

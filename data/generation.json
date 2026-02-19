@@ -6,7 +6,8 @@
             {"name":"desert2","chance":1 }
         ],
         "conditions":[
-            {"type":"y","data":{"meta":["equal",-16]}}
+            {"type":"y","data":{"meta":["equal",-16]}},
+            {"type":"x","data":{"meta":["above",-368]}}
         ],
         "special":[ ]
     },
@@ -17,6 +18,74 @@
         ],
         "conditions":[
             {"type":"y","data":{"meta":["equal",0]}}
+        ],
+        "special":[]
+    },
+    "wheat":{
+        "type":"terrain",
+        "chunk_types":[
+            {"name":"wheat1","chance":1}
+        ],
+        "conditions":[
+            {"type":"y","data":{"meta":["equal",-16]}},
+            {"type":"x","data":{"meta":["below",-200]}},
+            {"type":"x","data":{"meta":["above",-368]}}
+        ],
+        "special":[]
+    },
+    "ocean-surface-edge":{
+        "type":"terrain",
+        "chunk_types":[
+            {"name":"ocean-surface","chance":1}
+        ],
+        "conditions":[
+            {"type":"y","data":{"meta":["equal",0]}},
+            {"type":"x","data":{"meta":["equal",-368]}}
+        ],
+        "special":[]
+    },
+    "ocean-surface":{
+        "type":"terrain",
+        "chunk_types":[
+            {"name":"ocean-surface","chance":1}
+        ],
+        "conditions":[
+            {"type":"y","data":{"meta":["equal",0]}},
+            {"type":"x","data":{"meta":["below",-368]}}
+        ],
+        "special":[]
+    },
+    "wheat-ground":{
+        "type":"terrain",
+        "chunk_types":[
+            {"name":"wheat-ground","chance":1}
+        ],
+        "conditions":[
+            {"type":"y","data":{"meta":["equal",0]}},
+            {"type":"x","data":{"meta":["below",-200]}},
+            {"type":"x","data":{"meta":["above",-368]}}
+        ],
+        "special":[]
+    },
+    "ocean-ground-edge":{
+        "type":"terrain",
+        "chunk_types":[
+            {"name":"ocean-ground","chance":1}
+        ],
+        "conditions":[
+            {"type":"y","data":{"meta":["equal",96]}},
+            {"type":"x","data":{"meta":["equal",-368]}}
+        ],
+        "special":[]
+    },
+    "ocean-ground":{
+        "type":"terrain",
+        "chunk_types":[
+            {"name":"ocean-ground","chance":1}
+        ],
+        "conditions":[
+            {"type":"y","data":{"meta":["equal",96]}},
+            {"type":"x","data":{"meta":["below",-368]}}
         ],
         "special":[]
     },
@@ -45,6 +114,56 @@
                 "seedOffset":0
             }}
         ]
+    },
+    "wheat-ground2":{
+        "type":"terrain",
+        "chunk_types":[
+            {"name":"wheat-ground2","chance":1}
+        ],
+        "conditions":[
+            {"type":"y","data":{"meta":["equal",16]}},
+            {"type":"x","data":{"meta":["below",-200]}},
+            {"type":"x","data":{"meta":["above",-368]}}
+        ],
+        "special":[
+            {"type":"caves","data":{
+                "width":64,
+                "height":64,
+                "scale":24,
+                "octaves":4,
+                "seed":1337,
+                "normalize":false,
+                "split":0.2,
+                "offsetX":0,
+                "offsetY":0,
+                "bridgeWidth":2,
+                "connect":true,
+                "threshold":0.5,
+                "seedOffset":0
+            }}
+        ]
+    },
+    "ocean-deep-edge":{
+        "type":"terrain",
+        "chunk_types":[
+            {"name":"ocean-deep","chance":1}
+        ],
+        "conditions":[
+            {"type":"y","data":{"meta":["equal",112]}},
+            {"type":"x","data":{"meta":["equal",-368]}}
+        ],
+        "special":[]
+    },
+    "ocean-deep":{
+        "type":"terrain",
+        "chunk_types":[
+            {"name":"ocean-deep","chance":1}
+        ],
+        "conditions":[
+            {"type":"y","data":{"meta":["equal",112]}},
+            {"type":"x","data":{"meta":["below",-368]}}
+        ],
+        "special":[]
     },
     "ground":{
         "type":"terrain",
@@ -158,7 +277,4 @@
         "chunkFiles": "exports/test",
         "startPos":[15,5]
     }
-    
-    
-    
 }

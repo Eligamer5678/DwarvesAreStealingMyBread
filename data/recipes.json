@@ -175,7 +175,9 @@
         {"output":"salt_powder","input":["salt"],"power":5, "amount": 1},
         {"output":"stick","input":["pretzelstick"],"power":3, "amount": 1},
         {"output":"stick","input":["deadbush"],"power":0.5, "amount": 2},
-        {"output":"charcoal","input":["coal"],"power":1, "amount": 1}
+        {"output":"charcoal","input":["coal"],"power":1, "amount": 1},
+        {"output":"wheat","input":["wheat_crop"],"power":1, "amount": 1},
+        {"output":"flour","input":["wheat"],"power":1, "amount": 1}
     ],
     "smelting":[
         {"output":"red_sandstone","input":["red_sand"],"fuel":["charcoal"],"power":1,"amount":1,"auto":true},

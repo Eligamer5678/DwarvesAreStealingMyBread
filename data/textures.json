@@ -6,6 +6,12 @@
             "slicePx":16,
             "layer":"base"
         },
+        "dirt":{
+            "path":"Assets/Tilemaps/dirt.png",
+            "size":[3,1],
+            "slicePx":16,
+            "layer":"base"
+        },
         "desert":{
             "path":"Assets/Tilemaps/desert.png",
             "size":[3,3],
